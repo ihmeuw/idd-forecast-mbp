@@ -1,9 +1,5 @@
 # idd-forecast-mbp
 
-[![PyPI](https://img.shields.io/pypi/v/idd-forecast-mbp?style=flat-square)](https://pypi.python.org/pypi/idd-forecast-mbp/)
-[![PyPI - Python Version](https://img.shields.io/pypi/pyversions/idd-forecast-mbp?style=flat-square)](https://pypi.python.org/pypi/idd-forecast-mbp/)
-[![PyPI - License](https://img.shields.io/pypi/l/idd-forecast-mbp?style=flat-square)](https://pypi.python.org/pypi/idd-forecast-mbp/)
-
 ---
 
 **Documentation**: [https://bcreiner.github.io/idd-forecast-mbp](https://bcreiner.github.io/idd-forecast-mbp)
