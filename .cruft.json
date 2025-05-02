@@ -1,0 +1,19 @@
+{
+  "template": "https://github.com/collijk/python-package-cookiecutter",
+  "commit": "d86abba2604d3fb06b718d45a83170b6315debde",
+  "checkout": null,
+  "context": {
+    "cookiecutter": {
+      "author_name": "Bobby Reiner",
+      "author_email": "bcreiner@uw.edu",
+      "github_username": "bcreiner",
+      "project_name": "idd-forecast-mbp",
+      "project_slug": "idd-forecast-mbp",
+      "package_name": "idd_forecast_mbp",
+      "project_short_description": "Word",
+      "_template": "https://github.com/collijk/python-package-cookiecutter",
+      "_commit": "d86abba2604d3fb06b718d45a83170b6315debde"
+    }
+  },
+  "directory": null
+}

@@ -1,0 +1,128 @@
+[project]
+name = "idd-forecast-mbp"
+version = "0.0.1"
+description = "Word"
+license = "BSD-3-Clause"
+readme = "README.md"
+authors = [
+    {name = "Bobby Reiner", email = "bcreiner@uw.edu"},
+]
+requires-python = ">=3.12"
+dependencies = [
+    "click",
+]
+
+[project.urls]
+homepage = "https://bcreiner.github.io/idd-forecast-mbp"
+repository = "https://github.com/bcreiner/idd-forecast-mbp"
+documentation = "https://bcreiner.github.io/idd-forecast-mbp"
+
+[project.scripts]
+my-cli = "idd_forecast_mbp.cli:main"
+
+[tool.poetry]
+packages = [
+    { include = "idd_forecast_mbp", from = "src" }
+]
+requires-poetry = ">=2.0"
+
+[tool.poetry.dependencies]
+python = ">=3.12, <4.0"
+
+# We keep the dev dependencies here instead of in the project optional dependencies
+# so they're still installed by default with `poetry install`.
+# They won't be installed or shipped with the package. 
+[tool.poetry.group.dev.dependencies]
+# Things we want to put a lower bound on
+mypy = "^1.15.0"
+mkdocs-material = "^9.6.0"
+pre-commit = "^4.0.0"
+pytest = "^8.3.0"
+ruff = "^0.9.7" 
+# Things we don't care about the version
+mkdocstrings = {extras = ["python"], version = "*"}
+mkdocs-table-reader-plugin = "*"
+mkdocs-gen-files = "*"
+mkdocs-literate-nav = "*"
+mkdocs-section-index = "*"
+pymdown-extensions = "*"
+pytest-github-actions-annotate-failures = "*"
+pytest-cov = "*"
+python-kacl = "*"
+
+[build-system]
+requires = ["poetry-core>=2.0.0"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.ruff]
+target-version = "py312" # The lowest supported version
+
+[tool.ruff.lint]
+# By default, enable all the lint rules.
+# Add to the ignore list below if you don't want some rules.
+# If you need some ignores for certain modules, see tool.ruff.lint.per-file-ignores below.
+# For individual ignore cases, prefer inline `# noqa`s within the code.
+select = ["ALL"]
+ignore = [
+    "COM812",   # flake8 missing trailing comma, formatter handles
+    "ISC001",   # Implicit string concatenation
+    "ANN",      # Type hints related, let mypy handle these.
+    "D",        # Docstrings related, way too strict to our taste
+    "RUF007",   # zip is idiomatic, this is a dumb check
+    "RET505",   # Else after return, makes a lot of false positives
+    "E501",     # Line too long, this is autoformatted
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = [
+    "S101",     # "Use of `assert` detected"
+    "ARG",      # "Unused function argument". Fixtures are often unused.
+    "S105",     # "Possible hardcoded password".
+]
+"scripts/**" = [
+    "INP001",   # "Scripts are not part of a package."
+]
+
+[tool.ruff.lint.mccabe]
+max-complexity = 10
+
+[tool.ruff.lint.pep8-naming]
+classmethod-decorators = [
+    "classmethod",
+    "pydantic.validator",
+    "pydantic.root_validator",
+]
+
+[tool.ruff.lint.flake8-tidy-imports]
+ban-relative-imports = "all"
+
+[tool.pytest.ini_options]
+addopts = """\
+    --cov idd_forecast_mbp \
+    --cov tests \
+    --cov-report term-missing \
+    --no-cov-on-fail \
+"""
+
+[tool.coverage.report]
+fail_under = 100
+exclude_lines = [
+    'if TYPE_CHECKING:',
+    'pragma: no cover'
+]
+
+[tool.mypy]
+# This is the global mypy configuration.
+# Avoid changing this!
+strict = true  # See all the enabled flags `mypy --help | grep -A 10 'Strict mode'`
+disallow_any_unimported = false
+
+# If you need to ignore something for some specific module,
+# add overrides for them. Avoid changing the global config!
+# For example:
+# [[tool.mypy.overrides]]
+# module = [
+#  "my_unpyted_dependency1.*",
+#  "my_unpyted_dependency2.*"
+# ]
+# ignore_missing_imports = true
