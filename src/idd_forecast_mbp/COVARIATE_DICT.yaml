@@ -1,0 +1,28 @@
+# I need for each covariate
+# covariate: covariate name
+# covariate_resolution: covariate raster resolution in degrees
+# years: list of years
+# synoptic: T/F
+# cc_sensitive: T/F
+
+
+
+COVARIATE_DICT:
+  elevation:
+    covariate: "elevation"
+    covariate_resolution_numerator: 5
+    covariate_resolution_denominator: 120
+    year_start: 2020
+    year_end: 2020
+    synoptic: true
+    cc_sensitive: false
+    summary_statistic: "mean"
+  malaria_pfpr:
+    covariate: "malaria_pfpr"
+    covariate_resolution_numerator: 5
+    covariate_resolution_denominator: 120
+    year_start: 2000
+    year_end: 2023 
+    synoptic: false
+    cc_sensitive: false
+    summary_statistic: "mean"
