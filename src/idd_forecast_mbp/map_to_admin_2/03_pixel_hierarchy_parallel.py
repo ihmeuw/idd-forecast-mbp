@@ -1,25 +1,29 @@
 import getpass
 import uuid
-from jobmon.client.tool import Tool # type: ignore
+from jobmon.client.tool import Tool  # type: ignore
 from pathlib import Path
-import geopandas as gpd # type: ignore
+import geopandas as gpd  # type: ignore
 from idd_forecast_mbp import constants as rfc
+from idd_forecast_mbp.helper_functions import load_yaml_dictionary
 
 repo_name = rfc.repo_name
 package_name = rfc.package_name
 
-covariates= "test"
-
 # Script directory
 SCRIPT_ROOT = rfc.REPO_ROOT / repo_name / "src" / package_name / "map_to_admin_2"
-INPUT_PATH = rfc.MODEL_ROOT / "02-processed_data"
-OUTPUT_PATH = rfc.MODEL_ROOT / "03-modeling_data"
+YAML_PATH = rfc.REPO_ROOT / repo_name / "src" / package_name / "COVARIATE_DICT.yaml"
+COVARIATE_DICT = load_yaml_dictionary(YAML_PATH)
 
-# Population block/tile stuff
 modeling_frame = gpd.read_parquet("/mnt/team/rapidresponse/pub/population-model/ihmepop_results/2025_03_22/modeling_frame.parquet")
 block_keys = modeling_frame["block_key"].unique()
+root = Path("/mnt/team/rapidresponse/pub/flooding/results/output/raw-results")
 
-heirarchies = ["lsae_1209", "gbd_2021"]
+# heirarchies = ["lsae_1209", "gbd_2021", "lsae_1285", "gbd_2023"]
+heirarchies = ["lsae_1285", "gbd_2023"]
+scenarios = ["ssp126", "ssp245", "ssp585"]
+
+
+
 
 # Jobmon setup
 user = getpass.getuser()
@@ -37,7 +41,7 @@ project = "proj_lsae"  # Adjust this to your project name if needed
 
 
 wf_uuid = uuid.uuid4()
-tool_name = f"{package_name}_pixel_generation"
+tool_name = f"{package_name}_hierarchy_generation"
 tool = Tool(name=tool_name)
 
 # Create a workflow
@@ -62,10 +66,10 @@ workflow.set_default_compute_resources_from_dict(
 
 # Define the task template for processing each year batch
 task_template = tool.get_task_template(
-    template_name="fld_pixel_generation",
+    template_name="hierarchy_generation",
     default_cluster_name="slurm",
     default_compute_resources={
-        "memory": "15G",
+        "memory": "50G",
         "cores": 1,
         "runtime": "60m",
         "queue": "all.q",
@@ -74,35 +78,27 @@ task_template = tool.get_task_template(
         "stderr": str(stderr_dir),
     },
     command_template=(
-        "python {script_root}/pixel_main.py "
+        "python {script_root}/pixel_hierarchy.py "
         "--covariate {{covariate}} "
-        "--hiearchy {{hiearchy}} "
-        "--block_key {{block_key}} "
-        "--input_path {input_path} "
-        "--output_path {output_path} "
+        "--hierarchy {{hierarchy}} "
     ).format(script_root=SCRIPT_ROOT),
-    node_args=[ "hiearchy", "block_key", "covariate"],  #
-    task_args=[], # Only variation is task-specific
+    node_args=["covariate", "hierarchy"],
+    task_args=[],
     op_args=[],
 )
 
 
 # Add tasks
 tasks = []
-for covariate in covariates:
-    for hiearchy in heirarchies:
-        for block_key in block_keys:
-            tasks.append(
-                task_template.create_task(
-                    covariate=covariate,
-                    hiearchy=hiearchy,
-                    block_key=block_key,
-                    input_path=INPUT_PATH,
-                    output_path=OUTPUT_PATH
-                )
-            )
-
-
+for covariate in COVARIATE_DICT.keys():
+    for hierarchy in hierarchies:
+            
+        # Create the primary task
+        task = task_template.create_task(
+            covariate=covariate,
+            hierarchy=hierarchy,
+        )
+        tasks.append(task)
 
 print(f"Number of tasks: {len(tasks)}")
 

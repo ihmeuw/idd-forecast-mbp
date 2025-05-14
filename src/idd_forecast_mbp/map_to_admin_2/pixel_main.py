@@ -14,9 +14,8 @@ from shapely import MultiPolygon, Polygon # type: ignore
 from typing import Literal, NamedTuple
 import itertools
 from rra_tools.shell_tools import mkdir # type: ignore
-# from rra_flooding.data import FloodingData
 from idd_forecast_mbp import constants as rfc
-# from rra_flooding.helper_functions import parse_yaml_dictionary
+from idd_forecast_mbp.helper_functions import load_yaml_dictionary, parse_yaml_dictionary
 import argparse
 import yaml
 
@@ -24,10 +23,6 @@ parser = argparse.ArgumentParser(description="Run James code")
 
 # Define arguments
 parser.add_argument("--covariate", type=str, required=True, help="covariate")
-parser.add_argument("--covariate_resolution", type=str, required=True, help="covariate raster resolution in degrees")
-parser.add_argument("--years", type=list[int], required=True, help="years")
-parser.add_argument("--synoptic", type=bool, required=True, default=False, help="synoptic")
-parser.add_argument("--cc_sensitive, type=bool", required=True, default=False, help="cc_sensitive")
 parser.add_argument("--hiearchy", type=str, required=True, help="Hiearchy")
 parser.add_argument("--block_key", type=str, required=True, help="Block Key")
 
@@ -35,12 +30,17 @@ parser.add_argument("--block_key", type=str, required=True, help="Block Key")
 args = parser.parse_args()
 
 covariate = args.covariate
-covariate_resolution = args.covariate_resolution
-years = args.years
-synoptic = args.synoptic
-cc_sensitive = args.cc_sensitive
 hiearchy = args.hiearchy
 block_key = args.block_key
+
+covariate_dict = parse_yaml_dictionary(covariate)
+covariate_name = covariate_dict['covariate_name']
+covariate_resolution = covariate_dict['covariate_resolution']
+years = covariate_dict['years']
+synoptic = covariate_dict['synoptic']
+cc_sensitive = covariate_dict['cc_sensitive']
+
+
 
 DATA_PATH = rfc.MODEL_ROOT / "02-processed_data"
 
@@ -58,14 +58,6 @@ AGGREGATION_SCENARIOS = [
     SCENARIOS.ssp585,
 ]
 
-HISTORY_YEARS = [str(y) for y in range(1970, 2024)]
-REFERENCE_YEARS = HISTORY_YEARS[-5:]
-REFERENCE_PERIOD = slice(
-    f"{REFERENCE_YEARS[0]}-01-01",
-    f"{REFERENCE_YEARS[-1]}-12-31",
-)
-FORECAST_YEARS = [str(y) for y in range(2024, 2101)]
-ALL_YEARS = HISTORY_YEARS + FORECAST_YEARS
 
 MONTHS = [f"{i:02d}" for i in range(1, 13)]
 
@@ -302,7 +294,7 @@ def build_location_masks(
     return climate_slice, final_bounds_map
 
 def pixel_main(
-        covariate: str,
+        covariate_name: str,
         years: list[int],
         synoptic: bool,
         cc_sensitive: bool,
@@ -320,14 +312,15 @@ def pixel_main(
     for scenario in scenarios:
         root = Path(DATA_PATH) / scenario 
         # check if model exists, if not, skip
-        if not (root / f"{covariate}.nc").exists():
+        if not (root / f"{covariate_name}.nc").exists():
             continue
 
-        ds_file = root / f"{covariate}.nc"
+        ds_file = root / f"{covariate_name}.nc"
         ds = xr.open_dataset(ds_file)
         # rename lat/lon to latitude/longitude
         if synoptic:
             ds = ds.rename({"lat": "latitude", "lon": "longitude", "value": "value"})
+            years = list(range(2000, 2023))
         else:
             ds = ds.rename({"lat": "latitude", "lon": "longitude", "time": "year", "value": "value"})
         ds = ds.sel(**climate_slice)  # type: ignore[arg-type]
@@ -341,7 +334,7 @@ def pixel_main(
             if synoptic:
                 ds_slice = ds["value"]
             else:
-                ds.sel(year=year)["value"],
+                ds_slice = ds.sel(year=year)["value"]
             # Pull out and rasterize the climate data for the current year
             clim_arr = (
                 to_raster(  # noqa: SLF001
@@ -364,7 +357,7 @@ def pixel_main(
                 loc_pop = np.nansum(pop_arr[rows, cols][loc_mask])
 
                 result_records.append(
-                    (location_id, year, scenario, covariate, loc_weighted_clim, loc_pop)
+                    (location_id, year, scenario, covariate_name, loc_weighted_clim, loc_pop)
                 )
 
     results = pd.DataFrame(
@@ -373,12 +366,12 @@ def pixel_main(
             "location_id",
             "year_id",
             "scenario",
-            "covariate"
+            "covariate_name",
             "weighted_climate",
             "population",
         ],
     ).sort_values(by=["location_id", "year_id"])
-    save_path = DATA_PATH / hiearchy / covariate / block_key
+    save_path = DATA_PATH / hiearchy / covariate_name / block_key
     mkdir(save_path, parents=True, exist_ok=True)
     filename = "000.parquet"
     results.to_parquet(
@@ -389,4 +382,4 @@ def pixel_main(
 
 
 # Call the function with parsed arguments
-pixel_main(covariate, years, synoptic, cc_sensitive, block_key, hiearchy)
+pixel_main(covariate_name, years, synoptic, cc_sensitive, block_key, hiearchy)
