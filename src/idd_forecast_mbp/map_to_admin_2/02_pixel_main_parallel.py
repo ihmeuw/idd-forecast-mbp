@@ -4,7 +4,7 @@ from jobmon.client.tool import Tool # type: ignore
 from pathlib import Path
 import geopandas as gpd # type: ignore
 from idd_forecast_mbp import constants as rfc
-from idd_forecast_mbp.helper_functions import load_yaml_dictionary
+from idd_forecast_mbp.helper_functions import load_yaml_dictionary, parse_yaml_dictionary
 
 repo_name = rfc.repo_name
 package_name = rfc.package_name
@@ -13,13 +13,15 @@ covariates= "test"
 
 # Script directory
 SCRIPT_ROOT = rfc.REPO_ROOT / repo_name / "src" / package_name / "map_to_admin_2"
+YAML_PATH = rfc.REPO_ROOT / repo_name / "src" / package_name / "COVARIATE_DICT.yaml"
+COVARIATE_DICT = load_yaml_dictionary(YAML_PATH)
 
 # Population block/tile stuff
 modeling_frame = gpd.read_parquet("/mnt/team/rapidresponse/pub/population-model/ihmepop_results/2025_03_22/modeling_frame.parquet")
 block_keys = modeling_frame["block_key"].unique()
 
-heirarchies = ["lsae_1209", "gbd_2021"]
-
+# heirarchies = ["lsae_1209", "gbd_2021", "lsae_1285", "gbd_2023"]
+heirarchies = ["lsae_1285", "gbd_2023"]
 # Jobmon setup
 user = getpass.getuser()
 
@@ -61,7 +63,7 @@ workflow.set_default_compute_resources_from_dict(
 
 # Define the task template for processing each year batch
 task_template = tool.get_task_template(
-    template_name="fld_pixel_generation",
+    template_name="pixel_generation",
     default_cluster_name="slurm",
     default_compute_resources={
         "memory": "15G",
@@ -86,16 +88,19 @@ task_template = tool.get_task_template(
 
 # Add tasks
 tasks = []
-for covariate in covariates:
-    for hiearchy in heirarchies:
-        for block_key in block_keys:
-            tasks.append(
-                task_template.create_task(
-                    covariate=covariate,
-                    hiearchy=hiearchy,
-                    block_key=block_key,
+for covariate in COVARIATE_DICT.keys():
+    covariate_dict = parse_yaml_dictionary(covariate)
+    synoptic = covariate_dict['synoptic']
+    if synoptic:
+        for hiearchy in heirarchies:
+            for block_key in block_keys:
+                tasks.append(
+                    task_template.create_task(
+                        covariate=covariate,
+                        hiearchy=hiearchy,
+                        block_key=block_key
+                    )
                 )
-            )
 
 
 

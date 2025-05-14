@@ -25,12 +25,13 @@ def parse_yaml_dictionary(covariate: str) -> dict:
 
     # Build the return dict dynamically
     result = {
-        "covariate": covariate_entry['covariate'],
+        "covariate_name": covariate_entry['covariate_name'],
         "covariate_resolution": covariate_resolution,
         "years": years,
         "synoptic": covariate_entry['synoptic'],
         "cc_sensitive": covariate_entry['cc_sensitive'],
-        "summary_statistic": covariate_entry['summary_statistic']
+        "summary_statistic": covariate_entry['summary_statistic'],
+        "path": covariate_entry['path'],
     }
 
     return result
