@@ -16,23 +16,45 @@ file_path <- glue("{data_path}/malaria_stage_2_modeling_df.parquet")
 lsae_hierarchy_path <- "/mnt/team/rapidresponse/pub/population-model/admin-inputs/raking/gbd-inputs/hierarchy_lsae_1209.parquet"
 gbd_hierarchy_path <- "/mnt/team/rapidresponse/pub/population-model/admin-inputs/raking/gbd-inputs/hierarchy_gbd_2023.parquet"
 
+lsae_full_hierarchy_df_path = "/mnt/team/idd/pub/forecast-mbp/04-forecasting_data/hierarchy_lsae_1209_full.parquet"
+# Read in lsae_full_hierarchy_df_path
+lsae_full_hierarchy_df <- arrow::read_parquet(lsae_full_hierarchy_df_path)
 
 source("/mnt/share/homes/bcreiner/repos/idd-forecast-mbp/src/idd_forecast_mbp/modeling/helper_functions.r")
 # Read in a parquet file
 # Read in a parquet file
 malaria_df <- arrow::read_parquet(file_path)
 
+malaria_df <- merge(malaria_df, lsae_full_hierarchy_df[,c("location_id", "super_region_id")], by = "location_id", all.x = TRUE)
+
+cor(malaria_df$elevation, malaria_df$people_flood_days_per_capita, use = "pairwise.complete.obs")
+
+
 malaria_df$A0_af <- as.factor(as.character(paste("A0", malaria_df$A0_location_id, sep = "_")))
+malaria_df$SR_af <- as.factor(as.character(paste("SR", malaria_df$super_region_id, sep = "_")))
 
 ###
 #
 # Without A0_af, with A0_af, centered with A0_af
 #
 ###
+lsae_full_hierarchy_df[which(lsae_full_hierarchy_df$location_id == 103),]
+lsae_full_hierarchy_df[which(lsae_full_hierarchy_df$location_id %in% c(15, 26, 28)),]
+15 26 28
 
 mod1 <- lm(logit_malaria_pfpr ~ malaria_suitability_A0_centered*log_ldipc_mean_A0_centered + log_mal_DAH_total_per_capita + total_precipitation_A0_centered + 
-              people_flood_days_per_capita_A0_centered + A0_af, data = malaria_df)
+              people_flood_days_per_capita_A0_centered*SR_af + A0_af, data = malaria_df)
 
+tmp_df <- as.data.frame(malaria_df[which(malaria_df$A0_location_id == 338),])
+
+
+
+mod2 <- lm(logit_malaria_pfpr ~ malaria_suitability_A0_centered+log_ldipc_mean_A0_centered + log_mal_DAH_total_per_capita + total_precipitation_A0_centered + 
+             people_flood_days_per_capita_A0_centered + A0_af, data = malaria_df)
+
+
+mod2 <- lm(logit_malaria_pfpr ~ malaria_suitability+log_ldipc_mean + mal_DAH_total_per_capita + total_precipitation + 
+             people_flood_days_per_capita, data = malaria_df)
 
 
 
@@ -41,21 +63,26 @@ out <- summary(mod1)[[4]]
 cbind(out[which(rownames(out) %nlike% "A0_af"), 1:3], round(out[which(rownames(out) %nlike% "A0_af"), 4], 3))
 summary(mod1)$r.squared
 
+out <- summary(mod2)[[4]]
+cbind(out[which(rownames(out) %nlike% "A0_af"), 1:3], round(out[which(rownames(out) %nlike% "A0_af"), 4], 3))
+summary(mod2)$r.squared
+
 
 
 Covariate_options <- list(
-  c("malaria_suitability","log_gdppc_mean","elevation","log_mal_DAH_total_per_capita", "total_precipitation",  "people_flood_days_per_capita"),
-  c("malaria_suitability","log_gdppc_mean","elevation","log_mal_DAH_total_per_capita", "relative_humidity",  "people_flood_days_per_capita"),
-  c("malaria_suitability","log_gdppc_mean","elevation","log_mal_DAH_total_per_capita", "precipitation_days", "people_flood_days_per_capita"),
-  c("malaria_suitability","log_ldipc_mean","elevation","log_mal_DAH_total_per_capita", "total_precipitation",  "people_flood_days_per_capita"),
-  c("malaria_suitability","log_ldipc_mean","elevation","log_mal_DAH_total_per_capita", "relative_humidity", "people_flood_days_per_capita"),
-  c("malaria_suitability","log_ldipc_mean","elevation","log_mal_DAH_total_per_capita", "precipitation_days", "people_flood_days_per_capita"),
   c("malaria_suitability","log_gdppc_mean","log_mal_DAH_total_per_capita", "total_precipitation",  "people_flood_days_per_capita"),
-  c("malaria_suitability","log_gdppc_mean","log_mal_DAH_total_per_capita", "relative_humidity",  "people_flood_days_per_capita"),
-  c("malaria_suitability","log_gdppc_mean","log_mal_DAH_total_per_capita", "precipitation_days", "people_flood_days_per_capita"),
-  c("malaria_suitability","log_ldipc_mean","log_mal_DAH_total_per_capita", "total_precipitation",  "people_flood_days_per_capita"),
-  c("malaria_suitability","log_ldipc_mean","log_mal_DAH_total_per_capita", "relative_humidity", "people_flood_days_per_capita"),
-  c("malaria_suitability","log_ldipc_mean","log_mal_DAH_total_per_capita", "precipitation_days", "people_flood_days_per_capita")
+  c("malaria_suitability","log_gdppc_mean",
+    "log_mal_DAH_intervention_per_capita", "log_mal_DAH_health_systems_per_capita", "log_mal_DAH_other_per_capita",
+    "total_precipitation",  "people_flood_days_per_capita"),
+  c("malaria_suitability","log_gdppc_mean",
+    "log_mal_DAH_intervention_per_capita",
+    "total_precipitation",  "people_flood_days_per_capita"),
+  c("malaria_suitability","log_gdppc_mean",
+    "log_mal_DAH_health_systems_per_capita", 
+    "total_precipitation",  "people_flood_days_per_capita"),
+  c("malaria_suitability","log_gdppc_mean",
+    "log_mal_DAH_other_per_capita",
+    "total_precipitation",  "people_flood_days_per_capita")
 )
 
 All_Results <- vector("list", length = length(Covariate_options))
@@ -86,6 +113,9 @@ Expectation_table <- data.frame(variable = c("malaria_suitability",
                                             "log_ldipc_mean",
                                             "elevation",
                                             "log_mal_DAH_total_per_capita",
+                                            "log_malaria_DAH_intervention_per_capita", 
+                                            "log_malaria_DAH_health_systems_per_capita", 
+                                            "log_malaria_DAH_other_per_capita",
                                             "total_precipitation",
                                             "relative_humidity",
                                             "precipitation_days",
@@ -93,7 +123,7 @@ Expectation_table <- data.frame(variable = c("malaria_suitability",
                                             "malaria_suitability:log_gdppc_mean",
                                             "malaria_suitability:log_ldipc_mean",
                                             "R-squared"),
-                                expectation = c(1, -1, -1, 0, -1, 1, 1, 1, 1, 0, 0, 1))
+                                expectation = c(1, -1, -1, 0, -1, -1, -1, -1, 1, 1, 1, 1, 0, 0, 1))
 
 form <- function(numbers){
   numbers <- as.numeric(numbers)
@@ -127,12 +157,12 @@ parse_model <- function(results_table){
   summary_df$p_value_3 <- form(results_table$Model2_Centered_p_value)
   tmp_direction <- summary_df$value_3 / abs(summary_df$value_3)
   summary_df$issues_3 <- ifelse(tmp_direction* summary_df$expectation < 0, "ISSUE", "")
-  return(summary_df)
-  # # if (any(summary_df$issues_3 == "ISSUE")){
-  # # 
-  # # } else {
-  #   return(summary_df[,c("covariate", "value_3", "p_value_3", "issues_3")])
-  # # }
+  # return(summary_df)
+  # if (any(summary_df$issues_3 == "ISSUE")){
+  #
+  # } else {
+    return(summary_df[,c("covariate", "value_3", "p_value_3", "issues_3")])
+  # }
   
 
 }
@@ -149,12 +179,12 @@ get_pchs <- function(vec){
 }
 
 
-UCov <- setdiff(Expectation_table$variable, "R-squared")
+UCov <- unique(unlist(Covariate_options))
 require(RColorBrewer)
 require(beeswarm, lib = "~/packages")
 COLS <- brewer.pal(length(All_Results), "Paired")
 # COLS <- rep(1,12)
-par(mfrow=c(3,4))
+par(mfrow=c(2,5))
 for (c_num in seq_along(UCov)){
   tmp_cov <- UCov[c_num]
   expectation_row <- Expectation_table[which(Expectation_table$variable == tmp_cov),]
@@ -262,11 +292,16 @@ Centered", line = 1.1, tick = FALSE)
 
 
 
+######
+
+names(malaria_df)
 
 
+require(scam)
+mod_mort_1 <- scam(log_malaria_pf_mort_rate ~ s(logit_malaria_pfpr, k = 4, bs = "mpi") + A0_af, data = malaria_df)
 
+mod_mort_2 <- scam(log_malaria_pf_mort_rate ~ s(logit_malaria_pfpr, k = 4, bs = "mpi") + log_mal_DAH_total_per_capita + A0_af, data = malaria_df)
+# R-squared = 97.9%
 
-
-
-
+mod_inc <- scam(log_malaria_pf_inc_rate ~ s(malaria_pfpr, k = 4) + A0_af, data = malaria_df)
 

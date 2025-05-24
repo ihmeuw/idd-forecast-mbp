@@ -2,11 +2,9 @@
 
 ---
 
-**Documentation**: [https://bcreiner.github.io/idd-forecast-mbp](https://bcreiner.github.io/idd-forecast-mbp)
+**Documentation**: [https://ihmeuw.github.io/idd-forecast-mbp](https://ihmeuw.github.io/idd-forecast-mbp)
 
-**Source Code**: [https://github.com/bcreiner/idd-forecast-mbp](https://github.com/bcreiner/idd-forecast-mbp)
-
-**PyPI**: [https://pypi.org/project/idd-forecast-mbp/](https://pypi.org/project/idd-forecast-mbp/)
+**Source Code**: [https://github.com/ihmeuw/idd-forecast-mbp](https://github.com/ihmeuw/idd-forecast-mbp)
 
 ---
 
