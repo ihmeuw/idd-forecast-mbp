@@ -371,7 +371,7 @@ def pixel_main(
             "population",
         ],
     ).sort_values(by=["location_id", "year_id"])
-    save_path = DATA_PATH / hiearchy / covariate_name / block_key
+    save_path = DATA_PATH / "GBD2023" / hiearchy / covariate_name / block_key
     mkdir(save_path, parents=True, exist_ok=True)
     filename = "000.parquet"
     results.to_parquet(
