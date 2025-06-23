@@ -12,8 +12,8 @@ package_name = rfc.package_name
 # Script directory
 SCRIPT_ROOT = rfc.REPO_ROOT / repo_name / "src" / package_name / "data_prep" / "dengue"
 
-scenario_numbers = list(range(3))
-draws = [f"{i:03d}" for i in range(100)]
+ssp_scenarios = rfc.ssp_scenarios
+draws = rfc.draws
 
 # Jobmon setup
 user = getpass.getuser()
@@ -27,7 +27,7 @@ stdout_dir.mkdir(parents=True, exist_ok=True)
 stderr_dir.mkdir(parents=True, exist_ok=True)
 
 # Project
-project = "proj_lsae"  # Adjust this to your project name if needed
+project = "proj_rapidresponse"  # Adjust this to your project name if needed
 
 
 wf_uuid = uuid.uuid4()
@@ -69,22 +69,21 @@ task_template = tool.get_task_template(
     },
     command_template=(
         "python {script_root}/forecasted_draw_specific_dataframes.py "
-        "--scenario_number {{scenario_number}} "
+        "--ssp_scenario {{ssp_scenario}} "
         "--draw {{draw}} "
     ).format(script_root=SCRIPT_ROOT),
-    node_args=["scenario_number", "draw"],
+    node_args=["ssp_scenario", "draw"],
     task_args=[],
     op_args=[],
 )
 
 # Add tasks
 tasks = []
-for scenario_number in scenario_numbers:
+for ssp_scenario in ssp_scenarios:
     for draw in draws:
-            
         # Create the primary task
         task = task_template.create_task(
-            scenario_number=scenario_number,
+            ssp_scenario=ssp_scenario,
             draw=draw,
         )
         tasks.append(task)
