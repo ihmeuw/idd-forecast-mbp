@@ -9,33 +9,34 @@ from shapely import MultiPolygon, Polygon # type: ignore
 from typing import Literal, NamedTuple
 from rra_tools.shell_tools import mkdir # type: ignore
 from idd_forecast_mbp import constants as rfc
-from idd_forecast_mbp.helper_functions import load_yaml_dictionary, parse_yaml_dictionary
+from idd_forecast_mbp.helper_functions import read_parquet_with_integer_ids
 import argparse
 
 
 parser = argparse.ArgumentParser(description="Add DAH Sceanrios and create draw level dataframes for forecating dengue")
 
 # Define arguments
-parser.add_argument("--scenario_number", type=int, required=True, help="scenario number (0, 1, or 2)")
+parser.add_argument("--ssp_scenario", type=str, required=True, help="ssp scenario number (ssp16, ssp245, ssp585")
 parser.add_argument("--draw", type=str, required=True, help="Draw number (e.g., '001', '002', etc.)")
 
 # Parse arguments
 args = parser.parse_args()
 
-scenario_number = args.scenario_number
+ssp_scenarios = rfc.ssp_scenarios
+ssp_scenario = args.ssp_scenario
 draw = args.draw
 
-# Scenarios
-ssp_scenarios = ["ssp126", "ssp245", "ssp585"]
-rcp_scenarios = [2.6, 4.5, 8.5]
-# Draws
-draws = [f"{i:03d}" for i in range(100)]
+rcp_scenario = ssp_scenarios[ssp_scenario]["rcp_scenario"]
 
 # Hierarchy
 hierarchy = "lsae_1209"
+PROCESSED_DATA_PATH = rfc.MODEL_ROOT / "02-processed_data"
+MODELING_DATA_PATH = rfc.MODEL_ROOT / "03-modeling_data"
+FORECASTING_DATA_PATH = rfc.MODEL_ROOT / "04-forecasting_data"
 
 # Hierarchy path
-HIERARCHY_PATH = f"/mnt/team/rapidresponse/pub/population-model/admin-inputs/raking/gbd-inputs/hierarchy_{hierarchy}.parquet"
+hierarchy_df_path = f'{PROCESSED_DATA_PATH}/full_hierarchy_lsae_1209.parquet'
+hierarchy_df = read_parquet_with_integer_ids(hierarchy_df_path)
 
 #
 OUTCOME_DATA_PATH = "/mnt/team/idd/pub/forecast-mbp/02-processed_data/gbd"
