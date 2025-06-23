@@ -1,0 +1,684 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>function_summaries.md</title>
+<meta http-equiv="Content-type" content="text/html;charset=UTF-8">
+
+<style>
+/* https://github.com/microsoft/vscode/blob/master/extensions/markdown-language-features/media/markdown.css */
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
+body {
+	font-family: var(--vscode-markdown-font-family, -apple-system, BlinkMacSystemFont, "Segoe WPC", "Segoe UI", "Ubuntu", "Droid Sans", sans-serif);
+	font-size: var(--vscode-markdown-font-size, 14px);
+	padding: 0 26px;
+	line-height: var(--vscode-markdown-line-height, 22px);
+	word-wrap: break-word;
+}
+
+#code-csp-warning {
+	position: fixed;
+	top: 0;
+	right: 0;
+	color: white;
+	margin: 16px;
+	text-align: center;
+	font-size: 12px;
+	font-family: sans-serif;
+	background-color:#444444;
+	cursor: pointer;
+	padding: 6px;
+	box-shadow: 1px 1px 1px rgba(0,0,0,.25);
+}
+
+#code-csp-warning:hover {
+	text-decoration: none;
+	background-color:#007acc;
+	box-shadow: 2px 2px 2px rgba(0,0,0,.25);
+}
+
+body.scrollBeyondLastLine {
+	margin-bottom: calc(100vh - 22px);
+}
+
+body.showEditorSelection .code-line {
+	position: relative;
+}
+
+body.showEditorSelection .code-active-line:before,
+body.showEditorSelection .code-line:hover:before {
+	content: "";
+	display: block;
+	position: absolute;
+	top: 0;
+	left: -12px;
+	height: 100%;
+}
+
+body.showEditorSelection li.code-active-line:before,
+body.showEditorSelection li.code-line:hover:before {
+	left: -30px;
+}
+
+.vscode-light.showEditorSelection .code-active-line:before {
+	border-left: 3px solid rgba(0, 0, 0, 0.15);
+}
+
+.vscode-light.showEditorSelection .code-line:hover:before {
+	border-left: 3px solid rgba(0, 0, 0, 0.40);
+}
+
+.vscode-light.showEditorSelection .code-line .code-line:hover:before {
+	border-left: none;
+}
+
+.vscode-dark.showEditorSelection .code-active-line:before {
+	border-left: 3px solid rgba(255, 255, 255, 0.4);
+}
+
+.vscode-dark.showEditorSelection .code-line:hover:before {
+	border-left: 3px solid rgba(255, 255, 255, 0.60);
+}
+
+.vscode-dark.showEditorSelection .code-line .code-line:hover:before {
+	border-left: none;
+}
+
+.vscode-high-contrast.showEditorSelection .code-active-line:before {
+	border-left: 3px solid rgba(255, 160, 0, 0.7);
+}
+
+.vscode-high-contrast.showEditorSelection .code-line:hover:before {
+	border-left: 3px solid rgba(255, 160, 0, 1);
+}
+
+.vscode-high-contrast.showEditorSelection .code-line .code-line:hover:before {
+	border-left: none;
+}
+
+img {
+	max-width: 100%;
+	max-height: 100%;
+}
+
+a {
+	text-decoration: none;
+}
+
+a:hover {
+	text-decoration: underline;
+}
+
+a:focus,
+input:focus,
+select:focus,
+textarea:focus {
+	outline: 1px solid -webkit-focus-ring-color;
+	outline-offset: -1px;
+}
+
+hr {
+	border: 0;
+	height: 2px;
+	border-bottom: 2px solid;
+}
+
+h1 {
+	padding-bottom: 0.3em;
+	line-height: 1.2;
+	border-bottom-width: 1px;
+	border-bottom-style: solid;
+}
+
+h1, h2, h3 {
+	font-weight: normal;
+}
+
+table {
+	border-collapse: collapse;
+}
+
+table > thead > tr > th {
+	text-align: left;
+	border-bottom: 1px solid;
+}
+
+table > thead > tr > th,
+table > thead > tr > td,
+table > tbody > tr > th,
+table > tbody > tr > td {
+	padding: 5px 10px;
+}
+
+table > tbody > tr + tr > td {
+	border-top: 1px solid;
+}
+
+blockquote {
+	margin: 0 7px 0 5px;
+	padding: 0 16px 0 10px;
+	border-left-width: 5px;
+	border-left-style: solid;
+}
+
+code {
+	font-family: Menlo, Monaco, Consolas, "Droid Sans Mono", "Courier New", monospace, "Droid Sans Fallback";
+	font-size: 1em;
+	line-height: 1.357em;
+}
+
+body.wordWrap pre {
+	white-space: pre-wrap;
+}
+
+pre:not(.hljs),
+pre.hljs code > div {
+	padding: 16px;
+	border-radius: 3px;
+	overflow: auto;
+}
+
+pre code {
+	color: var(--vscode-editor-foreground);
+	tab-size: 4;
+}
+
+/** Theming */
+
+.vscode-light pre {
+	background-color: rgba(220, 220, 220, 0.4);
+}
+
+.vscode-dark pre {
+	background-color: rgba(10, 10, 10, 0.4);
+}
+
+.vscode-high-contrast pre {
+	background-color: rgb(0, 0, 0);
+}
+
+.vscode-high-contrast h1 {
+	border-color: rgb(0, 0, 0);
+}
+
+.vscode-light table > thead > tr > th {
+	border-color: rgba(0, 0, 0, 0.69);
+}
+
+.vscode-dark table > thead > tr > th {
+	border-color: rgba(255, 255, 255, 0.69);
+}
+
+.vscode-light h1,
+.vscode-light hr,
+.vscode-light table > tbody > tr + tr > td {
+	border-color: rgba(0, 0, 0, 0.18);
+}
+
+.vscode-dark h1,
+.vscode-dark hr,
+.vscode-dark table > tbody > tr + tr > td {
+	border-color: rgba(255, 255, 255, 0.18);
+}
+
+</style>
+
+<style>
+/* Tomorrow Theme */
+/* http://jmblog.github.com/color-themes-for-google-code-highlightjs */
+/* Original theme - https://github.com/chriskempson/tomorrow-theme */
+
+/* Tomorrow Comment */
+.hljs-comment,
+.hljs-quote {
+	color: #8e908c;
+}
+
+/* Tomorrow Red */
+.hljs-variable,
+.hljs-template-variable,
+.hljs-tag,
+.hljs-name,
+.hljs-selector-id,
+.hljs-selector-class,
+.hljs-regexp,
+.hljs-deletion {
+	color: #c82829;
+}
+
+/* Tomorrow Orange */
+.hljs-number,
+.hljs-built_in,
+.hljs-builtin-name,
+.hljs-literal,
+.hljs-type,
+.hljs-params,
+.hljs-meta,
+.hljs-link {
+	color: #f5871f;
+}
+
+/* Tomorrow Yellow */
+.hljs-attribute {
+	color: #eab700;
+}
+
+/* Tomorrow Green */
+.hljs-string,
+.hljs-symbol,
+.hljs-bullet,
+.hljs-addition {
+	color: #718c00;
+}
+
+/* Tomorrow Blue */
+.hljs-title,
+.hljs-section {
+	color: #4271ae;
+}
+
+/* Tomorrow Purple */
+.hljs-keyword,
+.hljs-selector-tag {
+	color: #8959a8;
+}
+
+.hljs {
+	display: block;
+	overflow-x: auto;
+	color: #4d4d4c;
+	padding: 0.5em;
+}
+
+.hljs-emphasis {
+	font-style: italic;
+}
+
+.hljs-strong {
+	font-weight: bold;
+}
+</style>
+
+<style>
+/*
+ * Markdown PDF CSS
+ */
+
+ body {
+	font-family: -apple-system, BlinkMacSystemFont, "Segoe WPC", "Segoe UI", "Ubuntu", "Droid Sans", sans-serif, "Meiryo";
+	padding: 0 12px;
+}
+
+pre {
+	background-color: #f8f8f8;
+	border: 1px solid #cccccc;
+	border-radius: 3px;
+	overflow-x: auto;
+	white-space: pre-wrap;
+	overflow-wrap: break-word;
+}
+
+pre:not(.hljs) {
+	padding: 23px;
+	line-height: 19px;
+}
+
+blockquote {
+	background: rgba(127, 127, 127, 0.1);
+	border-color: rgba(0, 122, 204, 0.5);
+}
+
+.emoji {
+	height: 1.4em;
+}
+
+code {
+	font-size: 14px;
+	line-height: 19px;
+}
+
+/* for inline code */
+:not(pre):not(.hljs) > code {
+	color: #C9AE75; /* Change the old color so it seems less like an error */
+	font-size: inherit;
+}
+
+/* Page Break : use <div class="page"/> to insert page break
+-------------------------------------------------------- */
+.page {
+	page-break-after: always;
+}
+
+</style>
+
+<script src="https://unpkg.com/mermaid/dist/mermaid.min.js"></script>
+</head>
+<body>
+  <script>
+    mermaid.initialize({
+      startOnLoad: true,
+      theme: document.body.classList.contains('vscode-dark') || document.body.classList.contains('vscode-high-contrast')
+          ? 'dark'
+          : 'default'
+    });
+  </script>
+<h1 id="function-documentation-summary">Function Documentation Summary</h1>
+<h2 id="yaml-and-configuration-functions">YAML and Configuration Functions</h2>
+<h3 id="loadyamldictionaryyamlpath-str---dict"><code>load_yaml_dictionary(yaml_path: str) -&gt; dict</code></h3>
+<p><strong>Purpose</strong>: Loads a YAML file and extracts the COVARIATE_DICT section.</p>
+<p><strong>Inputs</strong>:</p>
+<ul>
+<li><code>yaml_path</code>: String path to the YAML file</li>
+</ul>
+<p><strong>Outputs</strong>:</p>
+<ul>
+<li>Dictionary containing the COVARIATE_DICT from the YAML file</li>
+</ul>
+<p><strong>Functions it uses</strong>: None (uses built-in <code>yaml.safe_load</code>)</p>
+<p><strong>Functions that use it</strong>: <code>parse_yaml_dictionary()</code></p>
+<hr>
+<h3 id="parseyamldictionarycovariate-str---dict"><code>parse_yaml_dictionary(covariate: str) -&gt; dict</code></h3>
+<p><strong>Purpose</strong>: Parses covariate-specific configuration from the YAML dictionary and calculates derived values.</p>
+<p><strong>Inputs</strong>:</p>
+<ul>
+<li><code>covariate</code>: String name of the covariate to extract configuration for</li>
+</ul>
+<p><strong>Outputs</strong>:</p>
+<ul>
+<li>Dictionary with parsed covariate configuration including:
+<ul>
+<li><code>covariate_name</code>: Name of the covariate</li>
+<li><code>covariate_resolution</code>: Calculated resolution (numerator/denominator)</li>
+<li><code>years</code>: List of years from start to end</li>
+<li><code>synoptic</code>: Synoptic flag</li>
+<li><code>cc_sensitive</code>: Climate change sensitivity flag</li>
+<li><code>summary_statistic</code>: Summary statistic method</li>
+<li><code>path</code>: File path</li>
+</ul>
+</li>
+</ul>
+<p><strong>Functions it uses</strong>: <code>load_yaml_dictionary()</code></p>
+<p><strong>Functions that use it</strong>: Not directly called by other functions in this module</p>
+<hr>
+<h2 id="data-merging-and-reading-functions">Data Merging and Reading Functions</h2>
+<h3 id="mergedataframesmodeldf-dfs"><code>merge_dataframes(model_df, dfs)</code></h3>
+<p><strong>Purpose</strong>: Merges multiple DataFrames with a base model DataFrame on location_id and year_id.</p>
+<p><strong>Inputs</strong>:</p>
+<ul>
+<li><code>model_df</code>: Base pandas DataFrame</li>
+<li><code>dfs</code>: Dictionary of DataFrames to merge</li>
+</ul>
+<p><strong>Outputs</strong>:</p>
+<ul>
+<li>Merged pandas DataFrame with suffixes added for duplicate columns</li>
+</ul>
+<p><strong>Functions it uses</strong>: None (uses pandas merge)</p>
+<p><strong>Functions that use it</strong>: Not directly called by other functions in this module</p>
+<hr>
+<h3 id="readincomepathsincomepaths-rcpscenario-variabledatapath"><code>read_income_paths(income_paths, rcp_scenario, VARIABLE_DATA_PATH)</code></h3>
+<p><strong>Purpose</strong>: Reads multiple income data files, filters by RCP scenario, and processes them.</p>
+<p><strong>Inputs</strong>:</p>
+<ul>
+<li><code>income_paths</code>: Dictionary of file paths</li>
+<li><code>rcp_scenario</code>: RCP scenario to filter by</li>
+<li><code>VARIABLE_DATA_PATH</code>: Base path for variable data</li>
+</ul>
+<p><strong>Outputs</strong>:</p>
+<ul>
+<li>Dictionary of filtered pandas DataFrames (scenario column dropped)</li>
+</ul>
+<p><strong>Functions it uses</strong>: <code>read_parquet_with_integer_ids()</code></p>
+<p><strong>Functions that use it</strong>: Not directly called by other functions in this module</p>
+<hr>
+<h3 id="readurbanpathsurbanpaths-variabledatapath"><code>read_urban_paths(urban_paths, VARIABLE_DATA_PATH)</code></h3>
+<p><strong>Purpose</strong>: Reads multiple urban data files and standardizes column names.</p>
+<p><strong>Inputs</strong>:</p>
+<ul>
+<li><code>urban_paths</code>: Dictionary of file paths</li>
+<li><code>VARIABLE_DATA_PATH</code>: Base path for variable data</li>
+</ul>
+<p><strong>Outputs</strong>:</p>
+<ul>
+<li>Dictionary of processed pandas DataFrames with standardized column names</li>
+</ul>
+<p><strong>Functions it uses</strong>: None (uses pandas read_parquet)</p>
+<p><strong>Functions that use it</strong>: Not directly called by other functions in this module</p>
+<hr>
+<h2 id="data-type-and-io-utility-functions">Data Type and I/O Utility Functions</h2>
+<h3 id="ensureidcolumnsareintegersdf"><code>ensure_id_columns_are_integers(df)</code></h3>
+<p><strong>Purpose</strong>: Converts columns ending with '_id' to integer type.</p>
+<p><strong>Inputs</strong>:</p>
+<ul>
+<li><code>df</code>: pandas DataFrame</li>
+</ul>
+<p><strong>Outputs</strong>:</p>
+<ul>
+<li>DataFrame with ID columns converted to integers</li>
+</ul>
+<p><strong>Functions it uses</strong>: None (uses pandas type operations)</p>
+<p><strong>Functions that use it</strong>: <code>read_parquet_with_integer_ids()</code></p>
+<hr>
+<h3 id="readparquetwithintegeridspath-kwargs"><code>read_parquet_with_integer_ids(path, **kwargs)</code></h3>
+<p><strong>Purpose</strong>: Reads a parquet file and ensures ID columns are integers.</p>
+<p><strong>Inputs</strong>:</p>
+<ul>
+<li><code>path</code>: File path to parquet file</li>
+<li><code>**kwargs</code>: Additional arguments for pd.read_parquet</li>
+</ul>
+<p><strong>Outputs</strong>:</p>
+<ul>
+<li>pandas DataFrame with integer ID columns</li>
+</ul>
+<p><strong>Functions it uses</strong>: <code>ensure_id_columns_are_integers()</code></p>
+<p><strong>Functions that use it</strong>: <code>read_income_paths()</code></p>
+<hr>
+<h3 id="writeparquetdf-filepath-maxretries3-compressionsnappy-indexfalse-kwargs"><code>write_parquet(df, filepath, max_retries=3, compression='snappy', index=False, **kwargs)</code></h3>
+<p><strong>Purpose</strong>: Writes parquet files with validation and retry logic for robustness.</p>
+<p><strong>Inputs</strong>:</p>
+<ul>
+<li><code>df</code>: pandas DataFrame to write</li>
+<li><code>filepath</code>: Destination file path</li>
+<li><code>max_retries</code>: Number of retry attempts (default: 3)</li>
+<li><code>compression</code>: Compression method (default: 'snappy')</li>
+<li><code>index</code>: Whether to include index (default: False)</li>
+<li><code>**kwargs</code>: Additional arguments for to_parquet</li>
+</ul>
+<p><strong>Outputs</strong>:</p>
+<ul>
+<li>Boolean indicating success/failure</li>
+</ul>
+<p><strong>Functions it uses</strong>: None (uses pandas and os operations)</p>
+<p><strong>Functions that use it</strong>:</p>
+<ul>
+<li><code>rake_aa_count_lsae_to_gbd()</code></li>
+<li><code>make_aa_rate_variable()</code></li>
+<li><code>aggregate_aa_count_lsae_to_gbd()</code></li>
+<li><code>make_full_aa_rate_df_from_aa_count_df()</code></li>
+</ul>
+<hr>
+<h2 id="raking-functions">Raking Functions</h2>
+<h3 id="prepdfdf-hierarchydf"><code>prep_df(df, hierarchy_df)</code></h3>
+<p><strong>Purpose</strong>: Prepares DataFrame by adding level column and removing parent_id if present.</p>
+<p><strong>Inputs</strong>:</p>
+<ul>
+<li><code>df</code>: pandas DataFrame to prepare</li>
+<li><code>hierarchy_df</code>: Hierarchy DataFrame containing location_id and level mappings</li>
+</ul>
+<p><strong>Outputs</strong>:</p>
+<ul>
+<li>Prepared DataFrame with level column added and parent_id removed</li>
+</ul>
+<p><strong>Functions it uses</strong>: None (uses pandas merge and drop)</p>
+<p><strong>Functions that use it</strong>:</p>
+<ul>
+<li><code>rake_aa_count_lsae_to_gbd()</code></li>
+<li><code>aggregate_aa_count_lsae_to_gbd()</code></li>
+<li><code>aggregate_aa_rate_lsae_to_gbd()</code></li>
+</ul>
+<hr>
+<h3 id="rakelevelcountvariable-leveldf-levelm1df-hierarchydf"><code>rake_level(count_variable, level_df, level_m1_df, hierarchy_df)</code></h3>
+<p><strong>Purpose</strong>: Rakes (adjusts) data at one level to match aggregated totals from the next higher level.</p>
+<p><strong>Inputs</strong>:</p>
+<ul>
+<li><code>count_variable</code>: Name of the count variable to rake</li>
+<li><code>level_df</code>: DataFrame for current level</li>
+<li><code>level_m1_df</code>: DataFrame for the level above (level minus 1)</li>
+<li><code>hierarchy_df</code>: Hierarchy DataFrame</li>
+</ul>
+<p><strong>Outputs</strong>:</p>
+<ul>
+<li>DataFrame with raked values that sum to the higher level totals</li>
+</ul>
+<p><strong>Functions it uses</strong>: None (uses pandas operations)</p>
+<p><strong>Functions that use it</strong>: <code>rake_aa_count_lsae_to_gbd()</code></p>
+<hr>
+<h3 id="rakeaacountlsaetogbdcountvariable-hierarchydf-gbdaacountdf-lsaeaacountdf-fullaacountdfpath-returnfulldffalse"><code>rake_aa_count_lsae_to_gbd(count_variable, hierarchy_df, gbd_aa_count_df, lsae_aa_count_df, full_aa_count_df_path, return_full_df=False)</code></h3>
+<p><strong>Purpose</strong>: Rakes LSAE age-aggregated count data to match GBD totals across hierarchy levels.</p>
+<p><strong>Inputs</strong>:</p>
+<ul>
+<li><code>count_variable</code>: Name of count variable</li>
+<li><code>hierarchy_df</code>: Hierarchy DataFrame</li>
+<li><code>gbd_aa_count_df</code>: GBD age-aggregated count data</li>
+<li><code>lsae_aa_count_df</code>: LSAE age-aggregated count data</li>
+<li><code>full_aa_count_df_path</code>: Output file path</li>
+<li><code>return_full_df</code>: Whether to return the DataFrame (default: False)</li>
+</ul>
+<p><strong>Outputs</strong>:</p>
+<ul>
+<li>Optionally returns full raked DataFrame if return_full_df=True</li>
+</ul>
+<p><strong>Functions it uses</strong>:</p>
+<ul>
+<li><code>prep_df()</code></li>
+<li><code>rake_level()</code></li>
+<li><code>write_parquet()</code></li>
+</ul>
+<p><strong>Functions that use it</strong>: Not directly called by other functions in this module</p>
+<hr>
+<h3 id="makeaaratevariablecountvariable-fullaacountdf-aapopulationdf-fulllsaeaaratedfpath-returnfulldffalse"><code>make_aa_rate_variable(count_variable, full_aa_count_df, aa_population_df, full_lsae_aa_rate_df_path, return_full_df=False)</code></h3>
+<p><strong>Purpose</strong>: Converts age-aggregated count data to rate data using population denominators.</p>
+<p><strong>Inputs</strong>:</p>
+<ul>
+<li><code>count_variable</code>: Name of count variable</li>
+<li><code>full_aa_count_df</code>: Full age-aggregated count DataFrame</li>
+<li><code>aa_population_df</code>: Age-aggregated population DataFrame</li>
+<li><code>full_lsae_aa_rate_df_path</code>: Output file path</li>
+<li><code>return_full_df</code>: Whether to return DataFrame (default: False)</li>
+</ul>
+<p><strong>Outputs</strong>:</p>
+<ul>
+<li>Optionally returns rate DataFrame if return_full_df=True</li>
+</ul>
+<p><strong>Functions it uses</strong>: <code>write_parquet()</code></p>
+<p><strong>Functions that use it</strong>: Not directly called by other functions in this module</p>
+<hr>
+<h2 id="aggregation-functions">Aggregation Functions</h2>
+<h3 id="aggregatelevelcountvariable-leveldf-hierarchydf"><code>aggregate_level(count_variable, level_df, hierarchy_df)</code></h3>
+<p><strong>Purpose</strong>: Aggregates count data from one hierarchy level to the next higher level.</p>
+<p><strong>Inputs</strong>:</p>
+<ul>
+<li><code>count_variable</code>: Name of count variable to aggregate</li>
+<li><code>level_df</code>: DataFrame for current level</li>
+<li><code>hierarchy_df</code>: Hierarchy DataFrame</li>
+</ul>
+<p><strong>Outputs</strong>:</p>
+<ul>
+<li>DataFrame with aggregated counts at the parent level</li>
+</ul>
+<p><strong>Functions it uses</strong>: None (uses pandas operations)</p>
+<p><strong>Functions that use it</strong>: <code>aggregate_aa_count_lsae_to_gbd()</code></p>
+<hr>
+<h3 id="aggregateaacountlsaetogbdcountvariable-hierarchydf-lsaeaacountdf-fullaacountdfpath-returnfulldffalse"><code>aggregate_aa_count_lsae_to_gbd(count_variable, hierarchy_df, lsae_aa_count_df, full_aa_count_df_path, return_full_df=False)</code></h3>
+<p><strong>Purpose</strong>: Aggregates LSAE age-aggregated count data up through all hierarchy levels (5 to 0).</p>
+<p><strong>Inputs</strong>:</p>
+<ul>
+<li><code>count_variable</code>: Name of count variable</li>
+<li><code>hierarchy_df</code>: Hierarchy DataFrame</li>
+<li><code>lsae_aa_count_df</code>: LSAE age-aggregated count data</li>
+<li><code>full_aa_count_df_path</code>: Output file path</li>
+<li><code>return_full_df</code>: Whether to return DataFrame (default: False)</li>
+</ul>
+<p><strong>Outputs</strong>:</p>
+<ul>
+<li>Optionally returns full aggregated DataFrame if return_full_df=True</li>
+</ul>
+<p><strong>Functions it uses</strong>:</p>
+<ul>
+<li><code>prep_df()</code></li>
+<li><code>aggregate_level()</code></li>
+<li><code>write_parquet()</code></li>
+</ul>
+<p><strong>Functions that use it</strong>: <code>aggregate_aa_rate_lsae_to_gbd()</code></p>
+<hr>
+<h3 id="makefullaaratedffromaacountdfratevariable-countvariable-fullaacountdf-aapopulationdf-fullaaratedfpathnone-returnfulldffalse"><code>make_full_aa_rate_df_from_aa_count_df(rate_variable, count_variable, full_aa_count_df, aa_population_df, full_aa_rate_df_path=None, return_full_df=False)</code></h3>
+<p><strong>Purpose</strong>: Converts aggregated count data to rate data using population.</p>
+<p><strong>Inputs</strong>:</p>
+<ul>
+<li><code>rate_variable</code>: Name of rate variable to create</li>
+<li><code>count_variable</code>: Name of count variable</li>
+<li><code>full_aa_count_df</code>: Full age-aggregated count DataFrame</li>
+<li><code>aa_population_df</code>: Age-aggregated population DataFrame</li>
+<li><code>full_aa_rate_df_path</code>: Optional output file path</li>
+<li><code>return_full_df</code>: Whether to return DataFrame (default: False)</li>
+</ul>
+<p><strong>Outputs</strong>:</p>
+<ul>
+<li>Optionally returns rate DataFrame if return_full_df=True</li>
+</ul>
+<p><strong>Functions it uses</strong>: <code>write_parquet()</code></p>
+<p><strong>Functions that use it</strong>: <code>aggregate_aa_rate_lsae_to_gbd()</code></p>
+<hr>
+<h3 id="aggregateaaratelsaetogbdratevariable-hierarchydf-lsaeaaratedf-aapopulationdf-fullaaratedfpathnone-returnfulldffalse"><code>aggregate_aa_rate_lsae_to_gbd(rate_variable, hierarchy_df, lsae_aa_rate_df, aa_population_df, full_aa_rate_df_path=None, return_full_df=False)</code></h3>
+<p><strong>Purpose</strong>: Aggregates LSAE age-aggregated rate data by first converting to counts, aggregating, then converting back to rates.</p>
+<p><strong>Inputs</strong>:</p>
+<ul>
+<li><code>rate_variable</code>: Name of rate variable</li>
+<li><code>hierarchy_df</code>: Hierarchy DataFrame</li>
+<li><code>lsae_aa_rate_df</code>: LSAE age-aggregated rate data</li>
+<li><code>aa_population_df</code>: Age-aggregated population DataFrame</li>
+<li><code>full_aa_rate_df_path</code>: Optional output file path</li>
+<li><code>return_full_df</code>: Whether to return DataFrame (default: False)</li>
+</ul>
+<p><strong>Outputs</strong>:</p>
+<ul>
+<li>Optionally returns full aggregated rate DataFrame if return_full_df=True</li>
+</ul>
+<p><strong>Functions it uses</strong>:</p>
+<ul>
+<li><code>prep_df()</code></li>
+<li><code>aggregate_aa_count_lsae_to_gbd()</code></li>
+<li><code>make_full_aa_rate_df_from_aa_count_df()</code></li>
+</ul>
+<p><strong>Functions that use it</strong>: Not directly called by other functions in this module</p>
+<hr>
+<h2 id="function-dependency-tree">Function Dependency Tree</h2>
+<pre class="hljs"><code><div>Configuration Functions:
+├── load_yaml_dictionary()
+└── parse_yaml_dictionary() → uses load_yaml_dictionary()
+
+Data I/O Functions:
+├── ensure_id_columns_are_integers()
+├── read_parquet_with_integer_ids() → uses ensure_id_columns_are_integers()
+├── read_income_paths() → uses read_parquet_with_integer_ids()
+├── read_urban_paths()
+├── merge_dataframes()
+└── write_parquet() → used by multiple functions
+
+Raking Functions:
+├── prep_df() → used by multiple raking/aggregation functions
+├── rake_level() → used by rake_aa_count_lsae_to_gbd()
+├── rake_aa_count_lsae_to_gbd() → uses prep_df(), rake_level(), write_parquet()
+└── make_aa_rate_variable() → uses write_parquet()
+
+Aggregation Functions:
+├── aggregate_level() → used by aggregate_aa_count_lsae_to_gbd()
+├── aggregate_aa_count_lsae_to_gbd() → uses prep_df(), aggregate_level(), write_parquet()
+├── make_full_aa_rate_df_from_aa_count_df() → uses write_parquet()
+└── aggregate_aa_rate_lsae_to_gbd() → uses prep_df(), aggregate_aa_count_lsae_to_gbd(), make_full_aa_rate_df_from_aa_count_df()
+</div></code></pre>
+
+</body>
+</html>

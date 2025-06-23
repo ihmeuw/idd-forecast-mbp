@@ -12,7 +12,7 @@ require(data.table)
 
 
 data_path <- "/mnt/team/idd/pub/forecast-mbp/03-modeling_data"
-file_path <- glue("{data_path}/malaria_stage_2_modeling_df.parquet")
+file_path <- glue("{data_path}/dengue_stage_2_modeling_df.parquet")
 lsae_hierarchy_path <- "/mnt/team/rapidresponse/pub/population-model/admin-inputs/raking/gbd-inputs/hierarchy_lsae_1209.parquet"
 gbd_hierarchy_path <- "/mnt/team/rapidresponse/pub/population-model/admin-inputs/raking/gbd-inputs/hierarchy_gbd_2023.parquet"
 
@@ -20,19 +20,306 @@ lsae_full_hierarchy_df_path = "/mnt/team/idd/pub/forecast-mbp/04-forecasting_dat
 # Read in lsae_full_hierarchy_df_path
 lsae_full_hierarchy_df <- arrow::read_parquet(lsae_full_hierarchy_df_path)
 
+
 source("/mnt/share/homes/bcreiner/repos/idd-forecast-mbp/src/idd_forecast_mbp/modeling/helper_functions.r")
 # Read in a parquet file
 # Read in a parquet file
-malaria_df <- arrow::read_parquet(file_path)
+dengue_df <- arrow::read_parquet(file_path)
 
-malaria_df <- merge(malaria_df, lsae_full_hierarchy_df[,c("location_id", "super_region_id")], by = "location_id", all.x = TRUE)
+dengue_df <- merge(dengue_df, lsae_full_hierarchy_df[,c("location_id", "super_region_id")], by = "location_id", all.x = TRUE)
 
-cor(malaria_df$elevation, malaria_df$people_flood_days_per_capita, use = "pairwise.complete.obs")
+dengue_df$A0_af <- as.factor(dengue_df$A0_af)
+
+mod <- lm(log_dengue_inc_rate ~ dengue_suitability + relative_humidity + logit_urban_100m_threshold_1500 + people_flood_days_per_capita + A0_af,
+          data = dengue_df)
+
+mod_0 <-  lm(logit_dengue_cfr ~ A0_af,
+             data = dengue_df)
+
+dengue_df$log_people_flood_days_per_capita <- log(dengue_df$people_flood_days_per_capita + 1)
+mod <- lm(logit_dengue_cfr ~ log_gdppc_mean  + mean_temperature * logit_urban_100m_threshold_1500 + log_people_flood_days_per_capita + A0_af,
+          data = dengue_df)
+
+out <- summary(mod)[[4]]
+cbind(out[which(rownames(out) %nlike% "A0_af"), 1:3], round(out[which(rownames(out) %nlike% "A0_af"), 4], 3))
+summary(mod)$r.squared
 
 
-malaria_df$A0_af <- as.factor(as.character(paste("A0", malaria_df$A0_location_id, sep = "_")))
-malaria_df$SR_af <- as.factor(as.character(paste("SR", malaria_df$super_region_id, sep = "_")))
+plot(log(dengue_df$people_flood_days_per_capita+1), mod_0$residuals, pch = 19, col = rgb(0,0,0,.05), cex = 0.75)
 
+cor(dengue_df$log_gdppc_mean, mod_0$residuals)
+
+mod <- lm(logit_dengue_cfr ~ log_gdppc_mean + logit_urban_1km_threshold_300 + mean_high_temperature + A0_af,
+          data = dengue_df)
+
+out <- summary(mod)[[4]]
+cbind(out[which(rownames(out) %nlike% "A0_af"), 1:3], round(out[which(rownames(out) %nlike% "A0_af"), 4], 3))
+summary(mod)$r.squared
+
+mod <- lm(logit_dengue_cfr ~ log_gdppc_mean + logit_urban_1km_threshold_1500 + mean_temperature + people_flood_days_per_capita + A0_af,
+          data = dengue_df)
+
+out <- summary(mod)[[4]]
+cbind(out[which(rownames(out) %nlike% "A0_af"), 1:3], round(out[which(rownames(out) %nlike% "A0_af"), 4], 3))
+summary(mod)$r.squared
+
+
+mod <- lm(logit_dengue_cfr ~ log_gdppc_mean + logit_urban_1km_threshold_1500 + mean_temperature + relative_humidity + people_flood_days_per_capita + A0_af,
+          data = dengue_df)
+
+out <- summary(mod)[[4]]
+cbind(out[which(rownames(out) %nlike% "A0_af"), 1:3], round(out[which(rownames(out) %nlike% "A0_af"), 4], 3))
+summary(mod)$r.squared
+
+
+
+summary(mod)
+
+
+
+
+##
+
+# dengue_mortality_theshold <- 1
+# dengue_mortality_rate_theshold <- 1e-7
+# 
+# dengue_df$yn <- 0
+# dengue_df$yn[which(dengue_df$dengue_mort_rate > dengue_mortality_rate_theshold & 
+#                      dengue_df$dengue_mort_count > dengue_mortality_theshold &
+#                      dengue_df$dengue_suitability > 0)] <- 1
+# 
+# dengue_df <- dengue_df[which(dengue_df$yn == 1),]
+
+dengue_df$A0_af <- as.factor(as.character(paste("A0", dengue_df$A0_location_id, sep = "_")))
+
+income_covs <- names(dengue_df)[which(names(dengue_df) %like% "gdp" & names(dengue_df) %nlike% "A0_mean")]
+water_covs <- c("relative_humidity")
+water_covs <- as.vector(as.matrix((sapply(water_covs, function(x) names(dengue_df)[which(names(dengue_df) %like% x & names(dengue_df) %nlike% "A0_mean")]))))
+urban_covs <- names(dengue_df)[which(names(dengue_df) %like% "urban" & names(dengue_df) %like% "logit" & names(dengue_df) %nlike% "A0_mean")]
+flood_covs <- names(dengue_df)[which(names(dengue_df) %like% "capita" & names(dengue_df) %nlike% "A0_mean")]
+
+Expectation_table <- data.frame(variable = c("dengue_suitability", income_covs, water_covs, urban_covs, flood_covs),
+                                expectation = c(1, rep(0, length(income_covs)),
+                                               rep(1, length(water_covs)),
+                                               rep(1, length(urban_covs)),
+                                               rep(1, length(flood_covs))))
+
+denv_formula <- function(i_num, w_num, u_num, f_num, mult = TRUE){
+  tmp_covs <- c("dengue_suitability", income_covs[i_num], water_covs[w_num], urban_covs[u_num], flood_covs[f_num])
+  if (mult){
+    tmp_formula <- glue("log_dengue_mort_rate ~ {income_covs[i_num]} + dengue_suitability * {water_covs[w_num]} + {urban_covs[u_num]} + {flood_covs[f_num]} + 
+                    A0_af")
+  } else {
+  tmp_formula <- glue("log_dengue_mort_rate ~ {income_covs[i_num]} + dengue_suitability + {water_covs[w_num]} + {urban_covs[u_num]} + {flood_covs[f_num]} + 
+                    A0_af")
+  }
+  return(list(as.formula(tmp_formula), tmp_covs))
+}
+
+
+
+eval_model <- function(vec, mult){
+  denv_out <- denv_formula(vec[1],vec[2],vec[3],vec[4], mult)
+  tmp_mod <- lm(denv_out[[1]], data = dengue_df)
+  tmp_out <- summary(tmp_mod)[[4]]
+  tmp_out <- tmp_out[which(rownames(tmp_out) %nlike% "A0_af"), 1:4]
+  summary(tmp_mod)$r.squared
+  
+  tmp_df <- data.frame(Covariate = denv_out[[2]],
+                       Estimate = NA,
+                       StdError = NA,
+                       t_value = NA,
+                       p_value = NA)
+  for (c_num in seq_along(denv_out[[2]])){
+    tmp_df$Estimate[c_num] <- tmp_out[which(rownames(tmp_out) == denv_out[[2]][c_num]), 1]
+    tmp_df$StdError[c_num] <- tmp_out[which(rownames(tmp_out) == denv_out[[2]][c_num]), 2]
+    tmp_df$t_value[c_num] <- tmp_out[which(rownames(tmp_out) == denv_out[[2]][c_num]), 3]
+    tmp_df$p_value[c_num] <- tmp_out[which(rownames(tmp_out) == denv_out[[2]][c_num]), 4]
+  }
+  
+  tmp_df$expected <- sapply(tmp_df$Covariate, function(x)Expectation_table$expectation[which(Expectation_table$variable == x)])
+  tmp_df$observed <- tmp_df$Estimate / abs(tmp_df$Estimate)
+  tmp_df$issue_flag <- ifelse(tmp_df$observed * tmp_df$expected < 0, 1,0)
+  tmp_df$issue <- ifelse(tmp_df$observed * tmp_df$expected < 0, "ISSUE", "")
+  #
+  if (sum(tmp_df$issue_flag) == 0){
+    return(list(tmp_df,summary(tmp_mod)$r.squared, tmp_mod, mult))
+  }
+}
+
+mod_list <- vector("list", 0)
+for (i_num in seq_along(income_covs)){
+  message(glue("Running model {i_num} of {length(income_covs)}"))
+  for (w_num in seq_along(water_covs)){
+    message(glue("Running model {i_num}.{w_num} of {length(income_covs)}.{length(water_covs)}"))
+    for (u_num in seq_along(urban_covs)){
+      for (f_num in seq_along(flood_covs)){
+        for (mult in c(TRUE, FALSE)){
+          mod_list[[length(mod_list) + 1]] <- eval_model(c(i_num, w_num, u_num, f_num), mult)
+        }
+      }
+    }
+  }
+}
+
+
+
+
+
+r_vec <- unlist(lapply(mod_list, function(x)x[[2]]))
+a_vec <- unlist(lapply(mod_list, function(x)AIC(x[[3]])))
+m_vec <- unlist(lapply(mod_list, function(x)x[[4]]))
+COLS <- rep(1, length(r_vec))
+COLS[hm] <- 2
+plot(r_vec, m_vec, col = COLS, cex = 2)
+
+for (h in seq_along(hm)){
+  print(mod_list[[hm[h]]][[1]][,1:4])
+}
+
+
+#
+
+coef <- data.frame(matrix(unlist(lapply(mod_list, function(x)x[[1]][,2])), ncol = length(mod_list[[1]][[1]][,2]), byrow = TRUE))
+names(coef) <- c("dengue_suitability",
+                 "income",
+                 "water",
+                 "urban",
+                 "flood")
+
+tmp_coef <- coef[which(coef$dengue_suitability > 0.001 & coef$water > 0.004),]
+table(round(tmp_coef$water, 5))
+
+plot(tmp_coef)
+plot(coef$dengue_suitability, coef$income)
+
+
+water_levels <- names(table(round(tmp_coef$water, 5)))
+
+for (w_num in seq_along(water_levels)){
+  assign(glue("hm_{w_num}"), which(round(coef$water, 5) == water_levels[w_num] & coef$dengue_suitability > 0.001))
+}
+
+hm_1 <- which(coef$water > 0.004 & round(coef$dengue_suitability, 4) == 0.0011)
+hm_2 <- which(coef$water > 0.004 & round(coef$dengue_suitability, 4) == 0.0012)
+hm_3 <- which(coef$water > 0.004 & round(coef$dengue_suitability, 4) == 0.0013)
+
+
+for (h in seq_along(hm_1)){
+  print(mod_list[[hm_1[h]]][[1]][,1:3])
+  print(mod_list[[hm_1[h]]][[4]])
+}
+
+w_num <-5
+hm_i <- get(glue("hm_{w_num}"))
+for (h in seq_along(hm_i)){
+  print(mod_list[[hm_i[h]]][[1]][,1:3])
+  print(mod_list[[hm_i[h]]][[4]])
+}
+
+
+for (h in seq_along(hm_3)){
+  print(mod_list[[hm_3[h]]][[1]][,1:4])
+}
+
+
+
+
+
+
+# Model 1:
+# dengue_suitability
+# log_gdppc_mean
+# relative humidity (with or without centered)
+# logit 1km 1500 urban threshold (with or without centered)
+# people_flood_days_per_capita (with or without centered)
+# Interaction between suit & humidity
+
+# Model 2:
+# dengue_suitability
+# log_gdppc_mean
+# relative humidity (with or without centered)
+# logit 100m 1500 urban threshold (with or without centered)
+# people_flood_days_per_capita (with or without centered)
+
+# Model 3:
+# dengue_suitability
+# log_gdppc_mean
+# relative humidity (with or without centered)
+# logit 100m 300 urban threshold (with or without centered)
+# people_flood_days_per_capita (with or without centered)
+
+
+tmp_coef <- coef[which(coef$dengue_suitability > 0.004 & coef$water > 0.003),]
+COLS <- rep(1, dim(tmp_coef)[1])
+COLS[which(round(tmp_coef[,1], 5) == 0.00692)] <- 2
+COLS[which(round(tmp_coef[,1], 5) == 0.00705)] <- 3
+plot(tmp_coef, pch = 19, col = COLS)
+plot(jitter(tmp_coef[,1]), jitter(tmp_coef[,4]), col = COLS)
+#
+
+tmp_covs <- c("dengue_suitability", income_covs[i_num], water_covs[w_num], urban_covs[u_num], flood_covs[f_num])
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+mod_list <- vector("list", 0)
+counter <- 1
+for (i_num in seq_along(income_covs)){
+  for (w_num in seq_along(water_covs)){
+    for (u_num in seq_along(urban_covs)){
+      for (f_num in seq_along(flood_covs)){
+        tmp_formula <- glue("log_dengue_mort_rate ~ {income_covs[i_num]} * dengue_suitability + year + 
+                    ADM0_NAME_af")
+        tmp_mod <- lm(as.formula(tmp_formula), data = dengue_df)
+        tmp_out <- summary(tmp_mod)[[4]]
+        mod_list[[counter]] <- list(tmp_mod, tmp_out[which(rownames(tmp_out) %nlike% "ADM0"), 1:3], summary(tmp_mod)$r.squared)
+        counter  <- counter + 1
+      }
+    }
+  }
+}
+
+lapply(mod_list, function(x) x[[3]])
+lapply(mod_list, function(x) x[[2]])
+
+
+
+
+
+mod_1 <- lm(log_dengue_mort_rate ~ log_gdppc_mean * dengue_suitability + weighted_100m_urban_threshold_1500.0_simple_mean + 
+              total_precipitation + people_flood_days_per_capita + 
+             A0_af,
+            data = dengue_df)
+tmp_out <- summary(mod_1)[[4]]
+tmp_out[which(rownames(tmp_out) %nlike% "A0_af"), c(1,4)]
+summary(mod_1)$r.squared
 ###
 #
 # Without A0_af, with A0_af, centered with A0_af

@@ -8,16 +8,6 @@
 
 
 COVARIATE_DICT:
-  elevation:
-    covariate_name: "elevation"
-    covariate_resolution_numerator: 5
-    covariate_resolution_denominator: 120
-    year_start: 2020
-    year_end: 2020
-    synoptic: true
-    cc_sensitive: false
-    summary_statistic: "mean"
-    path: "/snfs1/WORK/11_geospatial/01_covariates/00_MBG_STANDARD/elevation/mean/2019_06_10/synoptic/elevation_mean_synoptic.tif"
   malaria_pfpr:
     covariate_name: "malaria_pfpr"
     covariate_resolution_numerator: 5
@@ -68,36 +58,6 @@ COVARIATE_DICT:
     cc_sensitive: false
     summary_statistic: "mean"
     path: "/mnt/team/rapidresponse/pub/malaria-denv/data/02-processed-data/malaria-mortality-rate/2024_GBD2023_Global_Pf_Mortality_Rate_{year}.tif"
-  malaria_irs:
-    covariate_name: "malaria_irs"
-    covariate_resolution_numerator: 5
-    covariate_resolution_denominator: 120
-    year_start: 2000
-    year_end: 2020
-    synoptic: false
-    cc_sensitive: false
-    summary_statistic: "mean"
-    path: "/mnt/team/rapidresponse/pub/malaria-denv/data/02-processed-data/malaria-irs/202106_Africa_Indoor_Residual_Spraying_Coverage_{year}.tif"
-  malaria_itn:
-    covariate_name: "malaria_itn"
-    covariate_resolution_numerator: 5
-    covariate_resolution_denominator: 120
-    year_start: 2000
-    year_end: 2020
-    synoptic: false
-    cc_sensitive: false
-    summary_statistic: "mean"
-    path: "/mnt/team/rapidresponse/pub/malaria-denv/data/02-processed-data/malaria-itn/202106_Africa_Insecticide_Treated_Net_Use_{year}.tiff"
-  malaria_anti_viral:
-    covariate_name: "malaria_anti_viral"
-    covariate_resolution_numerator: 5
-    covariate_resolution_denominator: 120
-    year_start: 2000
-    year_end: 2020
-    synoptic: false
-    cc_sensitive: false
-    summary_statistic: "mean"
-    path: "/mnt/team/rapidresponse/pub/malaria-denv/data/02-processed-data/malaria-anti/202106_Global_Antimalarial_Effective_Treatment_{year}.tif"
   dengue_suitability:
     covariate_name: "dengue_suitability"
     covariate_resolution_numerator: 5
