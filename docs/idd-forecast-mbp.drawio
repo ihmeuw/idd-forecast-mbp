@@ -99,17 +99,29 @@
         <mxCell id="Cs1OVYd5yVLJFfUxwkED-33" value="Forecast_full_df" style="text;strokeColor=#A50040;fillColor=#d80073;align=left;verticalAlign=middle;spacingLeft=4;spacingRight=4;overflow=hidden;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;rotatable=0;whiteSpace=wrap;html=1;fontColor=#ffffff;opacity=50;" parent="Cs1OVYd5yVLJFfUxwkED-27" vertex="1">
           <mxGeometry y="100" width="140" height="30" as="geometry" />
         </mxCell>
-        <mxCell id="P4oIJ3CgS1AJP2-OAXij-1" value="forecast_dengue_admin_2s_launcher" style="swimlane;fontStyle=0;childLayout=stackLayout;horizontal=1;startSize=40;horizontalStack=0;resizeParent=1;resizeParentMax=0;resizeLast=0;collapsible=1;marginBottom=0;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1">
-          <mxGeometry x="320" y="320" width="400" height="160" as="geometry" />
+        <mxCell id="P4oIJ3CgS1AJP2-OAXij-1" value="forecast_dengue_admin_2s_launcher" style="swimlane;fontStyle=0;childLayout=stackLayout;horizontal=1;startSize=40;horizontalStack=0;resizeParent=1;resizeParentMax=0;resizeLast=0;collapsible=1;marginBottom=0;whiteSpace=wrap;html=1;fillColor=#008a00;strokeColor=#005700;fontColor=#ffffff;" vertex="1" parent="1">
+          <mxGeometry x="280" y="320" width="600" height="160" as="geometry" />
         </mxCell>
-        <mxCell id="P4oIJ3CgS1AJP2-OAXij-2" value="Item 1" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=4;spacingRight=4;overflow=hidden;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;rotatable=0;whiteSpace=wrap;html=1;" vertex="1" parent="P4oIJ3CgS1AJP2-OAXij-1">
-          <mxGeometry y="40" width="400" height="40" as="geometry" />
+        <mxCell id="P4oIJ3CgS1AJP2-OAXij-2" value="Input:&amp;nbsp;{FDP}/dengue_forecast_ssp_scenario_{ssp_scenario}_draw_{draw}.parquet" style="text;strokeColor=#82b366;fillColor=#d5e8d4;align=left;verticalAlign=middle;spacingLeft=4;spacingRight=4;overflow=hidden;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;rotatable=0;whiteSpace=wrap;html=1;" vertex="1" parent="P4oIJ3CgS1AJP2-OAXij-1">
+          <mxGeometry y="40" width="600" height="40" as="geometry" />
         </mxCell>
-        <mxCell id="P4oIJ3CgS1AJP2-OAXij-3" value="Item 2" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=4;spacingRight=4;overflow=hidden;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;rotatable=0;whiteSpace=wrap;html=1;" vertex="1" parent="P4oIJ3CgS1AJP2-OAXij-1">
-          <mxGeometry y="80" width="400" height="40" as="geometry" />
+        <mxCell id="P4oIJ3CgS1AJP2-OAXij-3" value="Runs: /forecasting/dengue/forecast_dengue_admin_2s_rocket.r" style="text;strokeColor=#82b366;fillColor=#d5e8d4;align=left;verticalAlign=middle;spacingLeft=4;spacingRight=4;overflow=hidden;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;rotatable=0;whiteSpace=wrap;html=1;" vertex="1" parent="P4oIJ3CgS1AJP2-OAXij-1">
+          <mxGeometry y="80" width="600" height="40" as="geometry" />
         </mxCell>
-        <mxCell id="P4oIJ3CgS1AJP2-OAXij-4" value="Item 3" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=4;spacingRight=4;overflow=hidden;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;rotatable=0;whiteSpace=wrap;html=1;" vertex="1" parent="P4oIJ3CgS1AJP2-OAXij-1">
-          <mxGeometry y="120" width="400" height="40" as="geometry" />
+        <mxCell id="P4oIJ3CgS1AJP2-OAXij-4" value="Output:&amp;nbsp;{FDP}/dengue_forecast_ssp_scenario_{ssp_scenario}_draw_{draw}_with_predictions.parquet" style="text;strokeColor=#82b366;fillColor=#d5e8d4;align=left;verticalAlign=middle;spacingLeft=4;spacingRight=4;overflow=hidden;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;rotatable=0;whiteSpace=wrap;html=1;" vertex="1" parent="P4oIJ3CgS1AJP2-OAXij-1">
+          <mxGeometry y="120" width="600" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="P4oIJ3CgS1AJP2-OAXij-5" value="forecast_dengue_admin_2s_launcher" style="swimlane;fontStyle=0;childLayout=stackLayout;horizontal=1;startSize=40;horizontalStack=0;resizeParent=1;resizeParentMax=0;resizeLast=0;collapsible=1;marginBottom=0;whiteSpace=wrap;html=1;fillColor=#008a00;strokeColor=#005700;fontColor=#ffffff;" vertex="1" parent="1">
+          <mxGeometry x="920" y="320" width="600" height="160" as="geometry" />
+        </mxCell>
+        <mxCell id="P4oIJ3CgS1AJP2-OAXij-6" value="Input:&amp;nbsp;{FDP}/dengue_forecast_ssp_scenario_{ssp_scenario}_draw_{draw}.parquet" style="text;strokeColor=#82b366;fillColor=#d5e8d4;align=left;verticalAlign=middle;spacingLeft=4;spacingRight=4;overflow=hidden;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;rotatable=0;whiteSpace=wrap;html=1;" vertex="1" parent="P4oIJ3CgS1AJP2-OAXij-5">
+          <mxGeometry y="40" width="600" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="P4oIJ3CgS1AJP2-OAXij-7" value="Runs: /forecasting/dengue/forecast_dengue_admin_2s_rocket.r" style="text;strokeColor=#82b366;fillColor=#d5e8d4;align=left;verticalAlign=middle;spacingLeft=4;spacingRight=4;overflow=hidden;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;rotatable=0;whiteSpace=wrap;html=1;" vertex="1" parent="P4oIJ3CgS1AJP2-OAXij-5">
+          <mxGeometry y="80" width="600" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="P4oIJ3CgS1AJP2-OAXij-8" value="Output:&amp;nbsp;{FDP}/dengue_forecast_ssp_scenario_{ssp_scenario}_draw_{draw}_with_predictions.parquet" style="text;strokeColor=#82b366;fillColor=#d5e8d4;align=left;verticalAlign=middle;spacingLeft=4;spacingRight=4;overflow=hidden;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;rotatable=0;whiteSpace=wrap;html=1;" vertex="1" parent="P4oIJ3CgS1AJP2-OAXij-5">
+          <mxGeometry y="120" width="600" height="40" as="geometry" />
         </mxCell>
       </root>
     </mxGraphModel>
