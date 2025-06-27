@@ -34,30 +34,38 @@ def format_aa_gbd_df(cause, measure, metric, df, year_start = 2000, year_end = N
 
     return df
 
-def process_lsae_df(cause, measure, hierarchy_df):
+def process_lsae_df(cause, measure, aa_full_population_df, hierarchy_df):
     df_path = globals()[f'{cause}_variables'][measure]
     df = read_parquet_with_integer_ids(df_path)
+    per_capita_col = [col for col in df.columns if "per_capita" in col][0]
+    df = df[["location_id", "year_id", per_capita_col]]
+    df = df.merge(aa_full_population_df, on=["location_id", "year_id"], how="left")
+    df.loc[df["population"] == 0, per_capita_col] = 0
     if cause == "malaria" and measure == "pfpr":
         new_var_name = "malaria_pfpr"
-        df.rename(columns={"malaria_pfpr_mean_per_capita": new_var_name}, inplace=True)
+        df.rename(columns={per_capita_col: new_var_name}, inplace=True)
         # Set all new_var_name values to 0 if population is 0
-        df.loc[df["population"] == 0, new_var_name] = 0
         df = df[["location_id", "year_id", new_var_name, "population"]]
     elif cause == "malaria":
         measure_short = measure_map[measure]["short"]
-        df.rename(columns=lambda x: x.replace("_pf", ""), inplace=True)
-        old_var_name = f"{cause}_{measure_short}_rate_mean"
         new_var_name = f"{cause}_{measure_short}_count"
-        df = df.rename(columns={old_var_name: new_var_name})
-        df.loc[df["population"] == 0, new_var_name] = 0
+        df[new_var_name] = df[per_capita_col] * df["population"]
         df = df[["location_id", "year_id", new_var_name, "population"]]
     else:
-        new_var_name = "dengue_suit"
+        new_var_name = measure
         df.rename(columns={"dengue_suitability_mean_per_capita": new_var_name}, inplace=True)
-        df.loc[df["population"] == 0, new_var_name] = 0
         df = df[["location_id", "year_id", new_var_name, "population"]]
 
     df = make_aa_df_square(new_var_name, df, hierarchy_df, level_start = 3, level_end = 5)
+
+    df = df.merge(
+        aa_full_population_df[["location_id", "year_id", "population"]],
+        on=["location_id", "year_id"],
+        how="left",
+        suffixes=("", "_full"),
+    )
+    df["population"] = df["population"].fillna(df["population_full"])
+    df = df.drop(columns=["population_full"]) 
 
     # df = df.merge(hierarchy_df[['location_id', "in_gbd_hierarchy"]], on="location_id", how="left")
     # df = df[df["in_gbd_hierarchy"] == True].drop(columns=["in_gbd_hierarchy"])
