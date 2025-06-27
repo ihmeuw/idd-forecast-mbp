@@ -6,6 +6,9 @@ REPO_ROOT = Path("/mnt/share/homes/bcreiner/repos")
 
 RAW_DATA_PATH = MODEL_ROOT / "01-raw_data"
 PROCESSED_DATA_PATH = MODEL_ROOT / "02-processed_data"
+MODELING_DATA_PATH = MODEL_ROOT / "03-modeling_data"
+FORECASTING_DATA_PATH = MODEL_ROOT / "04-forecasting_data"
+UPLOAD_DATA_PATH = MODEL_ROOT / "05-upload_data"
 GBD_DATA_PATH = f"{RAW_DATA_PATH}/gbd"
 LSAE_INPUT_PATH = PROCESSED_DATA_PATH / "lsae_1209"
 
@@ -17,6 +20,7 @@ package_name = "idd_forecast_mbp"
 # Constants
 years = list(range(1970, 2101))
 past_years = list(range(1970, 2024))
+model_years = list(range(2000, 2101))
 future_years = list(range(2024, 2101))
 
 # GBD Constants
@@ -32,17 +36,25 @@ sexes = 3
 dengue_id = 357
 malaria_ids = 345
 
+
+aa_merge_variables = ["location_id", "year_id"]
+as_merge_variables = ["location_id", "year_id", "age_group_id", "sex_id"]
 #
 draws = [f"{i:03d}" for i in range(100)]
 fhs_draws = [f"draw_{i}" for i in range(100)]
 
 # Maps for various constants
 cause_map = {
-    "malaria":{
-        "cause_id": 345
+    'malaria':{
+        'cause_id': 345,
+        'reference_age_group_id': 6,
+        'reference_sex_id': 1
+
     },
-    "dengue": {
-        "cause_id": 357
+    'dengue': {
+        'cause_id': 357,
+        'reference_age_group_id': 3,
+        'reference_sex_id': 1
     }
 }
 
@@ -52,9 +64,43 @@ malaria_variables = {
     "mortality": f"{LSAE_INPUT_PATH}/malaria_pf_mort_rate_mean_cc_insensitive.parquet",
 }
 dengue_variables = {
-    "dengue_suit": f"{LSAE_INPUT_PATH}/dengue_suitability_mean_cc_insensitive.parquet"
+    "dengue_suitability": f"{LSAE_INPUT_PATH}/dengue_suitability_mean_cc_insensitive.parquet"
 }
 
+modeling_measure_map = {
+    "malaria": {
+        "mortality": {
+            "short": "malaria_mort_rate",
+            "gbd_measure_id": 1,
+            "gbd_metric_id": 3,
+            "count_name": 'malaria_mort_count',
+            "transformation": "log",
+        },
+        "incidence": {
+            "short": "malaria_inc_rate",
+            "gbd_measure_id": 6,
+            "gbd_metric_id": 3,
+            "count_name": 'malaria_inc_count',
+            "transformation": "log"
+        }
+    },
+    "dengue": {
+        "incidence": {
+            "short": "dengue_inc_rate",
+            "gbd_measure_id": 6,
+            "gbd_metric_id": 3,
+            "count_name": 'dengue_inc_count',
+            "transformation": "log"
+        },
+        "cfr": {
+            "short": "dengue_cfr",
+            "gbd_measure_id": [1,6],
+            "gbd_metric_id": [3,3],
+            "count_name": None,
+            "transformation": "logit"
+        }
+    }
+}
 
 measure_map = {
     "mortality": {
@@ -134,3 +180,36 @@ dah_scenarios = {
         "color": "#8E44AD"
     }
 }
+
+
+problematic_rule_map = {
+    'malaria': {
+        'incidence': {
+            'count_raking_factor_max': 100,        	# Flag if raking factor
+            'rate_max': 1,					# Flag if the rate > 1
+            'count_raking_factor_conditional': 10, 	# Combined with rate condition below
+            'rate_max_conditional': 0.2          	# Flag if raking factor > 10 AND rate > 0.2
+        },
+        'mortality': {
+            'count_raking_factor_max': 100,        		# Flag if raking factor > 100
+            'rate_max': 0.01,					    	# Flag if the rate > 1
+            'count_raking_factor_conditional': 1000,	# This combined with 1 means this is turned off
+            'rate_max_conditional': 1         	    	# Flag if raking factor > 10 AND rate > 0.2
+        }
+    },
+    'dengue': {
+        'incidence': {
+            'count_raking_factor_max': 100000,        	# Flag if raking factor > 100
+            'rate_max': 1/3,					    # Flag if the rate > 1
+            'count_raking_factor_conditional': 100000, # This combined with 0 means this is turned off
+            'rate_max_conditional': 1         	    # Flag if raking factor > 10 AND rate > 0.2
+        },
+        'mortality': {
+            'count_raking_factor_max': 100000,        	# Flag if raking factor > 100
+            'rate_max': 0.0003,				            # Flag if the rate > 1
+            'count_raking_factor_conditional': 100000, # This combined with 0 means this is turned off
+            'rate_max_conditional': .1        	        # Flag if raking factor > 10 AND rate > 0.2
+        }        
+    }
+}
+

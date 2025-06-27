@@ -2,6 +2,8 @@ import yaml
 from pathlib import Path
 import pandas as pd
 import numpy as np
+import os
+import time
 from idd_forecast_mbp import constants as rfc
 
 
@@ -167,6 +169,78 @@ def write_parquet(df, filepath, max_retries=3, compression='snappy', index=False
             else:
                 print(f'Retrying... ({attempt + 1}/{max_retries})')
                 
+    return False
+
+def write_hdf(df, filepath, key='df', max_retries=3, delay=1, validate=True, **kwargs):
+    """Safely write DataFrame to HDF5 with retry logic, file locking handling, and validation"""
+    import tempfile
+    
+    for attempt in range(max_retries):
+        temp_path = None
+        try:
+            # Ensure directory exists
+            os.makedirs(os.path.dirname(filepath), exist_ok=True)
+            
+            if validate:
+                # Write to temporary file first for validation
+                temp_dir = os.path.dirname(filepath)
+                with tempfile.NamedTemporaryFile(suffix='.h5', dir=temp_dir, delete=False) as tmp_file:
+                    temp_path = tmp_file.name
+                
+                # Write to temp file
+                df.to_hdf(temp_path, key=key, mode='w', format='table', **kwargs)
+                
+                # Validate the written file
+                try:
+                    # Test read the entire file
+                    test_df = pd.read_hdf(temp_path, key=key)
+                    
+                    # Basic validation checks
+                    if len(test_df) != len(df):
+                        raise ValueError(f'Row count mismatch: {len(test_df)} vs {len(df)}')
+                    
+                    if list(test_df.columns) != list(df.columns):
+                        raise ValueError('Column mismatch')
+                    
+                    print(f'✅ Validation passed for {filepath}')
+                    
+                    # Move temp file to final location
+                    os.rename(temp_path, filepath)
+                    os.chmod(filepath, 0o775)
+                    return True
+                    
+                except Exception as e:
+                    print(f'❌ Validation failed for {filepath}: {e}')
+                    if temp_path and os.path.exists(temp_path):
+                        os.remove(temp_path)
+                    raise e
+            else:
+                # Write directly without validation
+                df.to_hdf(filepath, key=key, mode='w', format='table', **kwargs)
+                os.chmod(filepath, 0o775)
+                print(f'✅ Written without validation: {filepath}')
+                return True
+            
+        except Exception as e:
+            # Clean up temp file if it exists
+            if temp_path and os.path.exists(temp_path):
+                try:
+                    os.remove(temp_path)
+                except:
+                    pass
+            
+            if "Resource temporarily unavailable" in str(e) or "unable to lock" in str(e):
+                if attempt < max_retries - 1:
+                    print(f"File lock attempt {attempt + 1} failed. Retrying in {delay} seconds...")
+                    time.sleep(delay)
+                    delay *= 2  # Exponential backoff
+                    continue
+            
+            # For final attempt or non-lock errors, re-raise
+            if attempt == max_retries - 1:
+                print(f'❌ Failed to write {filepath} after {max_retries} attempts')
+            raise e
+    
     return False
 
 def level_filter(hierarchy_df, start_level, end_level=None, return_ids = False):

@@ -1,4 +1,5 @@
 import pandas as pd
+import numpy as np 
 from idd_forecast_mbp import constants as rfc
 from idd_forecast_mbp.helper_functions import write_parquet
 
@@ -30,28 +31,43 @@ def check_concordance(variable, aa_full_df, aa_gbd_df, tolerance = 0.01):
         concordance_stats = {}
     return concordance_stats  
 
+import itertools
 
 def make_aa_df_square(variable, df, hierarchy_df, level_start, level_end):
     df = df.copy()
     years = df['year_id'].unique()
     level_hierarchy_df = hierarchy_df[(hierarchy_df['level'] >= level_start) & (hierarchy_df['level'] <= level_end)].copy()
     missing_dfs = []
+                    
+    # Handle both single variable and list of variables
+    if isinstance(variable, str):
+        variables = [variable]
+    else:
+        variables = variable
+                                                    
     for year in years:
         year_df = df[df['year_id'] == year].copy()
         missing_location_rows = level_hierarchy_df[~level_hierarchy_df['location_id'].isin(year_df['location_id'])]
         if not missing_location_rows.empty:
-            # Create a DataFrame with the missing locations and set the count_variable to 0
-            missing_df = pd.DataFrame({
+            # Create base DataFrame with location and year info
+            missing_df_dict = {
                 'location_id': missing_location_rows['location_id'].values,
                 'year_id': year,
-                variable: 0,
                 'level': missing_location_rows['level'].values
-            })
+            }
+
+            # Add each variable with 0 values
+            for var in variables:
+                missing_df_dict[var] = 0
+    
+            missing_df = pd.DataFrame(missing_df_dict)
             missing_dfs.append(missing_df)
+                    
     # Check if missing dfs is not empty
     if missing_dfs:
         missing_df = pd.concat(missing_dfs, ignore_index=True).drop(columns=['level'])
         df = pd.concat([df, missing_df], ignore_index=True)
+                                
     return df
 
 ######### Raking functions #########
@@ -66,7 +82,7 @@ def prep_df(df, hierarchy_df):
         df = df.drop(columns=['parent_id'])
     return df
 
-def rake_level(count_variable, level_df, level_m1_df, hierarchy_df):
+def rake_level(count_variable, level_df, level_m1_df, problematic_rules, hierarchy_df):
     '''
     Rakes the level DataFrame to the next level using the hierarchy DataFrame.
     '''
@@ -81,11 +97,17 @@ def rake_level(count_variable, level_df, level_m1_df, hierarchy_df):
         on='location_id',
         how='left'
     )
+    level_df['current_rate'] = level_df[count_variable] / level_df['population']
+    # Make a column called 'effective_population' that is equal to population where count_variable > 0, else 0
+    level_df['effective_population'] = np.where(level_df[count_variable] > 0, level_df['population'], 0)
     # Aggregate the count variable by parent_id
     level_m1_agg_df= level_df.groupby(['parent_id', 'year_id']).agg({
         count_variable: 'sum',
-        'population': 'sum'
+        'population': 'sum',
+        'effective_population': 'sum'
     }).reset_index()
+    level_m1_agg_df = level_m1_agg_df.rename(columns={'population': 'parent_population'})
+    level_m1_agg_df = level_m1_agg_df.rename(columns={'effective_population': 'parent_effective_population'})
     # Merge in the level - 1 df
     level_m1_agg_df = level_m1_agg_df.merge(
         level_m1_df[['year_id', 'parent_id', f'parent_{count_variable}']],
@@ -93,41 +115,75 @@ def rake_level(count_variable, level_df, level_m1_df, hierarchy_df):
         how='left'
     )
     # Calculate the raking factor
-    level_m1_agg_df['use_population'] = False
-    level_m1_agg_df['raking_factor'] = level_m1_agg_df[f'parent_{count_variable}'] / level_m1_agg_df[count_variable]
+    level_m1_agg_df['count_raking_factor'] = level_m1_agg_df[f'parent_{count_variable}'] / level_m1_agg_df[count_variable]
+    level_m1_agg_df['full_population_raking_factor'] = level_m1_agg_df[f'parent_{count_variable}'] / level_m1_agg_df['parent_population']
+    level_m1_agg_df['population_raking_factor'] = level_m1_agg_df[f'parent_{count_variable}'] / level_m1_agg_df['parent_effective_population']
     # Set the raking factor to 1 where the parent count variable is 0
-    level_m1_agg_df.loc[level_m1_agg_df[f'parent_{count_variable}'] == 0, 'raking_factor'] = 0
-    # Set the
-    # Print all the rows where level_m1_agg_df[f'agg_{count_variable}'] != 0 and level_m1_agg_df[count_variable] == 0
-    mask = (level_m1_agg_df[f'parent_{count_variable}'] != 0) & (level_m1_agg_df[count_variable] == 0)
-    if mask.any():
-        mask_df = level_m1_agg_df[mask].copy()
-        mask_df['raking_factor'] = level_m1_agg_df[f'parent_{count_variable}'] / level_m1_agg_df['population']
-        mask_df['use_population'] = True
-        # Replace the masked rows in level_m1_agg_df with the mask_df
-        level_m1_agg_df.loc[mask, 'raking_factor'] = mask_df['raking_factor']
-        level_m1_agg_df.loc[mask, 'use_population'] = mask_df['use_population']
-    # Set the raking factor to 1 where the use
+    level_m1_agg_df.loc[level_m1_agg_df[f'parent_{count_variable}'] == 0, 'count_raking_factor'] = 0
+    level_m1_agg_df.loc[level_m1_agg_df[f'parent_{count_variable}'] == 0, 'full_population_raking_factor'] = 0
+    level_m1_agg_df.loc[level_m1_agg_df[f'parent_{count_variable}'] == 0, 'population_raking_factor'] = 0
+
+
     level_df = level_df.merge(
-        level_m1_agg_df[['year_id', 'parent_id', 'raking_factor', 'use_population']],
+        level_m1_agg_df[['year_id', 'parent_id', f'parent_{count_variable}','count_raking_factor', 'full_population_raking_factor', 'population_raking_factor']],
         on=['year_id', 'parent_id'],
         how='left'
     )
 
+    # replace population_raking_factor with full_population_raking_factor if population_raking_factor is inf or the rate we will get if we use effective will be too high
+    level_df['used_full_population_raking_factor'] = np.where(level_df['population_raking_factor'] > problematic_rules['rate_max'], True, False)
+    level_df['population_raking_factor'] = np.where(level_df['population_raking_factor'] > problematic_rules['rate_max'], level_df['full_population_raking_factor'], level_df['population_raking_factor'])
+    # drop zero_population_raking_factor
+    level_df = level_df.drop(columns=['full_population_raking_factor'])
+
+    # Setting up which populaiton to use for raking and multiplying
+    effective_population_mask = level_df['used_full_population_raking_factor'] == False
+    level_df['population_to_use'] = level_df['population']
+    level_df.loc[effective_population_mask,'population_to_use'] = level_df.loc[effective_population_mask,'effective_population']
+
+    level_df['count_based_count'] = level_df[count_variable] * level_df['count_raking_factor']
+    level_df['population_based_count'] = level_df['population_to_use'] * level_df['population_raking_factor']
+
+    # Always use the actual population here!
+    level_df['count_based_rate'] = level_df['count_based_count'] / level_df['population']
+    level_df['population_based_rate'] = level_df['population_based_count'] / level_df['population']
+    level_df['parent_year_id'] = level_df['parent_id'].astype(str).str.cat(level_df['year_id'].astype(str), sep='_')
+
+    # Which level_df rows have either count_raking_factor = inf or count_based_rate is big
+    problematic_rows = level_df[(level_df['count_raking_factor'] > problematic_rules['count_raking_factor_max']) | 
+                                (level_df['count_based_rate'] > problematic_rules['rate_max']) | 
+                                ((level_df['count_raking_factor'] > problematic_rules['count_raking_factor_conditional']) & (level_df['count_based_rate'] > problematic_rules['rate_max_conditional']))]
+    problematic_rows = problematic_rows[problematic_rows['count_based_rate'] > problematic_rows['population_based_rate']]
+    npinf_rows = level_df[(level_df['count_raking_factor'] == np.inf)]
+    problematic_rows = pd.concat([problematic_rows, npinf_rows]).drop_duplicates()
+
+    problematic_parent_years = problematic_rows['parent_year_id'].drop_duplicates().reset_index(drop=True).to_frame(name='parent_year_id')
+    problematic_parent_years['use_population'] = True
+    level_df = level_df.merge(
+        problematic_parent_years,
+        on='parent_year_id',
+        how='left'
+    )
+    
+    mask = level_df['use_population'].isna()
+    level_df.loc[mask, 'use_population'] = False
+    level_df['use_population'] = level_df['use_population'].astype('boolean')
+
     # For rows where use_population is True
-    population_mask = level_df['use_population'] == True
-    count_mask = level_df['use_population'] == False
-    level_df.loc[count_mask, count_variable] = level_df.loc[count_mask, count_variable] * level_df.loc[count_mask, 'raking_factor']
-    level_df.loc[population_mask, count_variable] = level_df.loc[population_mask, 'population'] * level_df.loc[population_mask, 'raking_factor']
+    population_mask = (level_df['use_population'] == True) & (level_df['set_by_gbd'] == False)
+    count_mask = (level_df['use_population'] == False) & (level_df['set_by_gbd'] == False)
+    # Note we use 'population_to_use' here!!!
+    level_df.loc[count_mask, count_variable] = level_df.loc[count_mask, count_variable] * level_df.loc[count_mask, 'count_raking_factor']
+    level_df.loc[population_mask, count_variable] = level_df.loc[population_mask, 'population_to_use'] * level_df.loc[population_mask, 'population_raking_factor']
         # Apply the raking factor to the count variable
         
-    
+    drop_cols = [col for col in level_df.columns if 'based' in col or 'raking' in col] + ['parent_id', f'parent_{count_variable}', 'use_population', 'used_full_population_raking_factor', 'population_to_use', 'effective_population', 'parent_year_id', 'current_rate']
     # Drop the raking factor
-    level_df = level_df.drop(columns=['raking_factor', 'parent_id', 'use_population'])
+    level_df = level_df.drop(columns=drop_cols)
     #
     return level_df
 
-def rake_aa_count_lsae_to_gbd(count_variable, hierarchy_df, aa_gbd_count_df, aa_lsae_count_df, aa_full_count_df_path, return_full_df=False):
+def rake_aa_count_lsae_to_gbd(count_variable, hierarchy_df, aa_gbd_count_df, aa_lsae_count_df, problematic_rules, aa_full_count_df_path=None, return_full_df=False):
     '''
     Rakes the LSAE age-aggregated data to match the GBD age-aggregated data.
     '''
@@ -137,11 +193,17 @@ def rake_aa_count_lsae_to_gbd(count_variable, hierarchy_df, aa_gbd_count_df, aa_
     aa_lsae_count_df = make_aa_df_square(count_variable, aa_lsae_count_df, hierarchy_df, level_start = 3, level_end = 5)
     
     aa_gbd_count_df[f'{count_variable}_gbd'] = aa_gbd_count_df[count_variable]
+    aa_gbd_count_df['set_by_gbd'] = True
     aa_lsae_count_df = aa_lsae_count_df.merge(
-        aa_gbd_count_df[['location_id', 'year_id', f'{count_variable}_gbd']],
+        aa_gbd_count_df[['location_id', 'year_id', f'{count_variable}_gbd', 'set_by_gbd']],
         on=['location_id', 'year_id'],
         how='left'
     )
+
+    # Track which locations are already set by GBD
+    mask = aa_lsae_count_df['set_by_gbd'].isna()
+    aa_lsae_count_df.loc[mask, 'set_by_gbd'] = False
+    aa_lsae_count_df['set_by_gbd'] = aa_lsae_count_df['set_by_gbd'].astype('boolean')
 
     aa_lsae_count_df[count_variable] = aa_lsae_count_df[f'{count_variable}_gbd'].fillna(aa_lsae_count_df[count_variable])
     aa_lsae_count_df = aa_lsae_count_df.drop(columns=[f'{count_variable}_gbd'])
@@ -150,12 +212,12 @@ def rake_aa_count_lsae_to_gbd(count_variable, hierarchy_df, aa_gbd_count_df, aa_
     level_m1_df = aa_gbd_count_0_to_3_df[aa_gbd_count_0_to_3_df['level'] == 3].copy()
     level_df = aa_lsae_count_df[aa_lsae_count_df['level'] == 4].copy()
     level_df = make_aa_df_square(count_variable, level_df, hierarchy_df, 4, 4)
-    level_4_df = rake_level(count_variable, level_df, level_m1_df, hierarchy_df)
+    level_4_df = rake_level(count_variable, level_df, level_m1_df, problematic_rules, hierarchy_df)
     # Rake 5 to 4
     level_m1_df = level_4_df.copy()
     level_df = aa_lsae_count_df[aa_lsae_count_df['level'] == 5].copy()
     level_df = make_aa_df_square(count_variable, level_df, hierarchy_df, 5, 5)
-    level_5_df = rake_level(count_variable, level_df, level_m1_df, hierarchy_df)
+    level_5_df = rake_level(count_variable, level_df, level_m1_df, problematic_rules, hierarchy_df)
     # Make aa_full_df
     aa_full_count_df = pd.concat([
         aa_gbd_count_0_to_3_df,
@@ -242,7 +304,7 @@ def make_aa_full_rate_df_from_aa_count_df(rate_variable, count_variable, aa_full
     aa_full_rate_df[rate_variable] = aa_full_rate_df[count_variable] / aa_full_rate_df['population']
     # Set rate to 0 where population is 0 to avoid division by zero
     aa_full_rate_df.loc[aa_full_rate_df['population'] == 0, rate_variable] = 0
-    aa_full_rate_df = aa_full_rate_df.drop(columns=[count_variable, 'population'])
+    aa_full_rate_df = aa_full_rate_df.drop(columns=[count_variable])
     if 'level' in aa_full_rate_df.columns:
         aa_full_rate_df = aa_full_rate_df.drop(columns=['level'])
     if aa_full_rate_df_path is not None:
@@ -259,7 +321,7 @@ def aggregate_aa_rate_lsae_to_gbd(rate_variable, hierarchy_df, aa_lsae_rate_df, 
     aa_lsae_rate_df = prep_df(aa_lsae_rate_df, hierarchy_df)
     tmp_aa_lsae_count_df = aa_lsae_rate_df[aa_lsae_rate_df['level'] == 5].copy()
     tmp_aa_lsae_count_df = make_aa_df_square(tmp_count_variable, tmp_aa_lsae_count_df, hierarchy_df, level_start=5, level_end=5)
-    tmp_aa_lsae_count_df = tmp_aa_lsae_count_df.merge(aa_full_population_df[['location_id', 'year_id', 'population']], on=['location_id', 'year_id'], how='left')
+    tmp_aa_lsae_count_df = tmp_aa_lsae_count_df.merge(aa_full_population_df, on=['location_id', 'year_id'], how='left')
     tmp_aa_lsae_count_df[tmp_count_variable] = tmp_aa_lsae_count_df[rate_variable] * tmp_aa_lsae_count_df['population']
     tmp_aa_lsae_count_df = tmp_aa_lsae_count_df.drop(columns=[rate_variable, 'population'])
     aa_full_count_df = aggregate_aa_count_lsae_to_gbd(tmp_count_variable, hierarchy_df, tmp_aa_lsae_count_df, None, return_full_df=True)
