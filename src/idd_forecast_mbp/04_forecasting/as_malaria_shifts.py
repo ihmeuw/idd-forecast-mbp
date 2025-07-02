@@ -20,7 +20,7 @@ import os
 import sys
 import itertools
 from idd_forecast_mbp import constants as rfc
-from idd_forecast_mbp.helper_functions import write_parquet, read_parquet_with_integer_ids
+from idd_forecast_mbp.parquet_functions import read_parquet_with_integer_ids, write_parquet
 import glob
 
 import argparse
@@ -124,12 +124,12 @@ as_merge_variables = rfc.as_merge_variables
 df = read_parquet_with_integer_ids(input_cause_draw_path)
 
 df_columns = [col for col in df.columns if short in col]
-df_columns = ['location_id', 'year_id', 'population', 'year_to_rake'] + df_columns
+df_columns = ['location_id', 'year_id', 'population', 'year_to_rake_to'] + df_columns
 
 df = df[df_columns].copy()
-df['year_to_rake'] = df['year_to_rake'].astype(int)
+df['year_to_rake_to'] = df['year_to_rake_to'].astype(int)
 df = df.merge(hierarchy_df[['location_id', 'fhs_location_id']], on='location_id', how='left')
-df = df[df['year_id'] >= df['year_to_rake'].min()].copy()
+df = df[df['year_id'] >= df['year_to_rake_to'].min()].copy()
 
 # Extract column names for predictions and observations
 pred_raw_col = [col for col in df.columns if "pred_raw" in col][0]
@@ -166,17 +166,17 @@ as_population_df = as_population_df.merge(hierarchy_df[['location_id', 'fhs_loca
 ###----------------------------------------------------------###
 
 # 5.1 Year-Location Grouping
-# Purpose: Group locations by year_to_rake for efficient data loading
+# Purpose: Group locations by year_to_rake_to for efficient data loading
 # Processing: Create sub-DataFrames mapping FHS locations to rake years
 # Creates: sub_dfs list containing location-year mappings
 # Output: Organized location groups for batch processing
 sub_dfs = []
-for year_to_rake in df['year_to_rake'].unique():
-    temp_df = df[df['year_to_rake'] == year_to_rake]['location_id'].unique()
+for year_to_rake_to in df['year_to_rake_to'].unique():
+    temp_df = df[df['year_to_rake_to'] == year_to_rake_to]['location_id'].unique()
     sub_fhs_location_ids = hierarchy_df[hierarchy_df['location_id'].isin(temp_df)]['fhs_location_id'].unique()
     sub_df = pd.DataFrame({
         'fhs_location_id': sub_fhs_location_ids,
-        'year_to_rake': year_to_rake
+        'year_to_rake_to': year_to_rake_to
     })
     sub_dfs.append(sub_df)
 
@@ -185,7 +185,7 @@ for year_to_rake in df['year_to_rake'].unique():
 ###----------------------------------------------------------###
 
 # 6.1 Batch Data Loading Loop
-# Purpose: Load GBD cause data in batches by year_to_rake
+# Purpose: Load GBD cause data in batches by year_to_rake_to
 # Inputs: Age-sex GBD cause parquet files
 # Processing: Filter by location, year, measure, and metric IDs
 # Creates: Individual as_fhs_df for each batch
@@ -194,9 +194,9 @@ as_columns_to_read = ['location_id', 'sex_id', 'age_group_id', 'measure_id', 'me
 as_fhs_dfs = []
 for i, sub_df in enumerate(sub_dfs):
     sub_fhs_location_ids = sub_df['fhs_location_id'].unique()
-    year_to_rake = sub_df['year_to_rake'].unique()[0]
+    year_to_rake_to = sub_df['year_to_rake_to'].unique()[0]
     sex_ids = [1,2]
-    year_to_rake_filter = ('year_id', '=', year_to_rake)
+    year_to_rake_to_filter = ('year_id', '=', year_to_rake_to)
     sex_filter = ('sex_id', 'in', sex_ids)
     print(f"Processing subset {i+1} of {len(sub_dfs)}")
     fhs_location_filter = ('location_id', 'in', sub_fhs_location_ids.tolist())
@@ -205,12 +205,12 @@ for i, sub_df in enumerate(sub_dfs):
             GBD_DATA_PATH=GBD_DATA_PATH,
             cause=cause
         ),
-        filters=[fhs_location_filter, year_to_rake_filter, measure_id_filter, metric_id_filter,sex_filter],
+        filters=[fhs_location_filter, year_to_rake_to_filter, measure_id_filter, metric_id_filter,sex_filter],
         columns=as_columns_to_read
     )
 
     as_fhs_df = as_fhs_df.rename(columns={'val': short}).drop(columns=['measure_id', 'metric_id']).copy()
-    as_fhs_df['year_to_rake'] = year_to_rake
+    as_fhs_df['year_to_rake_to'] = year_to_rake_to
     as_fhs_dfs.append(as_fhs_df)
 
 # 6.3 Data Consolidation
@@ -229,7 +229,7 @@ as_fhs_df = as_fhs_df.merge(hierarchy_df[['location_id', 'fhs_location_id']], on
 # Processing: Filter to reference age/sex, rename columns
 # Creates: base_fhs_df with reference rates
 # Output: Baseline rates for relative risk calculation
-base_fhs_df = as_fhs_df[(as_fhs_df['age_group_id'] == reference_age_group_id) & (as_fhs_df['sex_id'] == reference_sex_id)].drop(columns=['population', 'year_to_rake']).copy()
+base_fhs_df = as_fhs_df[(as_fhs_df['age_group_id'] == reference_age_group_id) & (as_fhs_df['sex_id'] == reference_sex_id)].drop(columns=['population', 'year_to_rake_to']).copy()
 base_fhs_df = base_fhs_df.rename(columns={
     short: base_col,
     'sex_id': 'base_sex_id',
@@ -249,7 +249,7 @@ as_fhs_df = as_fhs_df.rename(columns={
     short: 'fhs_' + short,
     base_col: 'fhs_' + base_col})
 
-as_fhs_df = as_fhs_df.drop(columns=['population', 'base_sex_id', 'base_age_group_id', 'year_to_rake'])
+as_fhs_df = as_fhs_df.drop(columns=['population', 'base_sex_id', 'base_age_group_id', 'year_to_rake_to'])
 
 ###----------------------------------------------------------###
 ### 8. Final Forecasting Calculations
@@ -260,7 +260,7 @@ as_fhs_df = as_fhs_df.drop(columns=['population', 'base_sex_id', 'base_age_group
 # Processing: Sequential merges on location-year and location-age-sex
 # Creates: forecasting_df with all necessary components
 # Output: Complete dataset for final calculations
-forecasting_df = as_population_df.merge(df[['location_id', 'year_id', 'year_to_rake', pred_col, obs_col]], on=['location_id', 'year_id'], how='left').copy()
+forecasting_df = as_population_df.merge(df[['location_id', 'year_id', 'year_to_rake_to', pred_col, obs_col]], on=['location_id', 'year_id'], how='left').copy()
 
 forecasting_df = forecasting_df.merge(as_fhs_df, on=['fhs_location_id', 'age_group_id', 'sex_id'], how='left')
 

@@ -11,7 +11,8 @@ import pandas as pd
 import numpy as np
 
 from idd_forecast_mbp import constants as rfc
-from idd_forecast_mbp.helper_functions import ensure_id_columns_are_integers, read_parquet_with_integer_ids, read_income_paths, merge_dataframes, write_parquet, read_urban_paths
+from idd_forecast_mbp.helper_functions import read_income_paths, merge_dataframes, read_urban_paths
+from idd_forecast_mbp.parquet_functions import read_parquet_with_integer_ids, write_parquet, ensure_id_columns_are_integers, sort_id_columns
 
 
 hierarchy = "lsae_1209"
@@ -30,6 +31,9 @@ CLIMATE_DATA_PATH = f"/mnt/team/rapidresponse/pub/climate-aggregates/2025_03_20/
 # Hierarchy
 hierarchy_df_path = f'{PROCESSED_DATA_PATH}/full_hierarchy_lsae_1209.parquet'
 hierarchy_df = read_parquet_with_integer_ids(hierarchy_df_path)
+
+md_location_ids = hierarchy_df[hierarchy_df['level'] == 5]['location_id'].unique().tolist()
+md_location_filter = ('location_id', 'in', md_location_ids)
 
 aa_full_population_df_path = f"{PROCESSED_DATA_PATH}/aa_2023_full_population.parquet"
 aa_full_population_df = read_parquet_with_integer_ids(aa_full_population_df_path)
@@ -61,7 +65,7 @@ for ssp_scenario in ssp_scenarios:
     flooding_df_path = flooding_df_path_template.format(ssp_scenario=ssp_scenario)
 
     forecast_df = read_parquet_with_integer_ids(flooding_df_path,
-                                                filters = [year_filter])
+                                                filters = [year_filter, md_location_filter])
     forecast_df = forecast_df.drop(
         columns=["model", "variant", 'population']
     )
@@ -87,7 +91,7 @@ for ssp_scenario in ssp_scenarios:
 
     # Merge in the hierarchy_df
     forecast_df = forecast_df.merge(
-        hierarchy_df[['location_id', 'A0_location_id', 'most_detailed_lsae']],
+        hierarchy_df[['location_id', 'A0_location_id']],
         how="left",
         left_on="location_id",
         right_on="location_id"
@@ -95,7 +99,6 @@ for ssp_scenario in ssp_scenarios:
 
     # Drop rows where A0_location_id is NaN
     forecast_df = forecast_df.dropna(subset=["A0_location_id"])
-    forecast_df = forecast_df[forecast_df["most_detailed_lsae"] == 1]
     
     forecast_df = ensure_id_columns_are_integers(forecast_df)
 

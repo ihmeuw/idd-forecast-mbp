@@ -9,7 +9,7 @@ from typing import Literal, NamedTuple
 import itertools
 from rra_tools.shell_tools import mkdir # type: ignore
 from idd_forecast_mbp import constants as rfc
-from idd_forecast_mbp.helper_functions import write_parquet, read_parquet_with_integer_ids
+from idd_forecast_mbp.parquet_functions import read_parquet_with_integer_ids, write_parquet
 import argparse
 
 parser = argparse.ArgumentParser(description="Add DAH Sceanrios and create draw level dataframes for forecating malaria")

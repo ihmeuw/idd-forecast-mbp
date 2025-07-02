@@ -14,7 +14,8 @@ import os
 import sys
 import xarray as xr
 from idd_forecast_mbp import constants as rfc
-from idd_forecast_mbp.helper_functions import read_parquet_with_integer_ids, write_parquet
+from idd_forecast_mbp.parquet_functions import read_parquet_with_integer_ids, write_parquet
+from idd_forecast_mbp.xarray_functions import read_netcdf_with_integer_ids, write_netcdf, convert_with_preset
 
 age_type_map = {
     "all_age": {
@@ -39,10 +40,15 @@ age_sex_df_path = f'{PROCESSED_DATA_PATH}/age_sex_df.parquet'
 fhs_hierarchy_df_path = f"{GBD_DATA_PATH}/fhs_2023_modeling_hierarchy.parquet"
 
 gbd_population_path = f"{GBD_DATA_PATH}/gbd_2023_population.parquet"
-aa_full_population_df_path = f"{PROCESSED_DATA_PATH}/aa_2023_full_population.parquet"
-as_full_population_df_path = f"{PROCESSED_DATA_PATH}/as_2023_full_population.parquet"
-aa_fhs_population_path = f"{PROCESSED_DATA_PATH}/aa_2023_fhs_population.parquet"
-as_fhs_population_path = f"{PROCESSED_DATA_PATH}/as_2023_fhs_population.parquet"
+aa_full_population_df_path = f"{PROCESSED_DATA_PATH}/aa_2023_full_population_df.parquet"
+as_full_population_df_path = f"{PROCESSED_DATA_PATH}/as_2023_full_population_df.parquet"
+aa_full_population_ds_path = f"{PROCESSED_DATA_PATH}/aa_2023_full_population_ds.nc"
+as_full_population_ds_path = f"{PROCESSED_DATA_PATH}/as_2023_full_population_ds.nc"
+
+aa_fhs_population_df_path = f"{PROCESSED_DATA_PATH}/aa_2023_fhs_population_df.parquet"
+as_fhs_population_df_path = f"{PROCESSED_DATA_PATH}/as_2023_fhs_population_df.parquet"
+aa_fhs_population_ds_path = f"{PROCESSED_DATA_PATH}/aa_2023_fhs_population_ds.nc"
+as_fhs_population_ds_path = f"{PROCESSED_DATA_PATH}/as_2023_fhs_population_ds.nc"
 
 missing_level_4_location_path = f"{PROCESSED_DATA_PATH}/missing_level_4_location_ids.parquet"
 missing_level_5_location_path = f"{PROCESSED_DATA_PATH}/missing_level5_location_ids.parquet"
@@ -155,8 +161,14 @@ as_fhs_population_df["as_population_fraction"] = as_fhs_population_df["populatio
 
 
 # Write to parquet
-write_parquet(aa_fhs_population_df, aa_fhs_population_path)
-write_parquet(as_fhs_population_df, as_fhs_population_path)
+write_parquet(aa_fhs_population_df, aa_fhs_population_df_path)
+write_parquet(as_fhs_population_df, as_fhs_population_df_path)
+
+aa_fhs_population_ds = convert_with_preset(aa_fhs_population_df, preset='aa_variables')
+write_netcdf(aa_fhs_population_ds, aa_fhs_population_ds_path)
+as_fhs_population_ds = convert_with_preset(as_fhs_population_df, preset='as_variables')
+write_netcdf(as_fhs_population_ds, as_fhs_population_ds_path)
+
 
 ###----------------------------------------------------------###
 ### 3. Base Population Data Loading
@@ -423,6 +435,9 @@ aa_full_population_df = pd.concat([
 
 # Step 5: Finalize the aa_full_population_df
 write_parquet(aa_full_population_df, aa_full_population_df_path)
+# Convert to xarray dataset and write to netCDF
+aa_full_population_ds = convert_with_preset(aa_full_population_df, preset='aa_variables')
+write_netcdf(aa_full_population_ds, aa_full_population_ds_path)
 
 ###----------------------------------------------------------###
 ### 5. Age Metadata Processing
@@ -540,3 +555,6 @@ as_full_population_df = pd.concat([
 
 # Write the final DataFrame to a parquet file
 write_parquet(as_full_population_df, as_full_population_df_path)
+# Convert to xarray dataset and write to netCDF
+as_full_population_ds = convert_with_preset(as_full_population_df, preset='as_variables')
+write_netcdf(as_full_population_ds, as_full_population_ds_path)

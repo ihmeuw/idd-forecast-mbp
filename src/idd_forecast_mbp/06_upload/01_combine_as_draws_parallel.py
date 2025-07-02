@@ -4,14 +4,13 @@ from jobmon.client.tool import Tool  # type: ignore
 from pathlib import Path
 import geopandas as gpd  # type: ignore
 from idd_forecast_mbp import constants as rfc
-from idd_forecast_mbp.helper_functions import load_yaml_dictionary
 
 repo_name = rfc.repo_name
 package_name = rfc.package_name
 
 
-fhs_flag = 0
-run_date = "2025_06_25"
+fhs_flag = 1
+run_date = "2025_06_30"
 
 # Script directory
 SCRIPT_ROOT = rfc.REPO_ROOT / repo_name / "src" / package_name / "06_upload"
@@ -30,7 +29,7 @@ stdout_dir.mkdir(parents=True, exist_ok=True)
 stderr_dir.mkdir(parents=True, exist_ok=True)
 
 # Project
-project = "proj_lsae"  # Adjust this to your project name if needed
+project = "proj_rapidresponse"  # Adjust this to your project name if needed
 
 
 wf_uuid = uuid.uuid4()
@@ -57,12 +56,17 @@ workflow.set_default_compute_resources_from_dict(
     }
 )
 
+if fhs_flag == 1:
+    memory = "50G"
+else:
+    memory = "100G"
+
 # Define the task template for processing each year batch
 task_template = tool.get_task_template(
     template_name="final_cause_aggregation",
     default_cluster_name="slurm",
     default_compute_resources={
-        "memory": "50G",
+        "memory": memory,
         "cores": 5,
         "runtime": "60m",
         "queue": "all.q",
@@ -85,10 +89,12 @@ task_template = tool.get_task_template(
     op_args=[],
 )
 
+causes_to_process = rfc.cause_map
+# causes_to_process = ['dengue']
 # Add tasks
 tasks = []
 if fhs_flag == 1:
-    for cause in rfc.cause_map:
+    for cause in causes_to_process:
         for ssp_scenario in rfc.ssp_scenarios:
             for measure in rfc.measure_map:
                 if cause == "malaria":

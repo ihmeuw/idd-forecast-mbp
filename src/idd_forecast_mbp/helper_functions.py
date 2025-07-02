@@ -1,11 +1,10 @@
-import yaml
 from pathlib import Path
 import pandas as pd
 import numpy as np
 import os
 import time
 from idd_forecast_mbp import constants as rfc
-
+from idd_forecast_mbp.parquet_functions import read_parquet_with_integer_ids, write_parquet, ensure_id_columns_are_integers, sort_id_columns
 
 PROCESSED_DATA_PATH = rfc.MODEL_ROOT / '02-processed_data'
 hierarchy = 'lsae_1209'
@@ -14,42 +13,6 @@ VARIABLE_DATA_PATH = f'{PROCESSED_DATA_PATH}/{hierarchy}'
 cause_map = rfc.cause_map
 measure_map = rfc.measure_map
 metric_map = rfc.metric_map
-
-
-
-# Is it better to nest these functions, have the material repeated or read both in every time. Most of the time we only need the second one
-def load_yaml_dictionary(yaml_path: str) -> dict:
-    # Read YAML
-    with open(yaml_path, 'r') as f:
-        yaml_data = yaml.safe_load(f)
-    return(yaml_data['COVARIATE_DICT'])
-
-def parse_yaml_dictionary(covariate: str) -> dict:
-    YAML_PATH = rfc.REPO_ROOT / rfc.repo_name / 'src' / rfc.package_name /  'COVARIATE_DICT.yaml'
-    # Extract covariate-specific config
-    covariate_dict = load_yaml_dictionary(YAML_PATH)
-    # Check if the covariate exists in the dictionary
-    if covariate not in covariate_dict:
-        raise ValueError(f"Covariate '{covariate}' not found in the dictionary.")
-    # Extract the covariate entry
-    covariate_entry = covariate_dict.get(covariate, [])
-
-    covariate_resolution = covariate_entry['covariate_resolution_numerator'] / covariate_entry['covariate_resolution_denominator']
-
-    years = list(range(covariate_entry['year_start'], covariate_entry['year_end'] + 1))
-
-    # Build the return dict dynamically
-    result = {
-        'covariate_name': covariate_entry['covariate_name'],
-        'covariate_resolution': covariate_resolution,
-        'years': years,
-        'synoptic': covariate_entry['synoptic'],
-        'cc_sensitive': covariate_entry['cc_sensitive'],
-        'summary_statistic': covariate_entry['summary_statistic'],
-        'path': covariate_entry['path'],
-    }
-
-    return result
 
 def merge_dataframes(model_df, dfs):
     for key, df in dfs.items():
@@ -81,168 +44,6 @@ def read_urban_paths(urban_paths, VARIABLE_DATA_PATH):
         urban_dfs[key] = urban_dfs[key].rename(columns=lambda x: x.replace('weighted_', '') if 'weighted_' in x else x)
     return urban_dfs
 
-def ensure_id_columns_are_integers(df):
-    '''
-    Ensures that any column ending with '_id' is cast to integer type.
-    '''
-    for col in df.columns:
-        if col.endswith('_id') and pd.api.types.is_float_dtype(df[col].dtype):
-            df[col] = pd.to_numeric(df[col], errors='coerce').astype('Int64')  # Capital I
-    return df
-
-def sort_id_columns(df):
-    '''
-    Sorts the DataFrame by id columns with 'location_id' and 'year_id' having priority if they exist.
-    '''
-    id_columns = [col for col in df.columns if col.endswith('_id')]
-
-    # Reorder to put location_id first and year_id second
-    ordered_columns = []
-    if 'location_id' in id_columns:
-        ordered_columns.append('location_id')
-    if 'year_id' in id_columns:
-        ordered_columns.append('year_id')
-
-    # Add remaining id columns
-    remaining_columns = [col for col in id_columns if col not in ['location_id', 'year_id']]
-    id_columns = ordered_columns + remaining_columns
-    
-    if id_columns:
-        df = df.sort_values(by=id_columns)
-
-    return df
-
-def read_parquet_with_integer_ids(path, **kwargs):
-    '''Read a parquet file and ensure ID columns are integers.'''
-    df = pd.read_parquet(path, **kwargs)
-    df = sort_id_columns(df)
-    return ensure_id_columns_are_integers(df)
-
-
-def write_parquet(df, filepath, max_retries=3, compression='snappy', index=False, **kwargs):
-    '''
-    Write parquet file with validation and retry logic.
-    '''
-    import os
-    import tempfile
-    from pathlib import Path
-    
-    for attempt in range(max_retries):
-        try:
-            # Write to temporary file first
-            temp_dir = os.path.dirname(filepath)
-            with tempfile.NamedTemporaryFile(suffix='.parquet', dir=temp_dir, delete=False) as tmp_file:
-                temp_path = tmp_file.name
-            
-            # Write the data
-            df.to_parquet(temp_path, compression=compression, index=index, **kwargs)
-            
-            # Validate the written file
-            try:
-                # Test read the entire file
-                test_df = pd.read_parquet(temp_path)
-                
-                # Basic validation checks
-                if len(test_df) != len(df):
-                    raise ValueError(f'Row count mismatch: {len(test_df)} vs {len(df)}')
-                
-                if list(test_df.columns) != list(df.columns):
-                    raise ValueError('Column mismatch')
-                
-                print(f'✅ Validation passed for {filepath}')
-                
-                # Move temp file to final location
-                os.rename(temp_path, filepath)
-                return True
-                
-            except Exception as e:
-                print(f'❌ Validation failed for {filepath}: {e}')
-                if os.path.exists(temp_path):
-                    os.remove(temp_path)
-                raise e
-                
-        except Exception as e:
-            print(f'Attempt {attempt + 1} failed: {e}')
-            if attempt == max_retries - 1:
-                print(f'❌ Failed to write {filepath} after {max_retries} attempts')
-                raise e
-            else:
-                print(f'Retrying... ({attempt + 1}/{max_retries})')
-                
-    return False
-
-def write_hdf(df, filepath, key='df', max_retries=3, delay=1, validate=True, **kwargs):
-    """Safely write DataFrame to HDF5 with retry logic, file locking handling, and validation"""
-    import tempfile
-    
-    for attempt in range(max_retries):
-        temp_path = None
-        try:
-            # Ensure directory exists
-            os.makedirs(os.path.dirname(filepath), exist_ok=True)
-            
-            if validate:
-                # Write to temporary file first for validation
-                temp_dir = os.path.dirname(filepath)
-                with tempfile.NamedTemporaryFile(suffix='.h5', dir=temp_dir, delete=False) as tmp_file:
-                    temp_path = tmp_file.name
-                
-                # Write to temp file
-                df.to_hdf(temp_path, key=key, mode='w', format='table', **kwargs)
-                
-                # Validate the written file
-                try:
-                    # Test read the entire file
-                    test_df = pd.read_hdf(temp_path, key=key)
-                    
-                    # Basic validation checks
-                    if len(test_df) != len(df):
-                        raise ValueError(f'Row count mismatch: {len(test_df)} vs {len(df)}')
-                    
-                    if list(test_df.columns) != list(df.columns):
-                        raise ValueError('Column mismatch')
-                    
-                    print(f'✅ Validation passed for {filepath}')
-                    
-                    # Move temp file to final location
-                    os.rename(temp_path, filepath)
-                    os.chmod(filepath, 0o775)
-                    return True
-                    
-                except Exception as e:
-                    print(f'❌ Validation failed for {filepath}: {e}')
-                    if temp_path and os.path.exists(temp_path):
-                        os.remove(temp_path)
-                    raise e
-            else:
-                # Write directly without validation
-                df.to_hdf(filepath, key=key, mode='w', format='table', **kwargs)
-                os.chmod(filepath, 0o775)
-                print(f'✅ Written without validation: {filepath}')
-                return True
-            
-        except Exception as e:
-            # Clean up temp file if it exists
-            if temp_path and os.path.exists(temp_path):
-                try:
-                    os.remove(temp_path)
-                except:
-                    pass
-            
-            if "Resource temporarily unavailable" in str(e) or "unable to lock" in str(e):
-                if attempt < max_retries - 1:
-                    print(f"File lock attempt {attempt + 1} failed. Retrying in {delay} seconds...")
-                    time.sleep(delay)
-                    delay *= 2  # Exponential backoff
-                    continue
-            
-            # For final attempt or non-lock errors, re-raise
-            if attempt == max_retries - 1:
-                print(f'❌ Failed to write {filepath} after {max_retries} attempts')
-            raise e
-    
-    return False
-
 def level_filter(hierarchy_df, start_level, end_level=None, return_ids = False):
     """
     Returns a filter for the hierarchy DataFrame to select rows between start_level and end_level.
@@ -263,6 +64,7 @@ def level_filter(hierarchy_df, start_level, end_level=None, return_ids = False):
 def check_column_for_problematic_values(column_name, df, return_report=False, verbose=False):
     """
     Check a dataframe column for problematic values (NaN, infinite, negative, non-numeric).
+    For mortality columns, also provides additional statistics.
     
     Parameters:
     -----------
@@ -310,7 +112,7 @@ def check_column_for_problematic_values(column_name, df, return_report=False, ve
         ]
     }
     summary_df = pd.DataFrame(summary_data)
-    
+
     # Print summary if verbose or if problems found
     if verbose or len(problematic_rows) > 0:
         print(f"\n=== Summary for {column_name} ===")
@@ -319,7 +121,7 @@ def check_column_for_problematic_values(column_name, df, return_report=False, ve
         print(f"Total problematic rows: {len(problematic_rows)}")
         print("\nDetailed Check Results:")
         print(summary_df.to_string(index=False))
-        
+             
         if len(problematic_rows) > 0:
             print("\nFirst 10 problematic rows:")
             print(problematic_rows.head(10))
@@ -327,8 +129,9 @@ def check_column_for_problematic_values(column_name, df, return_report=False, ve
             # Show unique problematic values
             print(f"\nUnique problematic values:")
             print(problematic_rows[column_name].unique())
+    
     if return_report:
-        return {
+        report = {
             'nan_count': nan_count,
             'inf_count': inf_count,
             'negative_count': negative_count,
@@ -338,6 +141,56 @@ def check_column_for_problematic_values(column_name, df, return_report=False, ve
             'data_type': str(column.dtype),
             'summary_df': summary_df
         }
+        return report
     else:
         print('✅ Pass')
 
+def verify_hdf_checksum(filepath, key='df'):
+    """
+    Verify the integrity of an HDF5 file using stored checksum
+    
+    Parameters:
+    -----------
+    filepath : str
+        Path to the HDF5 file
+    key : str, default='df'
+        Key of the dataframe in the HDF5 file
+        
+    Returns:
+    --------
+    bool
+        True if checksum matches, False otherwise
+    """
+    import json
+    import hashlib
+    
+    checksum_file = filepath + '.checksum'
+    
+    if not os.path.exists(checksum_file):
+        print(f"⚠️ No checksum file found for {filepath}")
+        return False
+    
+    try:
+        # Load stored checksum
+        with open(checksum_file, 'r') as f:
+            checksum_data = json.load(f)
+        
+        stored_checksum = checksum_data['checksum']
+        
+        # Read the file and calculate checksum
+        df = pd.read_hdf(filepath, key=key)
+        df_str = df.to_string(index=False).encode('utf-8')
+        file_checksum = hashlib.sha256(df_str).hexdigest()
+        
+        if file_checksum == stored_checksum:
+            print(f"✅ Checksum verification passed for {filepath}")
+            return True
+        else:
+            print(f"❌ Checksum verification failed for {filepath}")
+            print(f"   Expected: {stored_checksum}")
+            print(f"   Got:      {file_checksum}")
+            return False
+            
+    except Exception as e:
+        print(f"❌ Error verifying checksum for {filepath}: {e}")
+        return False

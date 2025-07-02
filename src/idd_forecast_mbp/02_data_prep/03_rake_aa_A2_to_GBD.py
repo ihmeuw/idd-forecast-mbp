@@ -5,7 +5,8 @@ from pathlib import Path
 from datetime import datetime
 from rra_tools.shell_tools import mkdir  # type: ignore
 from idd_forecast_mbp import constants as rfc
-from idd_forecast_mbp.helper_functions import read_parquet_with_integer_ids, write_parquet, check_column_for_problematic_values
+from idd_forecast_mbp.helper_functions import check_column_for_problematic_values
+from idd_forecast_mbp.parquet_functions import read_parquet_with_integer_ids, write_parquet
 from idd_forecast_mbp.cause_processing_functions import format_aa_gbd_df, process_lsae_df
 from idd_forecast_mbp.rake_and_aggregate_functions import rake_aa_count_lsae_to_gbd, make_aa_full_rate_df_from_aa_count_df, check_concordance, aggregate_aa_rate_lsae_to_gbd
 

@@ -39,19 +39,27 @@ MODELING_DATA_PATH <- glue("{REPO_DIR}/03-modeling_data")
 FORECASTING_DATA_PATH = glue("{REPO_DIR}/04-forecasting_data")
 
 
-load(file = glue("{MODELING_DATA_PATH}/final_dengue_regression_models.RData"))
+load(glue("{MODELING_DATA_PATH}/2025_06_29_dengue_models.RData"))
 
 message(glue("SSP scenario: {ssp_scenario}, Draw: {draw}"))
 
 input_forecast_df_path <- glue("{FORECASTING_DATA_PATH}/dengue_forecast_ssp_scenario_{ssp_scenario}_draw_{draw}.parquet")
 output_forecast_df_path <- glue("{FORECASTING_DATA_PATH}/dengue_forecast_ssp_scenario_{ssp_scenario}_draw_{draw}_with_predictions.parquet")
 
+base_md_dengue_modeling_df_path = glue("{MODELING_DATA_PATH}/base_md_dengue_modeling_df.parquet")
+base_df <- as.data.frame(arrow::read_parquet(base_md_dengue_modeling_df_path))
+
 forecast_df <- as.data.frame(arrow::read_parquet(input_forecast_df_path))
+forecast_df = forecast_df[which(!is.na(forecast_df$log_gdppc_mean)),]
+
+forecast_df = forecast_df[which(forecast_df$location_id %in% unique(base_df$location_id)),]
+
+forecast_df$dengue_suit_fraction <- forecast_df$dengue_suitability / 365
+forecast_df$dengue_suit_fraction <- pmin(pmax(forecast_df$dengue_suit_fraction, 0.001), 0.999)
+forecast_df$logit_dengue_suitability <- log(forecast_df$dengue_suit_fraction / (1 - forecast_df$dengue_suit_fraction))
+
 forecast_df$A0_af <- as.factor(forecast_df$A0_af)
 forecast_df$as_id <- as.factor(forecast_df$as_id)
-
-forecast_df <- forecast_df[-which(is.na(forecast_df$base_log_dengue_inc_rate)),]
-
 
 forecast_df$base_log_dengue_inc_rate_pred_raw <- predict(mod_inc_base, forecast_df)
 
@@ -61,13 +69,13 @@ forecast_df$logit_dengue_cfr_pred_raw <- predict(mod_cfr_all, forecast_df)
 shift_df <- forecast_df[which(forecast_df$year_id == last_year), c("location_id", "age_group_id", "sex_id", "base_log_dengue_inc_rate", "base_log_dengue_inc_rate_pred_raw", "logit_dengue_cfr", "logit_dengue_cfr_pred_raw")]
 shift_df$shift_inc <- shift_df$base_log_dengue_inc_rate - shift_df$base_log_dengue_inc_rate_pred_raw
 shift_df$shift_cfr <- shift_df$logit_dengue_cfr - shift_df$logit_dengue_cfr_pred_raw
-forecast_df <- merge(forecast_df, shift_df[,c("location_id", "age_group_id", "sex_id", "shift_inc", "shift_cfr")], on = c("location_id", "age_group_id", "sex_id"))
+forecast_df <- merge(forecast_df, shift_df[,c("location_id", "age_group_id", "sex_id", "shift_inc", "shift_cfr")], by = c("location_id", "age_group_id", "sex_id"))
 
 forecast_df$base_log_dengue_inc_rate_pred <- forecast_df$base_log_dengue_inc_rate_pred_raw + forecast_df$shift_inc
 forecast_df$logit_dengue_cfr_pred <- forecast_df$logit_dengue_cfr_pred_raw + forecast_df$shift_cfr
 
 
-forecast_df <- subset(forecast_df, select = -c(shift_inc, shift_cfr))
+# forecast_df <- subset(forecast_df, select = -c(shift_inc, shift_cfr))
 # 
 message(max(forecast_df$logit_dengue_cfr_pred))
 #### 

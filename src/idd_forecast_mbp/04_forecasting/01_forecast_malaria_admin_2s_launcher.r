@@ -3,10 +3,19 @@
 require(glue)
 require(data.table)
 
+RUN_WITH_OPTIONS <- FALSE
+
+
 USER <- Sys.getenv('USER')
 
 repo_dir <- glue("/ihme/homes/{USER}/repos/idd-forecast-mbp")
 message_dir <- "/mnt/team/idd/pub"
+
+if (RUN_WITH_OPTIONS) {
+  script <- glue("{repo_dir}/src/idd_forecast_mbp/04_forecasting/forecast_malaria_admin_2s_options_rocket.r")
+} else {
+  script <- glue("{repo_dir}/src/idd_forecast_mbp/04_forecasting/forecast_malaria_admin_2s_rocket.r") 
+}
 
 draws <- sprintf("%03d", 0:99)
 ssp_scenarios <- c("ssp126", "ssp245", "ssp585")
@@ -34,7 +43,7 @@ n_jobs <- paste0("1-", nrow(param_map)) # this means you're running one task for
 
 # n_jobs <- "1-1" # sometimes this is helpful if you just want to test the first row without running the entire thing
 # filepath to the script you want to launch. Make sure you saved it first.
-script <- glue("{repo_dir}/src/idd_forecast_mbp/forecasting/forecast_malaria_admin_2s_rocket.r") 
+
 error_filepath <- glue("-e {message_dir}/stderr/%x.e%j") # where are errors going to be saved
 output_filepath <- glue("-o {message_dir}/stdout/%x.o%j") # where are outputs going to be saved
 project_flag<- "-A proj_rapidresponse"  # make sure this is one you have permissions for

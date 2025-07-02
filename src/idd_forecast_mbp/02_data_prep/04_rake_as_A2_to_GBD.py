@@ -3,8 +3,8 @@ import pandas as pd
 from pathlib import Path
 from rra_tools.shell_tools import mkdir  # type: ignore
 from idd_forecast_mbp import constants as rfc
-from idd_forecast_mbp.helper_functions import read_parquet_with_integer_ids, write_parquet, level_filter
-
+from idd_forecast_mbp.helper_functions import level_filter
+from idd_forecast_mbp.parquet_functions import read_parquet_with_integer_ids, write_parquet
 
 PROCESSED_DATA_PATH = rfc.PROCESSED_DATA_PATH
 FORECASTING_DATA_PATH = rfc.FORECASTING_DATA_PATH
@@ -68,6 +68,8 @@ for cause in cause_map:
         gbd_columns_to_read = ["location_id", "year_id", "age_group_id", "sex_id", 'population', "val"]
         full_df_columns_to_read = ["location_id", "year_id", 'population', outcome_count]
         # Get the most detailed gbd data
+        print("Reading most-detailed GBD data")
+        print(f"Reading {as_gbd_cause_df_path}")
         as_md_gbd_df = read_parquet_with_integer_ids(as_gbd_cause_df_path,
                                                     columns=gbd_columns_to_read,
                                                     filters=[year_filter, level_filter(hierarchy_df, start_level = 3, end_level = 5), measure_filter,
@@ -75,6 +77,7 @@ for cause in cause_map:
 
         gbd_location_ids = as_md_gbd_df['location_id'].unique().tolist()
         gbd_location_filter = ('location_id', 'in', gbd_location_ids)
+        print(f"Reading {aa_full_cause_df_path}")
         aa_md_gbd_df = read_parquet_with_integer_ids(aa_full_cause_df_path,
                                                     columns=full_df_columns_to_read,
                                                     filters=[year_filter, gbd_location_filter]).rename(columns={
@@ -83,6 +86,7 @@ for cause in cause_map:
 
         as_md_gbd_df = as_md_gbd_df.merge(aa_md_gbd_df, on=['location_id', 'year_id'], how='left').copy()
 
+        print("Calculating most-detailed GBD rates and rate ratios")
         as_md_gbd_df['aa_' + outcome_rate] = as_md_gbd_df['aa_' + outcome_count] / as_md_gbd_df['aa_population']
         as_md_gbd_df[outcome_rate] = as_md_gbd_df[outcome_count] / as_md_gbd_df['population']
         as_md_gbd_df['rate_ratio'] = as_md_gbd_df[outcome_rate] / as_md_gbd_df['aa_' + outcome_rate]
@@ -106,21 +110,24 @@ for cause in cause_map:
         )
 
         # Rename the gbd dataframe columns
-        gbd_outcome_columns = [col for col in as_md_gbd_df.columns if measure_short in col or 'ratio' in col] + ['location_id']
+        gbd_outcome_columns = [col for col in as_md_gbd_df.columns if measure_short in col or 'ratio' in col] + ['location_id','aa_population', 'population']
         rename_dict = {col: 'gbd_' + col for col in gbd_outcome_columns}
-        as_md_gbd_df = as_md_gbd_df.rename(columns=rename_dict).drop(columns=['aa_population', 'population'])
+        as_md_gbd_df = as_md_gbd_df.rename(columns=rename_dict)
 
+        print("Starting subnational merge")
         # Merge
         as_subnat_df = as_subnat_df.merge(
             as_md_gbd_df,
             how='left',
             on=['gbd_location_id', 'year_id', 'age_group_id', 'sex_id']
         )
-
+        
+        
         as_subnat_df['aa_' + outcome_rate] = as_subnat_df['aa_' + outcome_count] / as_subnat_df['aa_population']
         as_subnat_df[outcome_rate] = as_subnat_df['gbd_rate_ratio'] * as_subnat_df['aa_' + outcome_rate]
         as_subnat_df[outcome_count] = as_subnat_df[outcome_rate] * as_subnat_df['population']
         # 
+        print(as_subnat_df[as_subnat_df[outcome_rate] == as_subnat_df[outcome_rate].max()])
         drop_cols = [col for col in as_subnat_df.columns if 'gbd_' in col or 'rate_ratio' in col]
         as_subnat_df = as_subnat_df.drop(columns=drop_cols)
 

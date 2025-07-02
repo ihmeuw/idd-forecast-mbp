@@ -47,7 +47,7 @@ fhs_draws = [f"draw_{i}" for i in range(100)]
 cause_map = {
     'malaria':{
         'cause_id': 345,
-        'reference_age_group_id': 6,
+        'reference_age_group_id': 3,
         'reference_sex_id': 1
 
     },
@@ -186,27 +186,39 @@ problematic_rule_map = {
     'malaria': {
         'incidence': {
             'count_raking_factor_max': 100,        	# Flag if raking factor
-            'rate_max': 1,					# Flag if the rate > 1
+            'rate_max': {
+                4: 1,
+                5: 1
+            },
             'count_raking_factor_conditional': 10, 	# Combined with rate condition below
             'rate_max_conditional': 0.2          	# Flag if raking factor > 10 AND rate > 0.2
         },
         'mortality': {
-            'count_raking_factor_max': 100,        		# Flag if raking factor > 100
-            'rate_max': 0.01,					    	# Flag if the rate > 1
-            'count_raking_factor_conditional': 1000,	# This combined with 1 means this is turned off
+            'count_raking_factor_max': 10000000,        		# Flag if raking factor > 100
+            'rate_max': {
+                4: 1,
+                5: 1
+            },					    	# Flag if the rate > 1
+            'count_raking_factor_conditional': 10000000,	# This combined with 1 means this is turned off
             'rate_max_conditional': 1         	    	# Flag if raking factor > 10 AND rate > 0.2
         }
     },
     'dengue': {
         'incidence': {
             'count_raking_factor_max': 100000,        	# Flag if raking factor > 100
-            'rate_max': 1/3,					    # Flag if the rate > 1
+            'rate_max': {
+                4: 1/3,
+                5: 1/3
+            },
             'count_raking_factor_conditional': 100000, # This combined with 0 means this is turned off
             'rate_max_conditional': 1         	    # Flag if raking factor > 10 AND rate > 0.2
         },
         'mortality': {
             'count_raking_factor_max': 100000,        	# Flag if raking factor > 100
-            'rate_max': 0.0003,				            # Flag if the rate > 1
+            'rate_max': {
+                4: 0.0003,
+                5: 0.0003
+            },
             'count_raking_factor_conditional': 100000, # This combined with 0 means this is turned off
             'rate_max_conditional': .1        	        # Flag if raking factor > 10 AND rate > 0.2
         }        
