@@ -12,7 +12,8 @@ import numpy as np
 import os
 import sys
 from idd_forecast_mbp import constants as rfc
-from idd_forecast_mbp.helper_functions import read_parquet_with_integer_ids, merge_dataframes, read_income_paths, read_urban_paths, write_parquet, level_filter
+from idd_forecast_mbp.helper_functions import merge_dataframes, read_income_paths, read_urban_paths, level_filter
+from idd_forecast_mbp.parquet_functions import read_parquet_with_integer_ids, write_parquet
 import glob
 
 dengue_mortality_theshold = 1
@@ -101,7 +102,7 @@ as_merge_variables = ["location_id", "year_id", "age_group_id", "sex_id"]
 ### including urbanization metrics, income data,
 ### and climate variables from different sources.
 ###----------------------------------------------------------###
-# Load core malaria data
+# Load core dengue data
 dengue_df = read_parquet_with_integer_ids(aa_full_cause_df_path_template,
                                            filters=[year_filter, level_filter(hierarchy_df, start_level = 3, end_level = 5)])
 
@@ -170,19 +171,27 @@ for col in covariates_to_logit_transform:
     clipped_values = dengue_df[col].clip(lower=0.001, upper=0.999)
     dengue_df[f"logit_{col}"] = np.log(clipped_values / (1 - clipped_values))
 
+aa_A0_dengue_df = dengue_df[(dengue_df["location_id"] == dengue_df["A0_location_id"]) & (dengue_df["year_id"] == 2022)].copy()
+aa_A0_dengue_df = aa_A0_dengue_df[aa_A0_dengue_df['aa_dengue_mort_count'] > 1].copy()
+A0_dengue_ids = aa_A0_dengue_df['A0_location_id'].unique()
+
+
 # Make the yn variable. This will be used as the response in the phase 1 model and to trim the data in the phase 2 model
 # dengue_df$yn[which(dengue_df$dengue_mort_rate > dengue_mortality_rate_theshold & dengue_df$dengue_mort_count > dengue_mortality_theshold & dengue_df$dengue_suitability > 0)] <- 1
 dengue_df["yn"] = 0
 dengue_df.loc[
-    (dengue_df["aa_dengue_mort_rate"] > dengue_mortality_rate_theshold) &
-    (dengue_df["aa_dengue_mort_count"] > dengue_mortality_theshold) &
+    (dengue_df["aa_dengue_mort_rate"] > 1/100000) &
+    (dengue_df["aa_dengue_mort_count"] > 0) &
     (dengue_df["aa_dengue_inc_count"] > 0) &
     (dengue_df["dengue_suitability"] > 0),
     "yn"
 ] = 1
 
-
 write_parquet(dengue_df, aa_ge3_dengue_stage_1_modeling_df_path)
+
+dengue_df = dengue_df[dengue_df['A0_location_id'].isin(A0_dengue_ids)].copy() 
+
+
 
 ###----------------------------------------------------------###
 ### 8. Final Modeling Dataset Preparation
@@ -198,7 +207,7 @@ dengue_stage_2_df = dengue_stage_2_df[dengue_stage_2_df["level"] == 5].drop(colu
 dengue_stage_2_df["A0_location_id"] = dengue_stage_2_df["A0_location_id"].astype(int)
 dengue_stage_2_df['A0_af'] = 'A0_' + dengue_stage_2_df['A0_location_id'].astype(str)
 dengue_stage_2_df['A0_af'] = dengue_stage_2_df['A0_af'].astype('category')
-dengue_stage_2_df = dengue_stage_2_df.drop(columns=['aa_dengue_inc_count', 'aa_dengue_inc_rate', 'aa_dengue_mort_count', 'aa_dengue_mort_rate', 'aa_dengue_cfr'])
+# dengue_stage_2_df = dengue_stage_2_df.drop(columns=['aa_dengue_inc_count', 'aa_dengue_inc_rate', 'aa_dengue_mort_count', 'aa_dengue_mort_rate', 'aa_dengue_cfr'])
 # Get the as data
 md_location_ids = dengue_stage_2_df["location_id"].unique().tolist()
 md_location_filter = ('location_id', 'in', md_location_ids)
@@ -206,6 +215,7 @@ md_location_filter = ('location_id', 'in', md_location_ids)
 as_md_df = read_parquet_with_integer_ids(as_full_cause_df_path_template,
                                          columns=as_merge_variables + ["dengue_mort_rate","dengue_inc_rate","dengue_mort_count","dengue_inc_count","population","aa_population"],
                                          filters=[year_filter, md_location_filter, age_filter, sex_filter])
+
 
 as_md_df["dengue_cfr"] = as_md_df["dengue_mort_rate"] / as_md_df["dengue_inc_rate"]
 as_md_df.loc[as_md_df["dengue_inc_rate"] == 0, "dengue_cfr"] = 0

@@ -12,7 +12,8 @@ import numpy as np
 import os
 import sys
 from idd_forecast_mbp import constants as rfc
-from idd_forecast_mbp.helper_functions import read_parquet_with_integer_ids, merge_dataframes, read_income_paths, read_urban_paths, write_parquet, level_filter
+from idd_forecast_mbp.helper_functions import merge_dataframes, read_income_paths, read_urban_paths, level_filter
+from idd_forecast_mbp.parquet_functions import read_parquet_with_integer_ids, write_parquet
 import glob
 
 malaria_mortality_threshold = 1
@@ -97,8 +98,8 @@ sex_filter = ('sex_id', 'in', sex_ids)
 age_group_ids = age_sex_df['age_group_id'].unique().tolist()
 age_filter = ('age_group_id', 'in', age_group_ids)
 
-aa_merge_variables = ["location_id", "year_id"]
-as_merge_variables = ["location_id", "year_id", "age_group_id", "sex_id"]
+aa_merge_variables = rfc.aa_merge_variables
+as_merge_variables = rfc.as_merge_variables
 
 ###----------------------------------------------------------###
 ### 4. Data Loading and Integration
@@ -113,7 +114,9 @@ malaria_df = read_parquet_with_integer_ids(aa_full_cause_df_path_template,
 filters=[year_filter, level_filter(hierarchy_df, start_level = 3, end_level = 5)])
 # Read and merge development assistance data
 dah_df = read_parquet_with_integer_ids(dah_df_path)
-malaria_df = pd.merge(malaria_df, dah_df, on=["location_id", "year_id"], how="left")
+malaria_df = pd.merge(malaria_df, 
+                      dah_df[aa_merge_variables + ['mal_DAH_total','mal_DAH_total_per_capita']], 
+                      on = aa_merge_variables, how="left")
 
 # Load and merge urbanization metrics
 urban_dfs = read_urban_paths(urban_paths, VARIABLE_DATA_PATH)
@@ -173,12 +176,18 @@ malaria_stage_2_df = malaria_stage_2_df[
 malaria_stage_2_df = malaria_stage_2_df.copy()
 
 # Select countries with significant malaria burden (mortality > threshold)
-A0_malaria_stage_2_df = malaria_stage_2_df[(malaria_stage_2_df["location_id"] == malaria_stage_2_df["A0_location_id"]) & (malaria_stage_2_df["year_id"] == 2022)]
-A0_malaria_stage_2_df = A0_malaria_stage_2_df[A0_malaria_stage_2_df["malaria_mort_count"] >= malaria_mortality_threshold]
-phase_2_A0_location_ids = A0_malaria_stage_2_df["location_id"].unique()
+A0_malaria_stage_2_df = malaria_stage_2_df[(malaria_stage_2_df["location_id"] == malaria_stage_2_df["A0_location_id"]) & (malaria_stage_2_df["year_id"] == 2022)].copy()
+A0_malaria_stage_2_df = A0_malaria_stage_2_df.rename(columns={
+    "malaria_pfpr": "A0_malaria_pfpr",
+    "malaria_mort_count": "A0_malaria_mort_count",
+    "malaria_inc_count": "A0_malaria_inc_count"})
+
+A0_malaria_stage_2_df = A0_malaria_stage_2_df[A0_malaria_stage_2_df["A0_malaria_mort_count"] >= malaria_mortality_threshold]
+phase_2_A0_location_ids = A0_malaria_stage_2_df["A0_location_id"].unique()
 
 # Subset to high-burden countries and most detailed geographic units
 malaria_stage_2_df = malaria_stage_2_df[malaria_stage_2_df["A0_location_id"].isin(phase_2_A0_location_ids)]
+malaria_stage_2_df = malaria_stage_2_df.merge(A0_malaria_stage_2_df[["A0_location_id", "A0_malaria_pfpr", "A0_malaria_mort_count", "A0_malaria_inc_count"]], on=["A0_location_id"], how="left")
 
 ###----------------------------------------------------------###
 ### 7. Feature Engineering and Transformations
@@ -227,6 +236,7 @@ stage_2_df_columns_to_keep = ['location_id', 'year_id', 'malaria_pfpr',
     'urban_100m_threshold_300', 'urban_1km_threshold_1500', 'urban_100m_threshold_1500', 'gdppc_mean', 
     'total_precipitation', 'relative_humidity', 'mean_temperature',
     'mean_high_temperature', 'malaria_suitability', 'people_flood_days_per_capita', 'A0_location_id',
+    "A0_malaria_pfpr", "A0_malaria_mort_count", "A0_malaria_inc_count",
     'A0_af', 'log_mal_DAH_total_per_capita', 'log_gdppc_mean', 'logit_urban_1km_threshold_300',
     'logit_urban_100m_threshold_300', 'logit_urban_1km_threshold_1500', 'logit_urban_100m_threshold_1500', 'logit_malaria_pfpr']
 malaria_stage_3_df = malaria_stage_2_df[stage_2_df_columns_to_keep].copy()

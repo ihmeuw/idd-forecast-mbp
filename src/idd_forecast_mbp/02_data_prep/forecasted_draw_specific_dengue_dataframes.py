@@ -1,18 +1,17 @@
 import xarray as xr # type: ignore
 from pathlib import Path
 import numpy as np # type: ignore
-from affine import Affine # type: ignore
 from typing import cast
 import numpy.typing as npt # type: ignore
 import pandas as pd # type: ignore
-from shapely import MultiPolygon, Polygon # type: ignore
 from typing import Literal, NamedTuple
+import itertools
 from rra_tools.shell_tools import mkdir # type: ignore
 from idd_forecast_mbp import constants as rfc
-from idd_forecast_mbp.helper_functions import read_parquet_with_integer_ids, write_parquet
+from idd_forecast_mbp.helper_functions import merge_dataframes, read_income_paths, read_urban_paths, level_filter
+from idd_forecast_mbp.parquet_functions import read_parquet_with_integer_ids, write_parquet
+
 import argparse
-
-
 parser = argparse.ArgumentParser(description="Add DAH Sceanrios and create draw level dataframes for forecating dengue")
 
 # Define arguments
@@ -22,10 +21,16 @@ parser.add_argument("--draw", type=str, required=True, help="Draw number (e.g., 
 # Parse arguments
 args = parser.parse_args()
 
+
 ssp_scenario = args.ssp_scenario
 draw = args.draw
+# ssp_scenario = "ssp245"
+# draw = "001"
+
 ssp_scenarios = rfc.ssp_scenarios
 rcp_scenario = ssp_scenarios[ssp_scenario]["rcp_scenario"]
+
+malaria_mortality_threshold = 1
 
 # Hierarchy
 hierarchy = "lsae_1209"
@@ -35,29 +40,39 @@ FORECASTING_DATA_PATH = rfc.MODEL_ROOT / "04-forecasting_data"
 
 
 cause = "dengue"
-as_md_dengue_modeling_df_path = f"{MODELING_DATA_PATH}/as_md_{cause}_modeling_df.parquet"
-base_md_modeling_df_path = f"{MODELING_DATA_PATH}/base_md_{cause}_modeling_df.parquet"
+
+
+cause_map = rfc.cause_map
+reference_age_group_id = cause_map[cause]['reference_age_group_id']
+reference_sex_id = cause_map[cause]['reference_sex_id']
+
 forecast_non_draw_df_path = f"{FORECASTING_DATA_PATH}/{cause}_forecast_scenario_{ssp_scenario}_non_draw_part.parquet"
 forecast_by_draw_df_path_template = "{FORECASTING_DATA_PATH}/{cause}_forecast_ssp_scenario_{ssp_scenario}_draw_{draw}.parquet"
-
-as_merge_variables = rfc.as_merge_variables
-aa_merge_variables = rfc.aa_merge_variables
-
-
 
 # Hierarchy path
 hierarchy_df_path = f'{PROCESSED_DATA_PATH}/full_hierarchy_lsae_1209.parquet'
 hierarchy_df = read_parquet_with_integer_ids(hierarchy_df_path)
 
 
+# Hierarchy path
+hierarchy_df_path = f'{PROCESSED_DATA_PATH}/full_hierarchy_lsae_1209.parquet'
+hierarchy_df = read_parquet_with_integer_ids(hierarchy_df_path)
+
 # LSAE 1209 variable path
 VARIABLE_DATA_PATH = f"{PROCESSED_DATA_PATH}/{hierarchy}"
 # CLIMATE 1209 variable path
 CLIMATE_DATA_PATH = f"/mnt/team/rapidresponse/pub/climate-aggregates/2025_03_20/results/{hierarchy}"
 
-## Covariates
-population_path = "{VARIABLE_DATA_PATH}/population.parquet"
+# Malaria modeling dataframes
+aa_full_cause_df_path_template = f'{PROCESSED_DATA_PATH}/aa_full_{cause}_df.parquet'
+as_full_cause_df_path_template = f'{PROCESSED_DATA_PATH}/as_full_{cause}_df.parquet'
 
+aa_merge_variables = rfc.aa_merge_variables
+as_merge_variables = rfc.as_merge_variables
+
+aa_ge3_dengue_stage_1_modeling_df_path = f"{MODELING_DATA_PATH}/aa_ge3_{cause}_stage_1_modeling_df.parquet"
+as_md_dengue_modeling_df_path = f"{MODELING_DATA_PATH}/as_md_{cause}_modeling_df.parquet"
+base_md_modeling_df_path = f"{MODELING_DATA_PATH}/base_md_{cause}_modeling_df.parquet"
 
 cc_sensitive_paths = {
     "total_precipitation":      "{CLIMATE_DATA_PATH}/total_precipitation_{ssp_scenario}.parquet",
@@ -66,7 +81,20 @@ cc_sensitive_paths = {
 }
 
 
-forecast_by_draw_df = read_parquet_with_integer_ids(forecast_non_draw_df_path)
+# Get the unique values of A0_location_id
+years = list(range(2022, 2023))
+year_filter = ('year_id', 'in', years)
+
+
+base_md_modeling_df = read_parquet_with_integer_ids(base_md_modeling_df_path,
+                                                    filters = [year_filter])
+
+dengue_modeling_location_ids = base_md_modeling_df['location_id'].unique()
+dengue_modeling_location_filter = ('location_id', 'in', dengue_modeling_location_ids)
+
+
+forecast_by_draw_df = read_parquet_with_integer_ids(forecast_non_draw_df_path,
+                                                    filters = [dengue_modeling_location_filter])
 # Add the draw column
 
 forecast_by_draw_df["draw"] = draw
@@ -83,13 +111,7 @@ for key, path_template in cc_sensitive_paths.items():
     forecast_by_draw_df = pd.merge(forecast_by_draw_df, df, on=["location_id", "year_id"], how="left")
 
 
-# Get the unique values of A0_location_id
-years = list(range(2022, 2023))
-year_filter = ('year_id', 'in', years)
 
-
-base_md_modeling_df = read_parquet_with_integer_ids(base_md_modeling_df_path,
-                                                    filters = [year_filter])
 cause_columns = list([col for col in base_md_modeling_df.columns if cause in col and "suit" not in col])
 columns_to_keep = aa_merge_variables + ['base_log_dengue_inc_rate']
 base_md_modeling_df = base_md_modeling_df[columns_to_keep].copy()
@@ -112,7 +134,8 @@ for col in covariates_to_log_transform:
     forecast_by_draw_df[f"log_{col}"] = np.log(forecast_by_draw_df[col] + 1e-6)
 
 as_md_dengue_modeling_df = read_parquet_with_integer_ids(as_md_dengue_modeling_df_path,
-                                                              filters = [year_filter])
+                                                              filters = [year_filter, dengue_modeling_location_filter])
+
 cause_columns = list([col for col in as_md_dengue_modeling_df.columns if cause in col and "suit" not in col])
 columns_to_keep = as_merge_variables + ['logit_dengue_cfr', 'as_id']
 as_md_dengue_modeling_df = as_md_dengue_modeling_df[columns_to_keep].copy()

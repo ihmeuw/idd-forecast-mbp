@@ -82,7 +82,7 @@ def prep_df(df, hierarchy_df):
         df = df.drop(columns=['parent_id'])
     return df
 
-def rake_level(count_variable, level_df, level_m1_df, problematic_rules, hierarchy_df):
+def rake_level(count_variable, level_df, level_m1_df, problematic_rules, hierarchy_df, level):
     '''
     Rakes the level DataFrame to the next level using the hierarchy DataFrame.
     '''
@@ -131,8 +131,8 @@ def rake_level(count_variable, level_df, level_m1_df, problematic_rules, hierarc
     )
 
     # replace population_raking_factor with full_population_raking_factor if population_raking_factor is inf or the rate we will get if we use effective will be too high
-    level_df['used_full_population_raking_factor'] = np.where(level_df['population_raking_factor'] > problematic_rules['rate_max'], True, False)
-    level_df['population_raking_factor'] = np.where(level_df['population_raking_factor'] > problematic_rules['rate_max'], level_df['full_population_raking_factor'], level_df['population_raking_factor'])
+    level_df['used_full_population_raking_factor'] = np.where(level_df['population_raking_factor'] > problematic_rules['rate_max'][level], True, False)
+    level_df['population_raking_factor'] = np.where(level_df['population_raking_factor'] > problematic_rules['rate_max'][level], level_df['full_population_raking_factor'], level_df['population_raking_factor'])
     # drop zero_population_raking_factor
     level_df = level_df.drop(columns=['full_population_raking_factor'])
 
@@ -151,7 +151,7 @@ def rake_level(count_variable, level_df, level_m1_df, problematic_rules, hierarc
 
     # Which level_df rows have either count_raking_factor = inf or count_based_rate is big
     problematic_rows = level_df[(level_df['count_raking_factor'] > problematic_rules['count_raking_factor_max']) | 
-                                (level_df['count_based_rate'] > problematic_rules['rate_max']) | 
+                                (level_df['count_based_rate'] > problematic_rules['rate_max'][level]) | 
                                 ((level_df['count_raking_factor'] > problematic_rules['count_raking_factor_conditional']) & (level_df['count_based_rate'] > problematic_rules['rate_max_conditional']))]
     problematic_rows = problematic_rows[problematic_rows['count_based_rate'] > problematic_rows['population_based_rate']]
     npinf_rows = level_df[(level_df['count_raking_factor'] == np.inf)]
@@ -172,6 +172,9 @@ def rake_level(count_variable, level_df, level_m1_df, problematic_rules, hierarc
     # For rows where use_population is True
     population_mask = (level_df['use_population'] == True) & (level_df['set_by_gbd'] == False)
     count_mask = (level_df['use_population'] == False) & (level_df['set_by_gbd'] == False)
+    left_alone = len(count_mask[count_mask == True])
+    changed = len(population_mask[population_mask == True])
+    total = left_alone + changed
     # Note we use 'population_to_use' here!!!
     level_df.loc[count_mask, count_variable] = level_df.loc[count_mask, count_variable] * level_df.loc[count_mask, 'count_raking_factor']
     level_df.loc[population_mask, count_variable] = level_df.loc[population_mask, 'population_to_use'] * level_df.loc[population_mask, 'population_raking_factor']
@@ -181,6 +184,29 @@ def rake_level(count_variable, level_df, level_m1_df, problematic_rules, hierarc
     # Drop the raking factor
     level_df = level_df.drop(columns=drop_cols)
     #
+    # Additional mortality-specific checkslevel_df['current_rate'] = level_df[count_variable] / level_df['population']
+    mort_stats = {}
+    if 'malaria_mort_count' in count_variable.lower():
+        # Only calculate for numeric, non-problematic values
+        tmp_df = level_df.copy()
+        tmp_df['rate'] = tmp_df[count_variable] / tmp_df['population']
+        mort_stats = {
+            'mean': tmp_df['rate'].mean(),
+            'max': tmp_df['rate'].max(),
+            'count_gt_0_001': (tmp_df['rate'] > 0.001).sum(),
+            'count_gt_0_01': (tmp_df['rate'] > 0.01).sum(),
+            'count_gt_0_1': (tmp_df['rate'] > 0.1).sum(),
+            'count_gt_1': (tmp_df['rate'] > 1).sum()
+        }
+        print(f"\nMortality stats for {count_variable} at level {level}:")
+        print(f"Mortality Statistics:")
+        print(f"Mean: {mort_stats['mean']:.6f}")
+        print(f"Max: {mort_stats['max']:.6f}")
+        print(f"Count > 0.001: {mort_stats['count_gt_0_001']}")
+        print(f"Count > 0.01: {mort_stats['count_gt_0_01']}")
+        print(f"Count > 0.1: {mort_stats['count_gt_0_1']}")
+        print(f"Count > 1: {mort_stats['count_gt_1']}")
+        print(f"Changed {changed} ({100*(changed / total):.1f}%)rows, left alone {left_alone} rows, total {total} rows")
     return level_df
 
 def rake_aa_count_lsae_to_gbd(count_variable, hierarchy_df, aa_gbd_count_df, aa_lsae_count_df, problematic_rules, aa_full_count_df_path=None, return_full_df=False):
@@ -212,12 +238,12 @@ def rake_aa_count_lsae_to_gbd(count_variable, hierarchy_df, aa_gbd_count_df, aa_
     level_m1_df = aa_gbd_count_0_to_3_df[aa_gbd_count_0_to_3_df['level'] == 3].copy()
     level_df = aa_lsae_count_df[aa_lsae_count_df['level'] == 4].copy()
     level_df = make_aa_df_square(count_variable, level_df, hierarchy_df, 4, 4)
-    level_4_df = rake_level(count_variable, level_df, level_m1_df, problematic_rules, hierarchy_df)
+    level_4_df = rake_level(count_variable, level_df, level_m1_df, problematic_rules, hierarchy_df, level = 4)
     # Rake 5 to 4
     level_m1_df = level_4_df.copy()
     level_df = aa_lsae_count_df[aa_lsae_count_df['level'] == 5].copy()
     level_df = make_aa_df_square(count_variable, level_df, hierarchy_df, 5, 5)
-    level_5_df = rake_level(count_variable, level_df, level_m1_df, problematic_rules, hierarchy_df)
+    level_5_df = rake_level(count_variable, level_df, level_m1_df, problematic_rules, hierarchy_df, level = 5)
     # Make aa_full_df
     aa_full_count_df = pd.concat([
         aa_gbd_count_0_to_3_df,

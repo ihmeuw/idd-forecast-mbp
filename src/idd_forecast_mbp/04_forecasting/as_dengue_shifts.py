@@ -20,10 +20,8 @@ import os
 import sys
 import itertools
 from idd_forecast_mbp import constants as rfc
-from idd_forecast_mbp.helper_functions import write_parquet, read_parquet_with_integer_ids
+from idd_forecast_mbp.parquet_functions import read_parquet_with_integer_ids, write_parquet
 import glob
-
-
 
 import argparse
 
@@ -39,7 +37,7 @@ args = parser.parse_args()
 ssp_scenario = args.ssp_scenario
 draw = args.draw
 
-# # For testing purposes, you can uncomment and modify the following lines:
+# For testing purposes, you can uncomment and modify the following lines:
 # ssp_scenario = 'ssp126'
 # draw = '001'
 
@@ -123,7 +121,7 @@ as_merge_variables = rfc.as_merge_variables
 # Processing: Filter columns containing short name, add basic merge columns
 # Creates: Main forecast DataFrame df
 # Output: Filtered forecast data ready for processing
-columns_to_read = as_merge_variables + ['year_to_rake','logit_dengue_cfr_pred', 'base_log_dengue_inc_rate', 'base_log_dengue_inc_rate_pred_raw', 'base_log_dengue_inc_rate_pred']
+columns_to_read = as_merge_variables + ['logit_dengue_cfr_pred', 'base_log_dengue_inc_rate', 'base_log_dengue_inc_rate_pred']
 future_year_ids = list(range(2022, 2101))
 year_filter = ('year_id', 'in', future_year_ids)
 
@@ -135,11 +133,6 @@ df['dengue_cfr_pred'] = 1 / (1 + np.exp(-df['logit_dengue_cfr_pred']))
 df = df.drop(columns=['logit_dengue_cfr_pred'])
 
 # df = df.merge(hierarchy_df[['location_id', 'fhs_location_id']], on='location_id', how='left').copy()
-
-# Extract column names for predictions and observations
-pred_raw_col = [col for col in df.columns if "pred_raw" in col][0]
-obs_col = pred_raw_col.replace("_pred_raw", "")
-pred_col = pred_raw_col.replace("_pred_raw", "_pred")
 
 # 4.2 Data Preparation and Filtering
 # Purpose: Prepare data for GBD data loading by creating filters
@@ -161,152 +154,43 @@ metric_id_filter = ('metric_id', 'in', [metric_id_value] if isinstance(metric_id
 # Inputs: Age-sex population parquet file
 # Creates: as_population_df with filtered population data
 # Output: Population DataFrame for final calculations
+pop_cols_to_read = as_merge_variables + ['population']
 as_population_df = read_parquet_with_integer_ids(as_full_population_df_path,
-                                               filters = [df_location_filter, year_filter])
-as_population_df = as_population_df.merge(hierarchy_df[['location_id', 'fhs_location_id']], on='location_id', how='left')
-###----------------------------------------------------------###
-### 5. GBD Reference Data Processing
-###----------------------------------------------------------###
+                                                 columns = pop_cols_to_read,
+                                                 filters = [df_location_filter, year_filter])
+as_population_df = as_population_df.merge(hierarchy_df[['location_id', 'gbd_location_id']], on='location_id', how='left')
 
-# 5.1 Year-Location Grouping
-# Purpose: Group locations by year_to_rake for efficient data loading
-# Processing: Create sub-DataFrames mapping FHS locations to rake years
-# Creates: sub_dfs list containing location-year mappings
-# Output: Organized location groups for batch processing
-sub_dfs = []
-for year_to_rake in df['year_to_rake'].unique():
-    temp_df = df[df['year_to_rake'] == year_to_rake]['location_id'].unique()
-    sub_fhs_location_ids = hierarchy_df[hierarchy_df['location_id'].isin(temp_df)]['fhs_location_id'].unique()
-    sub_df = pd.DataFrame({
-        'fhs_location_id': sub_fhs_location_ids,
-        'year_to_rake': year_to_rake
-    })
-    sub_dfs.append(sub_df)
-
-###----------------------------------------------------------###
-### 6. Age-Sex GBD Data Loading and Processing
-###----------------------------------------------------------###
-
-# 6.1 Batch Data Loading Loop
-# Purpose: Load GBD cause data in batches by year_to_rake
-# Inputs: Age-sex GBD cause parquet files
-# Processing: Filter by location, year, measure, and metric IDs
-# Creates: Individual as_fhs_df for each batch
-# Output: Filtered GBD data for specific year-location combinations
-as_columns_to_read = ['location_id', 'sex_id', 'age_group_id', 'measure_id', 'metric_id', 'val', 'population']
-as_fhs_dfs = []
-for i, sub_df in enumerate(sub_dfs):
-    sub_fhs_location_ids = sub_df['fhs_location_id'].unique()
-    year_to_rake = sub_df['year_to_rake'].unique()[0]
-    sex_ids = [1,2]
-    year_to_rake_filter = ('year_id', '=', year_to_rake)
-    sex_filter = ('sex_id', 'in', sex_ids)
-    print(f"Processing subset {i+1} of {len(sub_dfs)}")
-    fhs_location_filter = ('location_id', 'in', sub_fhs_location_ids.tolist())
-    as_fhs_df = read_parquet_with_integer_ids(
-        as_gbd_cause_df_path_template.format(
-            GBD_DATA_PATH=GBD_DATA_PATH,
-            cause=cause
-        ),
-        filters=[fhs_location_filter, year_to_rake_filter, measure_id_filter, metric_id_filter,sex_filter],
-        columns=as_columns_to_read
-    )
-    as_fhs_df = as_fhs_df.rename(columns={'val': short}).drop(columns=['measure_id', 'metric_id']).copy()
-    as_fhs_df['year_to_rake'] = year_to_rake
-    as_fhs_dfs.append(as_fhs_df)
+forecast_df = as_population_df.merge(df, on=as_merge_variables, how='left').copy()
 
 # 6.3 Data Consolidation
 # Purpose: Combine all batch results into single DataFrame
 # Creates: Complete as_fhs_df with all reference data
 # Output: Consolidated age-sex reference data
-as_fhs_df = pd.concat(as_fhs_dfs, ignore_index=True)
-as_fhs_df = as_fhs_df.merge(hierarchy_df[['location_id', 'fhs_location_id']], on='location_id', how='left')
-###----------------------------------------------------------###
-### 7. Relative Risk Calculation
-###----------------------------------------------------------###
+as_md_gbd_dengue_df_path = f"{PROCESSED_DATA_PATH}/as_md_gbd_dengue_df.parquet"
+columns_to_read = ['location_id', 'sex_id', 'age_group_id', 'rr_inc_as']
+as_md_gbd_dengue_df = read_parquet_with_integer_ids(as_md_gbd_dengue_df_path,
+                                                    columns = columns_to_read).rename(columns={
+    'location_id': 'gbd_location_id'
+})
 
-# 7.1 Reference Rate Extraction
-# Purpose: Extract baseline rates for reference age-sex group
-# Processing: Filter to reference age/sex, rename columns
-# Creates: base_fhs_df with reference rates
-# Output: Baseline rates for relative risk calculation
-base_fhs_df = as_fhs_df[(as_fhs_df['age_group_id'] == reference_age_group_id) & (as_fhs_df['sex_id'] == reference_sex_id)].drop(columns=['population', 'year_to_rake']).copy()
-base_fhs_df = base_fhs_df.rename(columns={
-    short: base_col,
-    'sex_id': 'base_sex_id',
-    'age_group_id': 'base_age_group_id'})
+forecast_df = forecast_df.merge(as_md_gbd_dengue_df, on=['gbd_location_id', 'age_group_id', 'sex_id'], how='left')
 
-# 7.2 Relative Risk Computation
-# Purpose: Calculate relative risks and prepare for merging
-# Processing: Merge baseline rates, calculate ratios, rename columns
-# Creates: Relative risk values for each age-sex-location combination
-# Output: as_fhs_df with relative risks ready for forecasting
-as_fhs_df = as_fhs_df.merge(base_fhs_df, on=['location_id'], how='left')
+# Replace all NaN in any column of forecast_df with 0
+forecast_df['base_log_dengue_inc_rate_pred'] = forecast_df['base_log_dengue_inc_rate_pred'].fillna(0)
+forecast_df['dengue_cfr_pred'] = forecast_df['dengue_cfr_pred'].fillna(0)
 
-as_fhs_df['relative_risk'] = as_fhs_df[short] / as_fhs_df[base_col]
-as_fhs_df.loc[as_fhs_df[short] == 0, 'relative_risk'] = 0.0
-as_fhs_df = as_fhs_df.rename(columns={
-    'location_id': 'fhs_location_id',
-    short: 'fhs_' + short,
-    base_col: 'fhs_' + base_col})
+forecast_df['dengue_inc_count_pred'] = forecast_df['population'] * np.exp(forecast_df['base_log_dengue_inc_rate_pred']) * forecast_df['rr_inc_as']
+forecast_df['dengue_mort_count_pred'] = forecast_df['dengue_inc_count_pred'] * forecast_df['dengue_cfr_pred']
 
-as_fhs_df = as_fhs_df.drop(columns=['population', 'base_sex_id', 'base_age_group_id', 'year_to_rake'])
+keep_columns = as_merge_variables + ['population', 'dengue_inc_count_pred', 'dengue_mort_count_pred']
+forecast_df = forecast_df[keep_columns]
 
 
-forecasting_df = as_population_df.merge(df, on=as_merge_variables, how='left').copy()
-
-# Replace all NaN in the year_to_rake of forecasting_df with 2022
-forecasting_df['year_to_rake'] = forecasting_df['year_to_rake'].fillna(2022)
-# Replace all NaN in any column of forecasting_df with 0
-
-###----------------------------------------------------------###
-### 8. Final Forecasting Calculations
-###----------------------------------------------------------###
-
-# 8.1 Data Merging
-# Purpose: Combine population, forecast, and relative risk data
-# Processing: Sequential merges on location-year and location-age-sex
-# Creates: forecasting_df with all necessary components
-# Output: Complete dataset for final calculations
-forecasting_df = forecasting_df.merge(as_fhs_df, on=['fhs_location_id', 'age_group_id', 'sex_id'], how='left')
-
-# 8.2 Transformation and Rate Calculation
-# Purpose: Apply inverse transformations and calculate final rates
-# Processing: Exponential or logistic inverse, multiply by relative risks
-# Creates: Base rates and age-sex-specific predicted rates
-# Output: Final forecasted rates by age-sex-location-year
-forecasting_df['base_' + short] = np.exp(forecasting_df[pred_col])
-
-# 8.3 Special Cases and Count Calculation
-# Purpose: Handle special cases and calculate counts from rates
-# Processing: Set age group 2 to zero, multiply rates by population
-# Creates: Final rate and count predictions
-# Output: Complete forecasted dataset
-# Hard code age_group_id 2 to have no dengue or malaria
-# Hard code age_group_id 2 to have no dengue or malaria
-forecasting_df = forecasting_df.fillna(0)
-forecasting_df.loc[forecasting_df["age_group_id"] == 2, "relative_risk"] = 0.0
-forecasting_df[short + '_pred'] = forecasting_df['base_' + short] * forecasting_df['relative_risk']
-
-count_name = modeling_measure_map[cause][modeling_measure]['count_name']
-forecasting_df[count_name + '_pred'] = forecasting_df[short + '_pred'] * forecasting_df['population']
-
-forecasting_df['dengue_mort_count_pred'] = forecasting_df['dengue_inc_count_pred'] * forecasting_df['dengue_cfr_pred']
-forecasting_df['dengue_mort_rate_pred'] = forecasting_df['dengue_mort_count_pred'] / forecasting_df['population']
-
-drop_columns = [col for col in forecasting_df.columns if 'fhs' in col or 'base' in col or 'rake' in col or 'cfr' in col or 'risk' in col]
-
-forecasting_df = forecasting_df.drop(columns=drop_columns)  
-
-non_measure_columns = [col for col in forecasting_df.columns if 'inc' not in col and 'mort' not in col]
-incidence_columns = [col for col in forecasting_df.columns if 'inc' in col]
-mortality_columns = [col for col in forecasting_df.columns if 'mort' in col]
-
-incidence_forecasts = forecasting_df[non_measure_columns + incidence_columns].copy()
-mortality_forecasts = forecasting_df[non_measure_columns + mortality_columns].copy()
-
-output_dengue_incidence_draw_path = f"{FORECASTING_DATA_PATH}/as_{cause}_measure_incidence_ssp_scenario_{ssp_scenario}_draw_{draw}_with_predictions.parquet"
-output_dengue_mortality_draw_path = f"{FORECASTING_DATA_PATH}/as_{cause}_measure_mortality_ssp_scenario_{ssp_scenario}_draw_{draw}_with_predictions.parquet"
+##################################################################
+##################################################################
+##### Vaccination
+##################################################################
+##################################################################
 
 ##### Vaccination
 locations = ['Singapore', 'Brazil', 'Indonesia', 'Thailand']
@@ -317,12 +201,6 @@ grand_children_ids = hierarchy_df[hierarchy_df['parent_id'].isin(children_ids)][
 dengue_vaccine_df_path = f"{FORECASTING_DATA_PATH}/dengue_vaccine_df.parquet"
 dengue_vaccine_df = read_parquet_with_integer_ids(dengue_vaccine_df_path)
 
-
-##################################################################
-##################################################################
-##### Vaccination
-##################################################################
-##################################################################
 locations = ['Singapore', 'Brazil', 'Indonesia', 'Thailand']
 location_ids = hierarchy_df[hierarchy_df['location_name'].isin(locations)]['location_id'].unique()
 children_ids = hierarchy_df[hierarchy_df['parent_id'].isin(location_ids)]['location_id'].unique()
@@ -338,9 +216,9 @@ vaccine_lookup = dengue_vaccine_df.set_index('age_group_id')
 
 # Filter to vaccination locations and years
 vaccine_mask = (
-    mortality_forecasts['location_id'].isin(grand_children_ids) &
-    (mortality_forecasts['year_id'] >= 2023) &
-    (mortality_forecasts['year_id'] <= 2100)
+    forecast_df['location_id'].isin(grand_children_ids) &
+    (forecast_df['year_id'] >= 2023) &
+    (forecast_df['year_id'] <= 2100)
 )
 
 # Apply vaccination effects using vectorized operations
@@ -348,22 +226,29 @@ for year in range(2023, 2101):
     year_col = f'year_{year}'
     if year_col in vaccine_lookup.columns:
         # Create mask for this specific year
-        year_mask = vaccine_mask & (mortality_forecasts['year_id'] == year)
+        year_mask = vaccine_mask & (forecast_df['year_id'] == year)
         
         if year_mask.any():
             # Get reduction values for all age groups in this year
             age_group_reductions = vaccine_lookup[year_col]
             
             # Map reductions to the mortality forecasts
-            reductions = mortality_forecasts.loc[year_mask, 'age_group_id'].map(age_group_reductions)
+            reductions = forecast_df.loc[year_mask, 'age_group_id'].map(age_group_reductions)
             
             # Apply reductions (fill NaN with 1.0 for no reduction)
             reductions = reductions.fillna(1.0)
             
             # Apply vaccine effectiveness
-            mortality_forecasts.loc[year_mask, 'dengue_mort_rate_pred'] *= reductions
-            mortality_forecasts.loc[year_mask, 'dengue_mort_count_pred'] *= reductions
+            forecast_df.loc[year_mask, 'dengue_mort_count_pred'] *= reductions
 
-write_parquet(incidence_forecasts, output_dengue_incidence_draw_path)
-write_parquet(mortality_forecasts, output_dengue_mortality_draw_path)
 
+output_dengue_incidence_draw_path = f"{FORECASTING_DATA_PATH}/as_{cause}_measure_incidence_ssp_scenario_{ssp_scenario}_draw_{draw}_with_predictions.parquet"
+output_dengue_mortality_draw_path = f"{FORECASTING_DATA_PATH}/as_{cause}_measure_mortality_ssp_scenario_{ssp_scenario}_draw_{draw}_with_predictions.parquet"
+
+non_measure_columns = [col for col in forecast_df.columns if 'inc' not in col and 'mort' not in col]
+incidence_columns = [col for col in forecast_df.columns if 'inc' in col]
+mortality_columns = [col for col in forecast_df.columns if 'mort' in col]
+
+
+write_parquet(forecast_df[non_measure_columns + incidence_columns], output_dengue_incidence_draw_path)
+write_parquet(forecast_df[non_measure_columns + mortality_columns], output_dengue_mortality_draw_path)

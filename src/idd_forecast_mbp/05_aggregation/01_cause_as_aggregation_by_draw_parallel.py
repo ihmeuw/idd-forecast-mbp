@@ -4,7 +4,6 @@ from jobmon.client.tool import Tool  # type: ignore
 from pathlib import Path
 import geopandas as gpd  # type: ignore
 from idd_forecast_mbp import constants as rfc
-from idd_forecast_mbp.helper_functions import load_yaml_dictionary
 
 repo_name = rfc.repo_name
 package_name = rfc.package_name
@@ -83,9 +82,12 @@ task_template = tool.get_task_template(
     op_args=[],
 )
 
+dah_scenarios = rfc.dah_scenarios
+dah_scenarios = ['Baseline', 'Constant']
 # Add tasks
 tasks = []
 for cause in cause_map:
+# for cause in ['malaria']:
     for ssp_scenario in ssp_scenarios:
         for measure in measure_map:
             for draw in draws:
