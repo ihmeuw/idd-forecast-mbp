@@ -39,27 +39,33 @@ malaria_pfpr_mod <- scam(logit_malaria_pfpr ~ logit_malaria_suitability +
                            optimizer = "efs",      # Faster optimizer
                            control = list(maxit = 300))  # Limit iterations
 
+mod_df <- past_data[which(past_data$aa_malaria_mort_rate > 0),]
 mortality_scam_mod <- scam(log_aa_malaria_mort_rate ~ s(logit_malaria_pfpr, k = 10, bs = "mpi") + 
                              log_gdppc_mean + 
                              A0_af,
-                           data = past_data,
-                           optimizer = "efs",      # Faster optimizer
-                           control = list(maxit = 300))  # Limit iterations
-incidence_scam_mod <- scam(log_aa_malaria_inc_rate ~ s(logit_malaria_pfpr, k = 10, bs = "mpi") + 
-                             log_gdppc_mean + A0_af,
-                           data = past_data,
+                           data = mod_df,
                            optimizer = "efs",      # Faster optimizer
                            control = list(maxit = 300))  # Limit iterations
 
+mod_df <- past_data[which(past_data$aa_malaria_inc_rate > 0),]
+incidence_scam_mod <- scam(log_aa_malaria_inc_rate ~ s(logit_malaria_pfpr, k = 10, bs = "mpi") + 
+                             log_gdppc_mean + A0_af,
+                           data = mod_df,
+                           optimizer = "efs",      # Faster optimizer
+                           control = list(maxit = 300))  # Limit iterations
+
+mod_df <- past_data[which(past_data$base_malaria_mort_rate > 0),]
 mortality_base_scam_mod <- scam(log_base_malaria_mort_rate ~ s(logit_malaria_pfpr, k = 10, bs = "mpi") + 
                              log_gdppc_mean + 
                              A0_af,
-                           data = past_data,
+                           data = mod_df,
                            optimizer = "efs",      # Faster optimizer
                            control = list(maxit = 300))  # Limit iterations
+
+mod_df <- past_data[which(past_data$base_malaria_inc_rate  > 0),]
 incidence_base_scam_mod <- scam(log_base_malaria_inc_rate ~ s(logit_malaria_pfpr, k = 10, bs = "mpi") + 
                              log_gdppc_mean + A0_af,
-                           data = past_data,
+                           data = mod_df,
                            optimizer = "efs",      # Faster optimizer
                            control = list(maxit = 300))  # Limit iterations
 
@@ -67,4 +73,4 @@ incidence_base_scam_mod <- scam(log_base_malaria_inc_rate ~ s(logit_malaria_pfpr
 model_names <- c("malaria_pfpr_mod", "mortality_scam_mod", "incidence_scam_mod", "mortality_base_scam_mod",
                  "incidence_base_scam_mod")
 
-save(list = model_names, file = glue("{data_path}/2025_06_29_malaria_models.RData"))
+save(list = model_names, file = glue("{data_path}/2025_07_03_malaria_models.RData"))

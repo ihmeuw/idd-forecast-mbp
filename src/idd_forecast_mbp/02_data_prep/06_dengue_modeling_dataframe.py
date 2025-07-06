@@ -172,7 +172,7 @@ for col in covariates_to_logit_transform:
     dengue_df[f"logit_{col}"] = np.log(clipped_values / (1 - clipped_values))
 
 aa_A0_dengue_df = dengue_df[(dengue_df["location_id"] == dengue_df["A0_location_id"]) & (dengue_df["year_id"] == 2022)].copy()
-aa_A0_dengue_df = aa_A0_dengue_df[aa_A0_dengue_df['aa_dengue_mort_count'] > 1].copy()
+aa_A0_dengue_df = aa_A0_dengue_df[aa_A0_dengue_df['aa_dengue_inc_count'] > 100].copy()
 A0_dengue_ids = aa_A0_dengue_df['A0_location_id'].unique()
 
 
@@ -189,7 +189,9 @@ dengue_df.loc[
 
 write_parquet(dengue_df, aa_ge3_dengue_stage_1_modeling_df_path)
 
-dengue_df = dengue_df[dengue_df['A0_location_id'].isin(A0_dengue_ids)].copy() 
+
+
+
 
 
 
@@ -198,15 +200,16 @@ dengue_df = dengue_df[dengue_df['A0_location_id'].isin(A0_dengue_ids)].copy()
 ### Prepares the final dataset for modeling by selecting relevant columns,
 ### merging to the age-sex-location-year level, and saving the final dataset.
 ###----------------------------------------------------------###
-dengue_stage_2_df = dengue_df.copy()
-# Drop any columns that have yn = 0
-dengue_stage_2_df = dengue_stage_2_df[dengue_stage_2_df["yn"] == 1].drop(columns=["yn"])
-# Subset down to level 5 locations
+dengue_stage_2_df = dengue_df[dengue_df['A0_location_id'].isin(A0_dengue_ids)].copy() 
+#
 dengue_stage_2_df = dengue_stage_2_df[dengue_stage_2_df["level"] == 5].drop(columns=["level"])
+
+
+
 # Create the A0_af factor variable
 dengue_stage_2_df["A0_location_id"] = dengue_stage_2_df["A0_location_id"].astype(int)
 dengue_stage_2_df['A0_af'] = 'A0_' + dengue_stage_2_df['A0_location_id'].astype(str)
-dengue_stage_2_df['A0_af'] = dengue_stage_2_df['A0_af'].astype('category')
+
 # dengue_stage_2_df = dengue_stage_2_df.drop(columns=['aa_dengue_inc_count', 'aa_dengue_inc_rate', 'aa_dengue_mort_count', 'aa_dengue_mort_rate', 'aa_dengue_cfr'])
 # Get the as data
 md_location_ids = dengue_stage_2_df["location_id"].unique().tolist()
@@ -216,20 +219,21 @@ as_md_df = read_parquet_with_integer_ids(as_full_cause_df_path_template,
                                          columns=as_merge_variables + ["dengue_mort_rate","dengue_inc_rate","dengue_mort_count","dengue_inc_count","population","aa_population"],
                                          filters=[year_filter, md_location_filter, age_filter, sex_filter])
 
+as_md_df = as_md_df[as_md_df['dengue_inc_rate'] > 0].copy()
 
 as_md_df["dengue_cfr"] = as_md_df["dengue_mort_rate"] / as_md_df["dengue_inc_rate"]
-as_md_df.loc[as_md_df["dengue_inc_rate"] == 0, "dengue_cfr"] = 0
 
 covariates_to_log_transform = [
-    "dengue_mort_rate",
     "dengue_inc_rate"
 ]
 for col in covariates_to_log_transform:
-    as_md_df[f"log_{col}"] = np.log(as_md_df[col] + 1e-6)
+    as_md_df[f"log_{col}"] = np.log(as_md_df[col])
+    
 
 covariates_to_logit_transform = ['dengue_cfr']
 for col in covariates_to_logit_transform:
-    clipped_values = as_md_df[col].clip(lower=0.001, upper=0.999)
+    clipped_values = as_md_df[col].clip(upper=0.99)
+    print(f"Range of {col}: {as_md_df[col].min()} to {as_md_df[col].max()}")
     as_md_df[f"logit_{col}"] = np.log(clipped_values / (1 - clipped_values))
 
 dengue_stage_2_df = dengue_stage_2_df.drop(columns=["population"])
@@ -239,7 +243,14 @@ as_md_modeling_df = as_md_modeling_df[~as_md_modeling_df["mean_high_temperature"
 as_md_modeling_df = as_md_modeling_df[~(as_md_modeling_df["age_group_id"] == 2)]
 as_md_modeling_df["as_id"] = "a" + as_md_modeling_df["age_group_id"].astype(str) + "_s" + as_md_modeling_df["sex_id"].astype(str)
 
-write_parquet(as_md_modeling_df, as_md_dengue_modeling_df_path)
+columns_to_keep = as_merge_variables + ['A0_af', 'as_id', 'dengue_suitability', 'log_dengue_inc_rate', 'logit_urban_1km_threshold_300',
+                                        'log_gdppc_mean', 'logit_dengue_cfr', 'dengue_mort_rate']
+
+as_md_modeling_df = as_md_modeling_df[columns_to_keep]
+# Drop any columns that have yn = 0
+# dengue_stage_2_df = dengue_stage_2_df[dengue_stage_2_df["yn"] == 1].drop(columns=["yn"])
+
+
 
 cause_columns = list([col for col in as_md_modeling_df.columns if cause in col and "suit" not in col])
 base_md_modeling_df = as_md_modeling_df[(as_md_modeling_df['age_group_id'] == reference_age_group_id) & (as_md_modeling_df['sex_id'] == reference_sex_id)].copy()
@@ -253,6 +264,8 @@ rest_md_modeling_df = rest_md_modeling_df.merge(base_md_modeling_df[aa_merge_var
                                                 on=aa_merge_variables,
                                                 how='left')
 
+as_md_modeling_df = as_md_modeling_df[as_md_modeling_df['dengue_mort_rate'] > 0]
 
+write_parquet(as_md_modeling_df, as_md_dengue_modeling_df_path)
 write_parquet(base_md_modeling_df, base_md_modeling_df_path)
 write_parquet(rest_md_modeling_df, rest_md_modeling_df_path)

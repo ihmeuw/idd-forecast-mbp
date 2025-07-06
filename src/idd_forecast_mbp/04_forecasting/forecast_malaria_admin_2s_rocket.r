@@ -49,15 +49,17 @@ last_year <- 2022
 data_path <- glue("{REPO_DIR}/03-modeling_data")
 FORECASTING_DATA_PATH = glue("{REPO_DIR}/04-forecasting_data")
 
-load(glue("{data_path}/2025_06_29_malaria_models.RData"))
+# load(glue("{data_path}/2025_06_29_malaria_models.RData"))
+load(glue("{data_path}/2025_07_03_malaria_models.RData"))
 # load(file = glue("{data_path}/final_malaria_regression_models.RData"))
 
 message(glue("DAH sceanrio: {dah_scenario_name}, SSP scenario: {ssp_scenario}, Draw: {draw}"))
-
 input_forecast_df_path <- glue("{FORECASTING_DATA_PATH}/malaria_forecast_ssp_scenario_{ssp_scenario}_dah_scenario_{dah_scenario_name}_draw_{draw}.parquet")
 output_forecast_df_path <- glue("{FORECASTING_DATA_PATH}/malaria_forecast_ssp_scenario_{ssp_scenario}_dah_scenario_{dah_scenario_name}_draw_{draw}_with_predictions.parquet")
 
+
 forecast_df <- as.data.frame(arrow::read_parquet(input_forecast_df_path))
+message(exp(min(forecast_df$log_aa_malaria_mort_rate, na.rm = TRUE)))
 forecast_df$A0_af <- as.factor(forecast_df$A0_af)
 
 forecast_df$malaria_suit_fraction <- forecast_df$malaria_suitability / 365
@@ -90,6 +92,9 @@ columns_to_keep <- c(columns_to_kepp, "location_id", "year_id", "population", "a
 forecast_df <- forecast_df[, columns_to_keep]
 print(glue("Saving draw: {draw}, SSP scenario: {ssp_scenario}, DAH scenario: {dah_scenario_name}"))
 # print(glue("    - {forecast_df[which(forecast_df$location_id == 25364 & forecast_df$year_id == 2091),c('log_malaria_pf_mort_rate_pred', 'log_malaria_pf_inc_rate_pred')]}"))
+
+
+
 
 ####
 write_parquet(forecast_df, output_forecast_df_path)

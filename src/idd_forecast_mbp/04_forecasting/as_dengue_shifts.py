@@ -79,8 +79,7 @@ GBD_DATA_PATH = rfc.GBD_DATA_PATH
 # Logic: Malaria includes DAH scenario in filename, others don't
 # Creates: input_cause_draw_path, output_cause_draw_path
 # Output: Cause-specific file paths
-input_cause_draw_path = f"{FORECASTING_DATA_PATH}/{cause}_forecast_ssp_scenario_{ssp_scenario}_draw_{draw}_with_predictions.parquet"
-output_cause_draw_path = f"{FORECASTING_DATA_PATH}/as_{cause}_measure_{modeling_measure}_ssp_scenario_{ssp_scenario}_draw_{draw}_with_predictions.parquet"
+input_cause_draw_path = f"{FORECASTING_DATA_PATH}/raked_{cause}_forecast_ssp_scenario_{ssp_scenario}_draw_{draw}_with_predictions.parquet"
 
 # 2.2 Template Path Definitions
 # Purpose: Define path templates for various data sources
@@ -121,7 +120,7 @@ as_merge_variables = rfc.as_merge_variables
 # Processing: Filter columns containing short name, add basic merge columns
 # Creates: Main forecast DataFrame df
 # Output: Filtered forecast data ready for processing
-columns_to_read = as_merge_variables + ['logit_dengue_cfr_pred', 'base_log_dengue_inc_rate', 'base_log_dengue_inc_rate_pred']
+columns_to_read = as_merge_variables + ['logit_dengue_cfr_pred', 'base_log_dengue_inc_rate_pred']
 future_year_ids = list(range(2022, 2101))
 year_filter = ('year_id', 'in', future_year_ids)
 

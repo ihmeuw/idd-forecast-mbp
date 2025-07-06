@@ -10,7 +10,7 @@ package_name = rfc.package_name
 
 
 fhs_flag = 1
-run_date = "2025_06_30"
+run_date = "2025_07_03"
 
 # Script directory
 SCRIPT_ROOT = rfc.REPO_ROOT / repo_name / "src" / package_name / "06_upload"
@@ -30,7 +30,7 @@ stderr_dir.mkdir(parents=True, exist_ok=True)
 
 # Project
 project = "proj_rapidresponse"  # Adjust this to your project name if needed
-
+queue = 'long.q'
 
 wf_uuid = uuid.uuid4()
 tool_name = f"{package_name}_combine_draws_{wf_uuid}"
@@ -49,7 +49,7 @@ workflow.set_default_compute_resources_from_dict(
         "memory": "15G",
         "cores": 1,
         "runtime": "60m",
-        "queue": "all.q",
+        "queue": queue,
         "project": project,
         "stdout": str(stdout_dir),
         "stderr": str(stderr_dir),
@@ -69,7 +69,7 @@ task_template = tool.get_task_template(
         "memory": memory,
         "cores": 5,
         "runtime": "60m",
-        "queue": "all.q",
+        "queue": queue,
         "project": project,
         "stdout": str(stdout_dir),
         "stderr": str(stderr_dir),

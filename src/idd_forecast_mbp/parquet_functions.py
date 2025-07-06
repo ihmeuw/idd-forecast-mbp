@@ -49,7 +49,7 @@ def read_parquet_with_integer_ids(path, **kwargs):
     return ensure_id_columns_are_integers(df)
 
 
-def write_parquet(df, filepath, max_retries=3, validate=True, validation_method='metadata',
+def write_parquet(df, filepath, max_retries=3, validate=True, validation_method='metadata', overwrite=True,
                   compression='lz4', index=False, use_atomic=False, row_group_size=100000, **kwargs):
     '''
     Write parquet file with memory-efficient validation options for large dataframes.
@@ -70,6 +70,14 @@ def write_parquet(df, filepath, max_retries=3, validate=True, validation_method=
     import pyarrow.parquet as pq
     from pathlib import Path
     
+    # Delete existing file first if overwrite is True
+    if overwrite and os.path.exists(filepath):
+        try:
+            os.remove(filepath)
+            print(f'🗑️ Removed existing file: {filepath}')
+        except Exception as e:
+            print(f'⚠️ Warning: Could not remove existing file {filepath}: {e}')
+
     # For very large dataframes, override validation to metadata-only if set to full
     df_size_gb = df.memory_usage(deep=True).sum() / (1024**3)
     if df_size_gb > 10 and validation_method == 'full':
@@ -95,6 +103,8 @@ def write_parquet(df, filepath, max_retries=3, validate=True, validation_method=
                 row_group_size=row_group_size,
                 **kwargs
             )
+            # Set file permissions to let anyone do anything with the file
+            os.chmod(target_path, 0o775)
             
             # Validate based on selected method
             if validate:

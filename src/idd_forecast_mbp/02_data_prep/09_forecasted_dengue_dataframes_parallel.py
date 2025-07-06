@@ -55,10 +55,10 @@ workflow.set_default_compute_resources_from_dict(
 
 # Define the task template for processing each year batch
 task_template = tool.get_task_template(
-    template_name="hierarchy_generation",
+    template_name="as_dengue_forecasting_df_creation",
     default_cluster_name="slurm",
     default_compute_resources={
-        "memory": "50G",
+        "memory": "70G",
         "cores": 1,
         "runtime": "5m",
         "queue": "all.q",
