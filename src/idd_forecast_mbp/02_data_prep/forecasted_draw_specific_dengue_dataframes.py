@@ -83,13 +83,33 @@ cc_sensitive_paths = {
 
 # Get the unique values of A0_location_id
 years = list(range(2022, 2023))
-year_filter = ('year_id', 'in', years)
+year_filter = ('year_id', '==', 2022)
+
+dengue_df = read_parquet_with_integer_ids(aa_full_cause_df_path_template,
+                                           filters=[year_filter, level_filter(hierarchy_df, start_level = 3)])
+
+dengue_df = dengue_df[dengue_df['dengue_inc_count'] > 100].copy()
+dengue_df = dengue_df.rename(columns={'location_id':'A0_location_id'})
+A0_location_ids = dengue_df['A0_location_id'].unique()
+
+age_filter = ('age_group_id', '==', reference_age_group_id)
+sex_filter = ('sex_id', '==', reference_sex_id)
+
+md_dengue_df = read_parquet_with_integer_ids(as_full_cause_df_path_template,
+                                           filters=[year_filter, age_filter, sex_filter, level_filter(hierarchy_df, start_level = 5)])
+
+md_dengue_df = md_dengue_df.merge(hierarchy_df[['location_id', 'A0_location_id']],
+                                  on='location_id', how='left')
+
+md_dengue_df = md_dengue_df[md_dengue_df['A0_location_id'].isin(A0_location_ids)].copy()
+
+md_dengue_df['base_log_dengue_inc_rate'] = np.log(md_dengue_df['dengue_inc_rate'])
 
 
-base_md_modeling_df = read_parquet_with_integer_ids(base_md_modeling_df_path,
-                                                    filters = [year_filter])
+# base_md_modeling_df = read_parquet_with_integer_ids(base_md_modeling_df_path,
+#                                                     filters = [year_filter])
 
-dengue_modeling_location_ids = base_md_modeling_df['location_id'].unique()
+dengue_modeling_location_ids = md_dengue_df['location_id'].unique()
 dengue_modeling_location_filter = ('location_id', 'in', dengue_modeling_location_ids)
 
 
@@ -112,14 +132,14 @@ for key, path_template in cc_sensitive_paths.items():
 
 
 
-cause_columns = list([col for col in base_md_modeling_df.columns if cause in col and "suit" not in col])
-columns_to_keep = aa_merge_variables + ['base_log_dengue_inc_rate']
-base_md_modeling_df = base_md_modeling_df[columns_to_keep].copy()
-base_md_modeling_df = base_md_modeling_df.drop(columns=['year_id'])
+
+
+md_dengue_df = md_dengue_df[['location_id', 'base_log_dengue_inc_rate']].copy()
+
 
 # Merge in the dengue_stage_2_modeling_df
 forecast_by_draw_df = forecast_by_draw_df.merge(
-    base_md_modeling_df,
+    md_dengue_df,
     how="left",
     on=["location_id"]
 )
@@ -133,10 +153,26 @@ for col in covariates_to_log_transform:
     # Create a new column with the log transformed value
     forecast_by_draw_df[f"log_{col}"] = np.log(forecast_by_draw_df[col] + 1e-6)
 
-as_md_dengue_modeling_df = read_parquet_with_integer_ids(as_md_dengue_modeling_df_path,
-                                                              filters = [year_filter, dengue_modeling_location_filter])
+as_sex_filter = ('sex_id',  '==', reference_sex_id)
+as_age_filter = ('age_group_id', '==', reference_age_group_id)
 
-cause_columns = list([col for col in as_md_dengue_modeling_df.columns if cause in col and "suit" not in col])
+
+as_md_dengue_modeling_df = read_parquet_with_integer_ids(as_full_cause_df_path_template,
+                                                            filters=[year_filter, dengue_modeling_location_filter, as_age_filter, as_sex_filter])
+
+as_md_dengue_modeling_df["as_id"] = "a" + as_md_dengue_modeling_df["age_group_id"].astype(str) + "_s" + as_md_dengue_modeling_df["sex_id"].astype(str)
+
+as_md_dengue_modeling_df["dengue_cfr"] = as_md_dengue_modeling_df["dengue_mort_rate"] / as_md_dengue_modeling_df["dengue_inc_rate"]
+
+covariates_to_logit_transform = ['dengue_cfr']
+for col in covariates_to_logit_transform:
+    clipped_values = as_md_dengue_modeling_df[col].clip(upper=0.99)
+    print(f"Range of {col}: {as_md_dengue_modeling_df[col].min()} to {as_md_dengue_modeling_df[col].max()}")
+    as_md_dengue_modeling_df[f"logit_{col}"] = np.log(clipped_values / (1 - clipped_values))
+
+
+
+
 columns_to_keep = as_merge_variables + ['logit_dengue_cfr', 'as_id']
 as_md_dengue_modeling_df = as_md_dengue_modeling_df[columns_to_keep].copy()
 as_md_dengue_modeling_df['year_to_rake'] = 2022
@@ -153,5 +189,10 @@ forecast_by_draw_df_path = forecast_by_draw_df_path_template.format(
     ssp_scenario=ssp_scenario,
     draw=draw
 )
+
+columns_to_keep = as_merge_variables + ['logit_dengue_cfr', 'log_gdppc_mean', 'base_log_dengue_inc_rate', 'dengue_suitability', 'logit_urban_1km_threshold_300', 'as_id', 'A0_af']
+forecast_by_draw_df = forecast_by_draw_df[columns_to_keep].copy()
+
+
 
 write_parquet(forecast_by_draw_df, forecast_by_draw_df_path)

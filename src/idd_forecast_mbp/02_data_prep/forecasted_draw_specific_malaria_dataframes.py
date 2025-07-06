@@ -252,7 +252,7 @@ as_base_malaria_df = as_base_malaria_df.merge(
 covariates_to_log_transform = [col for col in as_base_malaria_df.columns if 'rate' in col]
 for col in covariates_to_log_transform:
     # Create a new column with the log transformed value
-    as_base_malaria_df[f"log_{col}"] = np.log(as_base_malaria_df[col] + 1e-6)
+    as_base_malaria_df[f"log_{col}"] = np.log(as_base_malaria_df[col])
 
 as_base_malaria_df[f"logit_malaria_pfpr"] = np.log(0.999 * as_base_malaria_df["malaria_pfpr"] / (1 - 0.999 * as_base_malaria_df["malaria_pfpr"]))
 

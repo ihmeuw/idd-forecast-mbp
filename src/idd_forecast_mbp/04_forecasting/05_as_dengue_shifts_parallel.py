@@ -28,7 +28,7 @@ stderr_dir.mkdir(parents=True, exist_ok=True)
 
 # Project
 project = "proj_rapidresponse"  # Adjust this to your project name if needed
-
+queue = 'long.q'
 
 wf_uuid = uuid.uuid4()
 tool_name = f"{package_name}_dengue_level_5_age_sex_forecasting"
@@ -47,7 +47,7 @@ workflow.set_default_compute_resources_from_dict(
         "memory": "25G",
         "cores": 4,
         "runtime": "5m",
-        "queue": "all.q",
+        "queue": queue,
         "project": project,
         "stdout": str(stdout_dir),
         "stderr": str(stderr_dir),
@@ -59,10 +59,10 @@ task_template = tool.get_task_template(
     template_name="dengue_as_calculation",
     default_cluster_name="slurm",
     default_compute_resources={
-        "memory": "50G",
+        "memory": "75G",
         "cores": 4,
-        "runtime": "30m",
-        "queue": "all.q",
+        "runtime": "45m",
+        "queue": queue,
         "project": project,
         "stdout": str(stdout_dir),
         "stderr": str(stderr_dir),

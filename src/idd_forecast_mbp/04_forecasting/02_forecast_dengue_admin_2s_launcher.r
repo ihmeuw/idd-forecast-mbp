@@ -18,7 +18,7 @@ write.csv(param_map,  param_map_filepath, row.names = FALSE)
 ## QSUB Command
 job_name <- glue("forecast_dengue")   # name of the job
 thread_flag <- "-c 4" 
-mem_flag <- "--mem=100G" 
+mem_flag <- "--mem=75G" 
 runtime_flag <- "-t 50"
 #jdrive_flag <- "-l archive" # archive nodes can access the J drive. They're a little harder to get though. If you need J drive access, uncomment this and add it to the qsub_command
 queue_flag <- "-p all.q" # long or all

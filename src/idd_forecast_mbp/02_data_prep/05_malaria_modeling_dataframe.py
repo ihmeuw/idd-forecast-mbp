@@ -254,7 +254,7 @@ covariates_to_log_transform = [
 ]
 # Apply log transformations
 for col in covariates_to_log_transform:
-    as_md_df[f"log_{col}"] = np.log(as_md_df[col] + 1e-6)
+    as_md_df[f"log_{col}"] = np.log(as_md_df[col])
 
 as_md_modeling_df = as_md_df.merge(malaria_stage_3_df, on=["location_id", "year_id"], how="left")
 as_md_modeling_df = as_md_modeling_df[~as_md_modeling_df["A0_af"].isna()]
