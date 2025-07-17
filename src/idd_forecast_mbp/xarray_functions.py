@@ -99,33 +99,33 @@ def write_netcdf(ds, filepath, max_retries=3, engine='netcdf4',
             # Write the data
             ds.to_netcdf(temp_path, engine=engine, **kwargs)
             
-            # Validate the written file
+            # Lightweight validation - just check if file exists and can be opened
             try:
-                # Test read the entire file
-                test_ds = xr.open_dataset(temp_path)
-                
-                # Basic validation checks
-                if test_ds.sizes != ds.sizes:
-                    raise ValueError(f'Dimension size mismatch: {test_ds.sizes} vs {ds.sizes}')
-                
-                if list(test_ds.data_vars) != list(ds.data_vars):
-                    raise ValueError(f'Data variable mismatch: {list(test_ds.data_vars)} vs {list(ds.data_vars)}')
-                
-                if list(test_ds.coords) != list(ds.coords):
-                    raise ValueError(f'Coordinate mismatch: {list(test_ds.coords)} vs {list(ds.coords)}')
-                
-                # Check data variable shapes
-                for var in ds.data_vars:
-                    if test_ds[var].shape != ds[var].shape:
-                        raise ValueError(f'Shape mismatch for {var}: {test_ds[var].shape} vs {ds[var].shape}')
+                # Only open without loading data to check basic structure
+                with xr.open_dataset(temp_path) as test_ds:
+                    # Basic validation checks without loading data
+                    if test_ds.sizes != ds.sizes:
+                        raise ValueError(f'Dimension size mismatch: {test_ds.sizes} vs {ds.sizes}')
+                    
+                    if list(test_ds.data_vars) != list(ds.data_vars):
+                        raise ValueError(f'Data variable mismatch: {list(test_ds.data_vars)} vs {list(ds.data_vars)}')
+                    
+                    if list(test_ds.coords) != list(ds.coords):
+                        raise ValueError(f'Coordinate mismatch: {list(test_ds.coords)} vs {list(ds.coords)}')
+                    
+                    # Check data variable shapes without loading
+                    for var in ds.data_vars:
+                        if test_ds[var].shape != ds[var].shape:
+                            raise ValueError(f'Shape mismatch for {var}: {test_ds[var].shape} vs {ds[var].shape}')
                 
                 print(f'✅ Validation passed for {filepath}')
                 
-                # Close the test dataset before moving
-                test_ds.close()
-                
                 # Move temp file to final location
                 os.rename(temp_path, filepath)
+                
+                # Set file permissions to 775 (rwxrwxr-x)
+                os.chmod(filepath, 0o775)
+                
                 return True
                 
             except Exception as e:
@@ -143,7 +143,6 @@ def write_netcdf(ds, filepath, max_retries=3, engine='netcdf4',
                 print(f'Retrying... ({attempt + 1}/{max_retries})')
                 
     return False
-
 
 def sort_id_coordinates(ds):
     '''

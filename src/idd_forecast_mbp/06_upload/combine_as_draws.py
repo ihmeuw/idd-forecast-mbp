@@ -11,6 +11,7 @@ from rra_tools.shell_tools import mkdir # type: ignore
 from idd_forecast_mbp import constants as rfc
 from idd_forecast_mbp.hd5_functions import write_hdf
 from idd_forecast_mbp.parquet_functions import read_parquet_with_integer_ids
+from idd_forecast_mbp.xarray_functions import convert_with_preset, write_netcdf
 import argparse
 import os
 
@@ -67,7 +68,7 @@ if cause == "malaria":
         upload_file_path = f"{upload_folder_path}/draws.h5"
     else:
         upload_folder_path = f"{UPLOAD_DATA_PATH}/upload_folders/{run_date}/as_cause_{cause}_measure_{measure}_metric_{metric}_ssp_scenario_{ssp_scenario}_dah_scenario_{dah_scenario}"
-        upload_file_path = f"{upload_folder_path}/draws.h5"
+        upload_file_path = f"{upload_folder_path}/draws.nc"
 else:
     processed_forecast_df_path_template = "{UPLOAD_DATA_PATH}/full_as_dengue_measure_{measure}_ssp_scenario_{ssp_scenario}_draw_{draw}_with_predictions.parquet"
     if fhs_flag == 1:
@@ -75,7 +76,7 @@ else:
         upload_file_path = f"{upload_folder_path}/draws.h5"
     else:
         upload_folder_path = f"{UPLOAD_DATA_PATH}/upload_folders/{run_date}/as_cause_{cause}_measure_{measure}_metric_{metric}_ssp_scenario_{ssp_scenario}"
-        upload_file_path = f"{upload_folder_path}/draws.h5"
+        upload_file_path = f"{upload_folder_path}/draws.nc"
 
 # Delete any contents of upload_folder_path if it exists
 if delete_existing and os.path.exists(upload_folder_path):
@@ -97,6 +98,7 @@ hierarchy_df = read_parquet_with_integer_ids(hierarchy_df_path)
 
 as_full_population_df_path = f"{PROCESSED_DATA_PATH}/as_2023_full_population.parquet"
 as_merge_variables = rfc.as_merge_variables
+aa_merge_variables = rfc.aa_merge_variables
 fhs_hierarchy_df = hierarchy_df[hierarchy_df["in_fhs_hierarchy"] == True].copy()
 
 swap_location_ids = [60908, 95069, 94364]
@@ -109,10 +111,9 @@ year_ids = range(2022, 2101)
 fhs_location_filter = ('location_id', 'in', fhs_location_ids)
 all_location_filter = ('location_id', 'in', all_location_ids)
 
-if fhs_flag == 1:
-    location_filter = fhs_location_filter
-else:
-    location_filter = all_location_filter
+
+location_filter = fhs_location_filter
+
 
 year_filter = ('year_id', 'in', year_ids)
 
@@ -142,17 +143,10 @@ upload_df = read_parquet_with_integer_ids(processed_forecast_df_path,
     )
 
 fhs_draw_name = "draw_0"
-if metric == "rate":
-    upload_df[fhs_draw_name] = upload_df["count_pred"] / upload_df["population"]
-    upload_df = upload_df.drop(columns=["count_pred", "level"])
-else:
-    upload_df[fhs_draw_name] = upload_df["count_pred"]
-    upload_df = upload_df.drop(columns=["level"])
-
-# if fhs_flag:
-#     upload_df = upload_df.drop(columns=["population"])
-
-upload_df = upload_df[as_merge_variables + ["population"] + [fhs_draw_name]]
+upload_df[fhs_draw_name] = upload_df["count_pred"]
+upload_df = upload_df.drop(columns=["count_pred", "level"])
+upload_df = upload_df.reset_index(drop=True)
+upload_df = upload_df[as_merge_variables + [fhs_draw_name]]
 
 # Pre-compute paths
 draw_paths = []
@@ -174,29 +168,39 @@ for ssp_draw in ssp_draws[1:]:
         )
     draw_paths.append(path)
 
-needed_cols = ["count_pred"]
-if metric == "rate":
-    needed_cols.append("population")
+# Only read count_pred for all draws
 
 draw_data = []
 for ssp_draw, draw_path in zip(ssp_draws[1:], draw_paths):
     draw_df = read_parquet_with_integer_ids(
         draw_path,
-        filters=[[location_filter, year_filter]],
-        columns=needed_cols  # Only read what you need
+        filters=[[location_filter, year_filter]]
     )
     
-    if metric == "rate":
-        draw_data.append(draw_df["count_pred"] / draw_df["population"])
-    else:
-        draw_data.append(draw_df["count_pred"])
+    # Store count values, don't divide yet
+    draw_df = draw_df.reset_index(drop=True)
+    draw_data.append(draw_df["count_pred"])
 
-# Create all draw columns at once
+# Create all draw columns at once with count values
 draw_names = [f"draw_{int(draw)}" for draw in ssp_draws[1:]]
 new_columns = pd.DataFrame(dict(zip(draw_names, draw_data)))
 # Concatenate the new columns to the upload_df
 print("Concatenating new columns to upload_df")
 upload_df = pd.concat([upload_df, new_columns], axis=1)
+
+as_population_df = read_parquet_with_integer_ids(as_full_population_df_path,
+                                                 columns = as_merge_variables + ['population'],
+                                                 filters = [location_filter, year_filter])
+upload_df = upload_df.merge(
+    as_population_df,
+    on=as_merge_variables,
+    how="left"
+)
+
+# Now do the division once for all draws if metric is rate
+if metric == "rate":
+    draw_cols = [fhs_draw_name] + draw_names
+    upload_df[draw_cols] = upload_df[draw_cols].div(upload_df['population'], axis=0)
 
 ######
 ## Complete df with zero malaria data
@@ -295,109 +299,20 @@ if fhs_flag == 1:
     write_hdf(upload_df, upload_file_path, 
         data_columns= as_merge_variables)
 else:
-    upload_df['measure'] = measure
-    upload_df['metric'] = metric
-    upload_df['cause'] = cause
-    upload_df['ssp_scenario'] = ssp_scenario
-    if cause == "malaria":
-        upload_df['dah_scenario'] = dah_scenario
-        columns_to_select = ['location_id', 'year_id', 'age_group_id', 'sex_id', 'measure', 'metric', 'cause', 'ssp_scenario', 'dah_scenario', 'population'] + draw_cols
-        upload_df = upload_df[columns_to_select]
-        write_hdf(upload_df, upload_file_path, 
-            data_columns=as_merge_variables + ['population'])
-    else:
-        columns_to_select = ['location_id', 'year_id', 'age_group_id', 'sex_id', 'measure', 'metric', 'cause', 'ssp_scenario', 'population'] + draw_cols
-        upload_df = upload_df[columns_to_select]
-        write_hdf(upload_df, upload_file_path, 
-            data_columns=as_merge_variables + ['population'])
+    columns_to_select = ['location_id', 'year_id', 'age_group_id', 'sex_id', 'population'] + draw_cols  
+    upload_df = upload_df[columns_to_select]
+
+    upload_ds = convert_with_preset(
+        upload_df,
+        preset='as_variables',
+        variable_dtypes={
+            'count_pred': 'float32',
+            'population': 'float32',
+            'level': 'int8'
+        },
+        validate_dimensions=False  # Skip validation since we may have sparse data after aggregation
+    )
+    # Convert to xarray Dataset
+    write_netcdf(upload_ds, upload_file_path)
 
 print("Saved the age-sex-specific file")
-
-if fhs_flag == 0:
-    print(f"Starting aggregation from {len(upload_df)} rows...")
-
-    # 2. Get draw columns more efficiently
-    draw_cols = [col for col in upload_df.columns if col.startswith('draw_')]
-    
-    # 3. Early check - exit if no population column when needed
-    has_population = 'population' in upload_df.columns
-    if metric_id == 3 and not has_population:
-        raise ValueError("Rate conversion requires population column")
-    
-    # 4. Pre-create constant columns to avoid repeated operations
-    constant_cols = {
-        'measure': measure,
-        'metric': metric, 
-        'cause': cause,
-        'ssp_scenario': ssp_scenario
-    }
-    if cause == "malaria":
-        constant_cols['dah_scenario'] = dah_scenario
-    
-    # 5. Create working DataFrame with only needed columns
-    groupby_cols = ['location_id', 'year_id']
-    needed_cols = groupby_cols + draw_cols
-    if has_population:
-        needed_cols.append('population')
-    
-    work_df = upload_df[needed_cols].copy()  # Only copy what we need
-    
-    # 6. Handle rate conversion BEFORE aggregation
-    if metric_id == 3 and has_population:
-        # Vectorized operation across all draw columns at once
-        work_df[draw_cols] = work_df[draw_cols].multiply(work_df['population'], axis=0)
-    
-    # 7. Optimize groupby with categoricals (only if many unique values)
-    if work_df['location_id'].nunique() > 100:  # Only categorize if beneficial
-        work_df['location_id'] = work_df['location_id'].astype('category')
-    if work_df['year_id'].nunique() > 10:
-        work_df['year_id'] = work_df['year_id'].astype('category')
-    
-    # 8. Fast aggregation with pre-built dict
-    agg_dict = {col: 'sum' for col in draw_cols}
-    if has_population:
-        agg_dict['population'] = 'sum'
-    
-    df_agg = work_df.groupby(groupby_cols, as_index=False, observed=True).agg(agg_dict)
-    
-    # 9. Convert back to rates AFTER aggregation
-    if metric_id == 3 and has_population:
-        df_agg[draw_cols] = df_agg[draw_cols].div(df_agg['population'], axis=0)
-    
-    print(f"Aggregated to {len(df_agg)} rows")
-    
-    # 10. Add constant columns efficiently
-    for col, value in constant_cols.items():
-        df_agg[col] = value
-    
-    # 11. Select columns in final order (avoid reordering)
-    if cause == "malaria":
-        final_cols = ["measure", "metric", "cause", "location_id", "year_id", 
-                     "ssp_scenario", "dah_scenario", "population"] + draw_cols
-    else:
-        final_cols = ["measure", "metric", "cause", "location_id", "year_id", 
-                     "ssp_scenario", "population"] + draw_cols
-    
-    df_agg = df_agg[final_cols]
-    
-    # 12. Build path more efficiently
-    path_parts = [
-        UPLOAD_DATA_PATH, "upload_folders", run_date,
-        f"aa_cause_id_{cause_id}_measure_id_{measure_id}_metric_id_{metric_id}_ssp_scenario_{ssp_scenario}"
-    ]
-    if cause == 'malaria':
-        path_parts[-1] += f"_dah_scenario_{dah_scenario}"
-    
-    aa_upload_folder_path = "/".join(path_parts)
-    aa_upload_file_path = f"{aa_upload_folder_path}/draws.h5"
-    
-    # 13. Create directory and save
-    mkdir(aa_upload_folder_path, exist_ok=True, parents=True)
-    
-    # 14. Only index columns that vary (skip constants)
-    variable_data_cols = []
-    for col in ['location_id', 'year_id', 'measure', 'metric', 'cause']:
-        if df_agg[col].nunique() > 1:
-            variable_data_cols.append(col)
-    
-    write_hdf(df_agg, aa_upload_file_path, data_columns=variable_data_cols)

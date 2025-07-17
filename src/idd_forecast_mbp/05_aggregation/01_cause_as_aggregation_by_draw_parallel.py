@@ -83,7 +83,7 @@ task_template = tool.get_task_template(
 )
 
 dah_scenarios = rfc.dah_scenarios
-dah_scenarios = ['Constant']
+dah_scenarios = ['Baseline','Constant']
 # Add tasks
 tasks = []
 # for cause in cause_map:

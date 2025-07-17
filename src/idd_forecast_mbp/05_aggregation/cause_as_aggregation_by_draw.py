@@ -10,6 +10,7 @@ import itertools
 from rra_tools.shell_tools import mkdir # type: ignore
 from idd_forecast_mbp import constants as rfc
 from idd_forecast_mbp.parquet_functions import read_parquet_with_integer_ids, write_parquet
+from idd_forecast_mbp.xarray_functions import write_netcdf, convert_with_preset
 import argparse
 
 parser = argparse.ArgumentParser(description="Add DAH Sceanrios and create draw level dataframes for forecating malaria")
@@ -39,13 +40,11 @@ UPLOAD_DATA_PATH = rfc.MODEL_ROOT / "05-upload_data"
 if cause == "malaria":
     forecast_df_path = f"{FORECASTING_DATA_PATH}/as_{cause}_measure_{measure}_ssp_scenario_{ssp_scenario}_dah_scenario_{dah_scenario}_draw_{draw}_with_predictions.parquet"
     processed_forecast_df_path = f"{UPLOAD_DATA_PATH}/full_as_{cause}_measure_{measure}_ssp_scenario_{ssp_scenario}_dah_scenario_{dah_scenario}_draw_{draw}_with_predictions.parquet"
+    processed_forecast_ds_path = f"{UPLOAD_DATA_PATH}/full_as_{cause}_measure_{measure}_ssp_scenario_{ssp_scenario}_dah_scenario_{dah_scenario}_draw_{draw}_with_predictions.nc"
 else:   
     forecast_df_path = f"{FORECASTING_DATA_PATH}/as_{cause}_measure_{measure}_ssp_scenario_{ssp_scenario}_draw_{draw}_with_predictions.parquet"
     processed_forecast_df_path = f"{UPLOAD_DATA_PATH}/full_as_{cause}_measure_{measure}_ssp_scenario_{ssp_scenario}_draw_{draw}_with_predictions.parquet"
-
-
-
-
+    processed_forecast_ds_path = f"{UPLOAD_DATA_PATH}/full_as_{cause}_measure_{measure}_ssp_scenario_{ssp_scenario}_draw_{draw}_with_predictions.nc"
 
 # Hierarchy path
 hierarchy_df_path = f'{PROCESSED_DATA_PATH}/full_hierarchy_lsae_1209.parquet'
@@ -113,15 +112,25 @@ else:
 
 full_hierarchy_forecast_df = process_forecast_data(forecast_df_path, measure, hierarchy_df)
 
-columns_to_read = as_merge_variables + ["population"]
-as_full_population_df = read_parquet_with_integer_ids(as_full_population_df_path,
-                                                      columns = columns_to_read)
-
-full_hierarchy_forecast_df = full_hierarchy_forecast_df.merge(
-    as_full_population_df,
-    on = as_merge_variables,
-    how = 'left'
+full_hierarchy_forecast_ds = convert_with_preset(
+    full_hierarchy_forecast_df,
+    preset='as_variables',
+    variable_dtypes={
+        'count_pred': 'float32',
+        'population': 'float32',
+        'level': 'int8'
+    },
+    validate_dimensions=False  # Skip validation since we may have sparse data after aggregation
 )
 
 # Save the processed dataframe
 write_parquet(full_hierarchy_forecast_df, processed_forecast_df_path)
+
+write_netcdf(
+    full_hierarchy_forecast_ds, 
+    processed_forecast_ds_path,
+    compression=True,
+    compression_level=4,
+    chunking=True,
+    max_retries=3
+)

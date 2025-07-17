@@ -44,7 +44,8 @@ income_paths = {
 }
 
 # DAH
-dah_df_path = f"{VARIABLE_DATA_PATH}/dah_df.parquet"
+# dah_df_path = f"{VARIABLE_DATA_PATH}/dah_df.parquet"
+dah_df_path = f"{PROCESSED_DATA_PATH}/dah_df_2025_07_08.parquet"
 
 urban_paths = {
     "urban_threshold_300":      "{VARIABLE_DATA_PATH}/urban_threshold_300.0_simple_mean.parquet",
@@ -112,8 +113,13 @@ for ssp_scenario in ssp_scenarios:
 
     print("Reading DAH data...")
     dah_df = read_parquet_with_integer_ids(dah_df_path)
-    dah_df = dah_df.filter(regex="location_id|year_id|total")
-    forecast_df = forecast_df.merge(dah_df, on=["location_id", "year_id"], how = "left")
+    dah_df = dah_df.rename(columns={'location_id': 'A0_location_id'})
+    dah_df = dah_df.drop(columns=['population', 'location_name', 'iso3'], errors='ignore')
+    # dah_df = dah_df.filter(regex="location_id|year_id|total")
+    forecast_df = forecast_df.merge(dah_df, on=["A0_location_id", "year_id"], how = "left")
+    # Set any NaN values in the total column to 0
+    forecast_df['mal_DAH_total'] = forecast_df['mal_DAH_total'].fillna(0)
+    forecast_df['mal_DAH_total_per_capita'] = forecast_df['mal_DAH_total_per_capita'].fillna(0)
 
     print("Writing malaria forecast non-draw part...")
     cause = "malaria"
