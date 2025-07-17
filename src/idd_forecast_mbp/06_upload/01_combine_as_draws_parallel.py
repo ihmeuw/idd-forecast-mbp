@@ -9,8 +9,10 @@ repo_name = rfc.repo_name
 package_name = rfc.package_name
 
 
-fhs_flag = 1
-run_date = "2025_07_03"
+fhs_flag = 0
+run_date = "2025_07_08"
+dah_scenarios = rfc.dah_scenarios
+dah_scenarios = ['Baseline', 'Constant']
 
 # Script directory
 SCRIPT_ROOT = rfc.REPO_ROOT / repo_name / "src" / package_name / "06_upload"
@@ -57,9 +59,9 @@ workflow.set_default_compute_resources_from_dict(
 )
 
 if fhs_flag == 1:
-    memory = "50G"
+    memory = "20G"
 else:
-    memory = "100G"
+    memory = "20G"
 
 # Define the task template for processing each year batch
 task_template = tool.get_task_template(
@@ -67,8 +69,8 @@ task_template = tool.get_task_template(
     default_cluster_name="slurm",
     default_compute_resources={
         "memory": memory,
-        "cores": 5,
-        "runtime": "60m",
+        "cores": 16,
+        "runtime": "10m",
         "queue": queue,
         "project": project,
         "stdout": str(stdout_dir),
@@ -93,42 +95,56 @@ causes_to_process = rfc.cause_map
 # causes_to_process = ['dengue']
 # Add tasks
 tasks = []
-if fhs_flag == 1:
-    for cause in causes_to_process:
-        for ssp_scenario in rfc.ssp_scenarios:
-            for measure in rfc.measure_map:
-                if cause == "malaria":
-                    # Create the primary task
-                    task = task_template.create_task(
-                        cause=cause,
-                        ssp_scenario=ssp_scenario,
-                        dah_scenario='Baseline',
-                        measure=measure,
-                        metric='rate',
-                        fhs_flag=fhs_flag,
-                        run_date=run_date
-                    )
-                    tasks.append(task)
-                else:
-                    dah_scenario = None
-                    # Create the primary task
-                    task = task_template.create_task(
-                        cause=cause,
-                        ssp_scenario=ssp_scenario,
-                        dah_scenario=None,
-                        measure=measure,
-                        metric='rate',
-                        fhs_flag=fhs_flag,
-                        run_date=run_date
-                    )
-                    tasks.append(task)
-else:
-    for cause in rfc.cause_map:
-        for ssp_scenario in rfc.ssp_scenarios:
-            for measure in rfc.measure_map:
-                for metric in rfc.metric_map:
+for fhs_flag in [0, 1]:
+    if fhs_flag == 1:
+        for cause in causes_to_process:
+            for ssp_scenario in rfc.ssp_scenarios:
+                for measure in rfc.measure_map:
                     if cause == "malaria":
-                        for dah_scenario in rfc.dah_scenarios:
+                        # Create the primary task
+                        task = task_template.create_task(
+                            cause=cause,
+                            ssp_scenario=ssp_scenario,
+                            dah_scenario='Baseline',
+                            measure=measure,
+                            metric='rate',
+                            fhs_flag=fhs_flag,
+                            run_date=run_date
+                        )
+                        tasks.append(task)
+                    else:
+                        dah_scenario = None
+                        # Create the primary task
+                        task = task_template.create_task(
+                            cause=cause,
+                            ssp_scenario=ssp_scenario,
+                            dah_scenario=None,
+                            measure=measure,
+                            metric='rate',
+                            fhs_flag=fhs_flag,
+                            run_date=run_date
+                        )
+                        tasks.append(task)
+    else:
+        for cause in rfc.cause_map:
+            for ssp_scenario in rfc.ssp_scenarios:
+                for measure in rfc.measure_map:
+                    for metric in rfc.metric_map:
+                        if cause == "malaria":
+                            for dah_scenario in dah_scenarios:
+                                # Create the primary task
+                                task = task_template.create_task(
+                                    cause=cause,
+                                    ssp_scenario=ssp_scenario,
+                                    dah_scenario=dah_scenario,
+                                    measure=measure,
+                                    metric=metric,
+                                    fhs_flag=fhs_flag,
+                                    run_date=run_date
+                                )
+                                tasks.append(task)
+                        else:
+                            dah_scenario = None
                             # Create the primary task
                             task = task_template.create_task(
                                 cause=cause,
@@ -140,19 +156,6 @@ else:
                                 run_date=run_date
                             )
                             tasks.append(task)
-                    else:
-                        dah_scenario = None
-                        # Create the primary task
-                        task = task_template.create_task(
-                            cause=cause,
-                            ssp_scenario=ssp_scenario,
-                            dah_scenario=dah_scenario,
-                            measure=measure,
-                            metric=metric,
-                            fhs_flag=fhs_flag,
-                            run_date=run_date
-                        )
-                        tasks.append(task)
 
 print(f"Number of tasks: {len(tasks)}")
 

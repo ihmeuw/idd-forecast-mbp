@@ -98,7 +98,7 @@ GBD_DATA_PATH = rfc.GBD_DATA_PATH
 # Creates: input_cause_draw_path, output_cause_draw_path
 # Output: Cause-specific file paths
 
-input_cause_draw_path = f"{FORECASTING_DATA_PATH}/{cause}_forecast_ssp_scenario_{ssp_scenario}_dah_scenario_{dah_scenario}_draw_{draw}_with_options_with_predictions.parquet"
+input_cause_draw_path = f"{FORECASTING_DATA_PATH}/{cause}_forecast_ssp_scenario_{ssp_scenario}_dah_scenario_{dah_scenario}_draw_{draw}_with_predictions.parquet"
 
 # 2.2 Template Path Definitions
 # Purpose: Define path templates for various data sources
@@ -149,19 +149,11 @@ print('Loaded hierarchy')
 forecast_years = list(range(2022, 2101))
 forecast_year_filter = ('year_id', 'in', forecast_years)
 
-model_to_keep = 7
-model_cols = [f'log_aa_malaria_mort_rate_pred_{model_to_keep}', f'log_aa_malaria_inc_rate_pred_{model_to_keep}']
-df_columns_to_read = ['location_id', 'year_id', 'aa_population'] + model_cols
-
-
 df = read_parquet_with_integer_ids(input_cause_draw_path,
-    columns=df_columns_to_read,filters=[forecast_year_filter])
+    filters=[forecast_year_filter])
 
 
 t1 = log_time_and_memory("Before forecast data processing")
-for col in model_cols:
-    new_col = col.replace(f'_pred_{model_to_keep}', '_pred')
-    df.rename(columns={col: new_col}, inplace=True)
 
 df['aa_malaria_mort_rate'] = np.exp(df['log_aa_malaria_mort_rate_pred'])
 df['aa_malaria_inc_rate'] = np.exp(df['log_aa_malaria_inc_rate_pred'])
