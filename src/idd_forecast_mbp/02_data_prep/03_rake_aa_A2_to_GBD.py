@@ -9,7 +9,7 @@ from idd_forecast_mbp.helper_functions import check_column_for_problematic_value
 from idd_forecast_mbp.parquet_functions import read_parquet_with_integer_ids, write_parquet
 from idd_forecast_mbp.cause_processing_functions import format_aa_gbd_df, process_lsae_df
 from idd_forecast_mbp.rake_and_aggregate_functions import rake_aa_count_lsae_to_gbd, make_aa_full_rate_df_from_aa_count_df, check_concordance, aggregate_aa_rate_lsae_to_gbd
-
+from idd_forecast_mbp.xarray_functions import convert_to_xarray, write_netcdf
 
 PROCESSED_DATA_PATH = rfc.PROCESSED_DATA_PATH
 
@@ -18,6 +18,8 @@ LSAE_INPUT_PATH = rfc.LSAE_INPUT_PATH
 
 aa_full_malaria_df_path = PROCESSED_DATA_PATH / "aa_full_malaria_df.parquet"
 aa_full_dengue_df_path = PROCESSED_DATA_PATH / "aa_full_dengue_df.parquet"
+aa_full_malaria_ds_path = PROCESSED_DATA_PATH / "aa_full_malaria_ds.nc"
+aa_full_dengue_ds_path = PROCESSED_DATA_PATH / "aa_full_dengue_ds.nc"
 ################################################################
 #### Hierarchy Paths, loading, and cleaning
 ################################################################
@@ -380,16 +382,90 @@ files_to_merge = [
 
 # Merge all dengue dataframes together by location_id and year_id
 potential_columns_to_drop = ['population', 'set_by_gbd']
-aa_full_denuge_df = files_to_merge[0].copy()
+aa_full_dengue_df = files_to_merge[0].copy()
 for df in files_to_merge[1:]:
-    # Check if either column is already in aa_full_denuge_df and drop it if it is
-    cols_to_drop = [col for col in potential_columns_to_drop if col in df.columns and col in aa_full_denuge_df.columns]
+    # Check if either column is already in aa_full_dengue_df and drop it if it is
+    cols_to_drop = [col for col in potential_columns_to_drop if col in df.columns and col in aa_full_dengue_df.columns]
     df = df.drop(columns=cols_to_drop)
-    aa_full_denuge_df = pd.merge(aa_full_denuge_df, df, on=["location_id", "year_id"], how="left")
+    aa_full_dengue_df = pd.merge(aa_full_dengue_df, df, on=["location_id", "year_id"], how="left")
 
 ###----------------------------------------------------------###
 ### 5. Save Final Dataset
 ### Exports the final processed dataset to a parquet file for use in downstream modeling.
 ### This preserves the complete, harmonized dataset for forecasting applications.
 ###----------------------------------------------------------###
-write_parquet(aa_full_denuge_df, aa_full_dengue_df_path)
+write_parquet(aa_full_dengue_df, aa_full_dengue_df_path)
+
+###----------------------------------------------------------###
+### 6. Convert to xarray Dataset and save to NetCDF
+### Converts the final dengue and malaria datasets to xarray Datasets
+### and saves them to NetCDF files for efficient storage and access.
+###----------------------------------------------------------###
+
+
+aa_full_dengue_df = aa_full_dengue_df.set_index(['location_id', 'year_id']).sort_index()
+
+# Use index.get_level_values instead of column access
+all_locations = aa_full_dengue_df.index.get_level_values('location_id').unique()
+all_years = aa_full_dengue_df.index.get_level_values('year_id').unique()
+full_grid = pd.MultiIndex.from_product([all_locations, all_years], names=['location_id', 'year_id'])
+
+# Get actual pairs
+actual_pairs = aa_full_dengue_df.index
+
+# Find missing pairs
+missing_pairs = full_grid.difference(actual_pairs)
+missing_df = pd.DataFrame(missing_pairs.to_list(), columns=['location_id', 'year_id'])
+
+filled_rows = []
+for _, row in missing_df.iterrows():
+    loc = row['location_id']
+    year = row['year_id']
+    prev_year = year - 1
+    try:
+        prev_row = aa_full_dengue_df.loc[(loc, prev_year)]
+        filled = prev_row.copy()
+        filled.name = (loc, year)
+        filled_rows.append(filled)
+    except KeyError:
+        zero_row = {col: 0 for col in aa_full_dengue_df.columns}
+        filled_rows.append(pd.Series(zero_row, name=(loc, year)))
+
+if filled_rows:
+    filled_df = pd.DataFrame(filled_rows)
+    filled_df.index = pd.MultiIndex.from_tuples(filled_df.index, names=['location_id', 'year_id'])
+    aa_full_dengue_df = pd.concat([aa_full_dengue_df, filled_df])
+    aa_full_dengue_df = aa_full_dengue_df.reset_index()
+
+
+malaria_ds = convert_to_xarray(
+    aa_full_malaria_df,
+    dimensions=['location_id', 'year_id'],
+    dimension_dtypes={'location_id': 'int32', 'year_id': 'int16'},
+    auto_optimize_dtypes=True
+)
+write_netcdf(
+    malaria_ds,
+    aa_full_malaria_ds_path,
+    compression=True,
+    compression_level=4,
+    chunking=True,
+    chunk_by_dim={'location_id': 1500, 'year_id': 79},
+    engine='netcdf4'
+)
+
+dengue_ds = convert_to_xarray(
+    aa_full_dengue_df,
+    dimensions=['location_id', 'year_id'],
+    dimension_dtypes={'location_id': 'int32', 'year_id': 'int16'},
+    auto_optimize_dtypes=True
+)
+write_netcdf(
+    dengue_ds,
+    aa_full_dengue_ds_path,
+    compression=True,
+    compression_level=4,
+    chunking=True,
+    chunk_by_dim={'location_id': 1500, 'year_id': 79},
+    engine='netcdf4'
+)

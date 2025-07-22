@@ -111,7 +111,6 @@ year_ids = range(2022, 2101)
 fhs_location_filter = ('location_id', 'in', fhs_location_ids)
 all_location_filter = ('location_id', 'in', all_location_ids)
 
-
 location_filter = fhs_location_filter
 
 

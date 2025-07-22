@@ -17,10 +17,11 @@ def read_netcdf_with_integer_ids(path, **kwargs):
     ds = sort_id_coordinates(ds)
     return ensure_id_coordinates_are_integers(ds)
 
-
 def write_netcdf(ds, filepath, max_retries=3, engine='netcdf4', 
                  compression=True, compression_level=4, chunking=True, 
-                 chunk_threshold=1000000, max_chunk_size=1000, **kwargs):
+                 chunk_threshold=1000000, max_chunk_size=1000,
+                 manual_chunks=None, chunk_by_dim=None,
+                 use_temp_file=True, **kwargs):
     '''
     Write NetCDF file with validation and retry logic.
     
@@ -44,6 +45,16 @@ def write_netcdf(ds, filepath, max_retries=3, engine='netcdf4',
         Minimum array size to trigger chunking (default 1M elements)
     max_chunk_size : int
         Maximum chunk size per dimension (default 1000)
+    manual_chunks : dict
+        Manual chunk specification: {var_name: {dim_name: chunk_size}} or 
+        {var_name: tuple_of_chunk_sizes} or {'all': {dim_name: chunk_size}}
+        Example: {'all': {'location_id': 1500, 'year_id': 79}}
+    chunk_by_dim : dict
+        Chunk sizes by dimension name: {dim_name: chunk_size}
+        Applied to all variables containing that dimension
+        Example: {'location_id': 1500, 'year_id': 79}
+    use_temp_file : bool
+        Whether to use temporary file (default True)
     **kwargs : dict
         Additional arguments passed to to_netcdf()
     '''
@@ -71,14 +82,52 @@ def write_netcdf(ds, filepath, max_retries=3, engine='netcdf4',
                     'shuffle': True
                 })
             
-            # Add chunking for large arrays
-            if chunking and ds[var].size > chunk_threshold:
+            # Determine chunk sizes for this variable
+            chunks = None
+            
+            # Method 1: Manual chunks specified for this variable
+            if manual_chunks and var in manual_chunks:
+                var_chunks = manual_chunks[var]
+                if isinstance(var_chunks, dict):
+                    # Dictionary format: {dim_name: chunk_size}
+                    chunks = []
+                    for dim in ds[var].dims:
+                        chunk_size = var_chunks.get(dim, ds.sizes[dim])  # Use full dimension if not specified
+                        chunk_size = min(chunk_size, ds.sizes[dim])  # Don't exceed dimension size
+                        chunks.append(chunk_size)
+                elif isinstance(var_chunks, (tuple, list)):
+                    # Tuple format: (chunk_size1, chunk_size2, ...)
+                    chunks = [min(chunk, ds.sizes[dim]) for chunk, dim in zip(var_chunks, ds[var].dims)]
+            
+            # Method 2: Manual chunks specified for all variables
+            elif manual_chunks and 'all' in manual_chunks:
+                all_chunks = manual_chunks['all']
+                chunks = []
+                for dim in ds[var].dims:
+                    chunk_size = all_chunks.get(dim, ds.sizes[dim])  # Use full dimension if not specified
+                    chunk_size = min(chunk_size, ds.sizes[dim])  # Don't exceed dimension size
+                    chunks.append(chunk_size)
+            
+            # Method 3: Chunk by dimension name
+            elif chunk_by_dim:
+                chunks = []
+                for dim in ds[var].dims:
+                    chunk_size = chunk_by_dim.get(dim, ds.sizes[dim])  # Use full dimension if not specified
+                    chunk_size = min(chunk_size, ds.sizes[dim])  # Don't exceed dimension size
+                    chunks.append(chunk_size)
+            
+            # Method 4: Automatic chunking (original logic)
+            elif chunking and ds[var].size > chunk_threshold:
                 chunks = []
                 for dim in ds[var].dims:
                     dim_size = ds.sizes[dim]
                     chunk_size = min(max_chunk_size, dim_size)
                     chunks.append(chunk_size)
+            
+            # Add chunking to encoding if we have chunks
+            if chunks:
                 var_encoding['chunksizes'] = tuple(chunks)
+                # print(f"Chunking {var} with dims {ds[var].dims} as {tuple(chunks)}")
             
             if var_encoding:  # Only add if we have encoding settings
                 encoding[var] = var_encoding
@@ -91,48 +140,54 @@ def write_netcdf(ds, filepath, max_retries=3, engine='netcdf4',
     
     for attempt in range(max_retries):
         try:
-            # Write to temporary file first
-            temp_dir = os.path.dirname(filepath)
-            with tempfile.NamedTemporaryFile(suffix='.nc', dir=temp_dir, delete=False) as tmp_file:
-                temp_path = tmp_file.name
+            if use_temp_file:
+                # Original temp file logic
+                temp_dir = os.path.dirname(filepath)
+                with tempfile.NamedTemporaryFile(suffix='.nc', dir=temp_dir, delete=False) as tmp_file:
+                    temp_path = tmp_file.name
+                write_path = temp_path
+            else:
+                # Write directly to final path
+                write_path = filepath
             
             # Write the data
-            ds.to_netcdf(temp_path, engine=engine, **kwargs)
+            ds.to_netcdf(write_path, engine=engine, **kwargs)
             
-            # Lightweight validation - just check if file exists and can be opened
-            try:
-                # Only open without loading data to check basic structure
-                with xr.open_dataset(temp_path) as test_ds:
-                    # Basic validation checks without loading data
-                    if test_ds.sizes != ds.sizes:
-                        raise ValueError(f'Dimension size mismatch: {test_ds.sizes} vs {ds.sizes}')
+            if use_temp_file:
+                # Lightweight validation - just check if file exists and can be opened
+                try:
+                    # Only open without loading data to check basic structure
+                    with xr.open_dataset(temp_path) as test_ds:
+                        # Basic validation checks without loading data
+                        if test_ds.sizes != ds.sizes:
+                            raise ValueError(f'Dimension size mismatch: {test_ds.sizes} vs {ds.sizes}')
+                        
+                        if list(test_ds.data_vars) != list(ds.data_vars):
+                            raise ValueError(f'Data variable mismatch: {list(test_ds.data_vars)} vs {list(ds.data_vars)}')
+                        
+                        if list(test_ds.coords) != list(ds.coords):
+                            raise ValueError(f'Coordinate mismatch: {list(test_ds.coords)} vs {list(ds.coords)}')
+                        
+                        # Check data variable shapes without loading
+                        for var in ds.data_vars:
+                            if test_ds[var].shape != ds[var].shape:
+                                raise ValueError(f'Shape mismatch for {var}: {test_ds[var].shape} vs {ds[var].shape}')
                     
-                    if list(test_ds.data_vars) != list(ds.data_vars):
-                        raise ValueError(f'Data variable mismatch: {list(test_ds.data_vars)} vs {list(ds.data_vars)}')
+                    print(f'✅ Validation passed for {filepath}')
                     
-                    if list(test_ds.coords) != list(ds.coords):
-                        raise ValueError(f'Coordinate mismatch: {list(test_ds.coords)} vs {list(ds.coords)}')
+                    # Move temp file to final location
+                    os.rename(temp_path, filepath)
                     
-                    # Check data variable shapes without loading
-                    for var in ds.data_vars:
-                        if test_ds[var].shape != ds[var].shape:
-                            raise ValueError(f'Shape mismatch for {var}: {test_ds[var].shape} vs {ds[var].shape}')
-                
-                print(f'✅ Validation passed for {filepath}')
-                
-                # Move temp file to final location
-                os.rename(temp_path, filepath)
-                
-                # Set file permissions to 775 (rwxrwxr-x)
-                os.chmod(filepath, 0o775)
-                
-                return True
-                
-            except Exception as e:
-                print(f'❌ Validation failed for {filepath}: {e}')
-                if os.path.exists(temp_path):
-                    os.remove(temp_path)
-                raise e
+                except Exception as e:
+                    print(f'❌ Validation failed for {filepath}: {e}')
+                    if os.path.exists(temp_path):
+                        os.remove(temp_path)
+                    raise e
+            
+            # Set file permissions to 775 (rwxrwxr-x)
+            os.chmod(filepath, 0o775)
+            
+            return True
                 
         except Exception as e:
             print(f'Attempt {attempt + 1} failed: {e}')
@@ -143,6 +198,7 @@ def write_netcdf(ds, filepath, max_retries=3, engine='netcdf4',
                 print(f'Retrying... ({attempt + 1}/{max_retries})')
                 
     return False
+
 
 def sort_id_coordinates(ds):
     '''
@@ -261,7 +317,6 @@ def optimize_netcdf_encoding(ds, compression_level=4):
 import pandas as pd
 import numpy as np
 
-
 def convert_to_xarray(df, dimensions=None, dimension_dtypes=None, variable_dtypes=None, 
                      auto_optimize_dtypes=True, validate_dimensions=True):
     """
@@ -305,7 +360,7 @@ def convert_to_xarray(df, dimensions=None, dimension_dtypes=None, variable_dtype
                           variable_dtypes={'population': 'float32', 'rate': 'float64'})
     """
     
-    df_work = df.copy()
+    df_work = _fix_nullable_dtypes(df).copy()
     
     # Auto-detect dimensions if not provided
     if dimensions is None:
@@ -349,6 +404,10 @@ def convert_to_xarray(df, dimensions=None, dimension_dtypes=None, variable_dtype
         if var in df_work.columns:
             df_work[var] = df_work[var].astype(dtype)
     
+    # FIX: Convert any remaining nullable dtypes to xarray-compatible types
+    # This prevents xarray merge errors
+    df_work = _ensure_xarray_compatible_dtypes(df_work)
+    
     # Validate complete rectangular grid if requested
     if validate_dimensions:
         _validate_rectangular_grid(df_work, dimensions)
@@ -361,53 +420,144 @@ def convert_to_xarray(df, dimensions=None, dimension_dtypes=None, variable_dtype
     
     return ds
 
+def _fix_nullable_dtypes(df, verbose=False):
+    """Convert pandas nullable dtypes to xarray-compatible standard dtypes."""
+    df_work = df.copy()
+    
+    if verbose:
+        print(f"Checking dtypes in DataFrame with shape {df_work.shape}:")
+    for col in df_work.columns:
+        dtype = df_work[col].dtype
+        if verbose:
+            print(f"  {col}: {dtype} (type: {type(dtype)})")
+        
+        # Handle pandas nullable integer types
+        if hasattr(dtype, 'name'):
+            if dtype.name in ['Int8', 'Int16', 'Int32', 'Int64']:
+                if verbose:
+                    print(f"    Converting {col} from {dtype.name} to standard integer")
+                # Fill NaN with -1 as sentinel value, then convert
+                if dtype.name == 'Int8':
+                    df_work[col] = df_work[col].fillna(-1).astype('int8')
+                elif dtype.name == 'Int16':
+                    df_work[col] = df_work[col].fillna(-1).astype('int16') 
+                elif dtype.name == 'Int32':
+                    df_work[col] = df_work[col].fillna(-1).astype('int32')
+                elif dtype.name == 'Int64':
+                    df_work[col] = df_work[col].fillna(-1).astype('int64')
+                    
+            elif dtype.name in ['UInt8', 'UInt16', 'UInt32', 'UInt64']:
+                if verbose:
+                    print(f"    Converting {col} from {dtype.name} to standard unsigned integer")
+                if dtype.name == 'UInt8':
+                    df_work[col] = df_work[col].fillna(255).astype('uint8')
+                elif dtype.name == 'UInt16':
+                    df_work[col] = df_work[col].fillna(65535).astype('uint16')
+                elif dtype.name == 'UInt32':
+                    df_work[col] = df_work[col].fillna(4294967295).astype('uint32')
+                elif dtype.name == 'UInt64':
+                    df_work[col] = df_work[col].fillna(18446744073709551615).astype('uint64')
+                    
+            elif dtype.name in ['Float32', 'Float64']:
+                if verbose:
+                    print(f"    Converting {col} from {dtype.name} to standard float")
+                if dtype.name == 'Float32':
+                    df_work[col] = df_work[col].astype('float32')
+                elif dtype.name == 'Float64':
+                    df_work[col] = df_work[col].astype('float64')
+                    
+            elif dtype.name == 'boolean':
+                if verbose:
+                    print(f"    Converting {col} from boolean to bool")
+                df_work[col] = df_work[col].fillna(False).astype('bool')
+                
+            elif dtype.name == 'string':
+                if verbose:
+                    print(f"    Converting {col} from string to object")
+                df_work[col] = df_work[col].astype('object')
+    
+    if verbose:
+        print("Dtype conversion complete.\n")
+    return df_work
+
+
+def _ensure_xarray_compatible_dtypes(df):
+    """
+    Convert pandas nullable dtypes to xarray-compatible standard dtypes.
+    This prevents errors during xarray merge operations.
+    """
+    df_work = df.copy()
+    
+    for col in df_work.columns:
+        dtype = df_work[col].dtype
+        
+        # Handle pandas nullable integer types
+        if hasattr(dtype, 'name') and dtype.name in ['Int8', 'Int16', 'Int32', 'Int64']:
+            # Convert to standard numpy integer, filling NaN with appropriate value
+            if dtype.name == 'Int8':
+                df_work[col] = df_work[col].fillna(-1).astype('int8')
+            elif dtype.name == 'Int16': 
+                df_work[col] = df_work[col].fillna(-1).astype('int16')
+            elif dtype.name == 'Int32':
+                df_work[col] = df_work[col].fillna(-1).astype('int32')
+            elif dtype.name == 'Int64':
+                df_work[col] = df_work[col].fillna(-1).astype('int64')
+                
+        # Handle pandas nullable unsigned integer types
+        elif hasattr(dtype, 'name') and dtype.name in ['UInt8', 'UInt16', 'UInt32', 'UInt64']:
+            if dtype.name == 'UInt8':
+                df_work[col] = df_work[col].fillna(255).astype('uint8')  # Use max value as sentinel
+            elif dtype.name == 'UInt16':
+                df_work[col] = df_work[col].fillna(65535).astype('uint16')
+            elif dtype.name == 'UInt32':
+                df_work[col] = df_work[col].fillna(4294967295).astype('uint32') 
+            elif dtype.name == 'UInt64':
+                df_work[col] = df_work[col].fillna(18446744073709551615).astype('uint64')
+                
+        # Handle pandas nullable float types
+        elif hasattr(dtype, 'name') and dtype.name in ['Float32', 'Float64']:
+            if dtype.name == 'Float32':
+                df_work[col] = df_work[col].astype('float32')  # NaN is native to float
+            elif dtype.name == 'Float64':
+                df_work[col] = df_work[col].astype('float64')
+                
+        # Handle pandas boolean nullable type
+        elif hasattr(dtype, 'name') and dtype.name == 'boolean':
+            df_work[col] = df_work[col].fillna(False).astype('bool')
+            
+        # Handle pandas string type
+        elif hasattr(dtype, 'name') and dtype.name == 'string':
+            df_work[col] = df_work[col].astype('object')
+    
+    return df_work
+
 
 def _auto_optimize_dimension_dtype(series):
     """Auto-select optimal integer dtype for dimension based on value range."""
     min_val = series.min()
     max_val = series.max()
     
-    # Check for missing values
-    if series.isna().any():
-        # Use nullable integer types for dimensions with NaN
-        if min_val >= 0:
-            if max_val <= 255:
-                return 'UInt8'
-            elif max_val <= 65535:
-                return 'UInt16' 
-            elif max_val <= 4294967295:
-                return 'UInt32'
-            else:
-                return 'UInt64'
+    # FIXED: Always return standard numpy dtypes, never pandas nullable types
+    # xarray has issues with pandas nullable dtypes during merge operations
+    
+    if min_val >= 0:
+        if max_val <= 255:
+            return 'uint8'
+        elif max_val <= 65535:
+            return 'uint16'
+        elif max_val <= 4294967295:
+            return 'uint32'
         else:
-            if min_val >= -128 and max_val <= 127:
-                return 'Int8'
-            elif min_val >= -32768 and max_val <= 32767:
-                return 'Int16'
-            elif min_val >= -2147483648 and max_val <= 2147483647:
-                return 'Int32'
-            else:
-                return 'Int64'
+            return 'uint64'
     else:
-        # Use standard integer types for complete dimensions
-        if min_val >= 0:
-            if max_val <= 255:
-                return 'uint8'
-            elif max_val <= 65535:
-                return 'uint16'
-            elif max_val <= 4294967295:
-                return 'uint32'
-            else:
-                return 'uint64'
+        if min_val >= -128 and max_val <= 127:
+            return 'int8'
+        elif min_val >= -32768 and max_val <= 32767:
+            return 'int16'
+        elif min_val >= -2147483648 and max_val <= 2147483647:
+            return 'int32'
         else:
-            if min_val >= -128 and max_val <= 127:
-                return 'int8'
-            elif min_val >= -32768 and max_val <= 32767:
-                return 'int16'
-            elif min_val >= -2147483648 and max_val <= 2147483647:
-                return 'int32'
-            else:
-                return 'int64'
+            return 'int64'
 
 
 def _auto_optimize_variable_dtype(series):
@@ -449,7 +599,7 @@ def _validate_rectangular_grid(df, dimensions):
             f"This suggests missing combinations of dimension values. "
             f"Use validate_dimensions=False to skip this check."
         )
-
+    
 
 # Example usage and preset configurations
 COMMON_DIMENSION_CONFIGS = {

@@ -1,7 +1,8 @@
 import pandas as pd
 import numpy as np
 from idd_forecast_mbp import constants as rfc
-from idd_forecast_mbp.helper_functions import read_parquet_with_integer_ids, write_parquet
+from idd_forecast_mbp.xarray_functions import convert_to_xarray, write_netcdf
+from idd_forecast_mbp.parquet_functions import read_parquet_with_integer_ids, write_parquet
 
 RAW_DATA_PATH = rfc.MODEL_ROOT / "01-raw_data"
 PROCESSED_DATA_PATH = rfc.MODEL_ROOT / "02-processed_data"
@@ -18,6 +19,7 @@ fhs_2023_hierarchy_path = f"{GBD_DATA_PATH}/fhs_2023_modeling_hierarchy.parquet"
 
 # Output path for the full hierarchy
 hierarchy_2023_df_path = f"{PROCESSED_DATA_PATH}/full_hierarchy_2023_{lsae_hierarchy}.parquet"
+hierarchy_2023_ds_path = f"{PROCESSED_DATA_PATH}/full_hierarchy_2023_{lsae_hierarchy}.nc"
 
 lsae_2023_hierarchy_df = read_parquet_with_integer_ids(lsae_2023_hierarchy_path)
 gbd_2023_hierarchy_df = read_parquet_with_integer_ids(gbd_2023_hierarchy_path)
@@ -319,3 +321,19 @@ for i, row in hierarchy_2023_df.iterrows():
 ################################################################
 # Save the updated DataFrame to a new parquet file
 write_parquet(hierarchy_2023_df, hierarchy_2023_df_path)
+
+################################################################
+#### Convert to xarray and save as NetCDF
+################################################################
+# Manually ensure compatible dtypes
+hierarchy_2023_df['location_id'] = hierarchy_2023_df['location_id'].astype('int32')
+# Convert to xarray 
+hierarchy_2023_ds = convert_to_xarray(
+    hierarchy_2023_df,
+    dimensions=['location_id'],
+    dimension_dtypes={'location_id': 'int32'},
+    auto_optimize_dtypes=True
+)
+
+# Write to NetCDF
+write_netcdf(hierarchy_2023_ds, hierarchy_2023_ds_path)
