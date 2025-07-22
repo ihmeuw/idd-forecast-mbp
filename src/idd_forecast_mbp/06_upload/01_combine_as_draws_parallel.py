@@ -61,7 +61,7 @@ workflow.set_default_compute_resources_from_dict(
 if fhs_flag == 1:
     memory = "20G"
 else:
-    memory = "20G"
+    memory = "100G"
 
 # Define the task template for processing each year batch
 task_template = tool.get_task_template(
@@ -70,7 +70,7 @@ task_template = tool.get_task_template(
     default_compute_resources={
         "memory": memory,
         "cores": 16,
-        "runtime": "10m",
+        "runtime": "60m",
         "queue": queue,
         "project": project,
         "stdout": str(stdout_dir),
@@ -95,7 +95,7 @@ causes_to_process = rfc.cause_map
 # causes_to_process = ['dengue']
 # Add tasks
 tasks = []
-for fhs_flag in [0, 1]:
+for fhs_flag in [0]:#, 1]:
     if fhs_flag == 1:
         for cause in causes_to_process:
             for ssp_scenario in rfc.ssp_scenarios:
