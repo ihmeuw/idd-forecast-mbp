@@ -3,6 +3,7 @@ import pandas as pd
 import numpy as np
 import os
 import time
+from rra_tools.shell_tools import mkdir # type: ignore
 from idd_forecast_mbp import constants as rfc
 from idd_forecast_mbp.parquet_functions import read_parquet_with_integer_ids, write_parquet, ensure_id_columns_are_integers, sort_id_columns
 
@@ -13,6 +14,50 @@ VARIABLE_DATA_PATH = f'{PROCESSED_DATA_PATH}/{hierarchy}'
 cause_map = rfc.cause_map
 measure_map = rfc.measure_map
 metric_map = rfc.metric_map
+
+def check_folders_for_files(folders_and_files, delete_existing=True):
+    """
+    Check and optionally delete specific files from multiple folders.
+    
+    Args:
+        folders_and_files: Dictionary mapping folder paths to lists of filenames
+        delete_existing: If True, delete existing files; if False, just check existence
+    
+    Returns:
+        dict: Dictionary mapping folder paths to boolean (True if all files were present)
+    """
+    results = {}
+    for folder_path, files_to_check in folders_and_files.items():
+        print(f"\nProcessing folder: {folder_path}")
+        
+        if not os.path.exists(folder_path):
+            print(f"  Creating new folder: {folder_path}")
+            mkdir(folder_path, parents=True, exist_ok=True)
+            results[folder_path] = False
+            continue
+        
+        action = "delete" if delete_existing else "check"
+        print(f"  Checking files to {action}")
+        
+        all_files_present = True
+        for filename in files_to_check:
+            file_path = os.path.join(folder_path, filename)
+            if not os.path.exists(file_path):
+                print(f"    File not found: {filename}")
+                all_files_present = False
+            elif delete_existing:
+                print(f"    Deleting: {filename}")
+                if os.path.isfile(file_path) or os.path.islink(file_path):
+                    os.unlink(file_path)
+                elif os.path.isdir(file_path):
+                    os.rmdir(file_path)
+            else:
+                print(f"    Found: {filename}")
+        
+        results[folder_path] = all_files_present
+    
+    return results
+
 
 def merge_dataframes(model_df, dfs):
     for key, df in dfs.items():

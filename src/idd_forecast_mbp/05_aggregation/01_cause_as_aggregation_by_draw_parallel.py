@@ -11,11 +11,26 @@ package_name = rfc.package_name
 # Script directory
 SCRIPT_ROOT = rfc.REPO_ROOT / repo_name / "src" / package_name / "05_aggregation"
 
-cause_map = rfc.cause_map
+
 ssp_scenarios = rfc.ssp_scenarios
 dah_scenarios = rfc.dah_scenarios
-measure_map = rfc.measure_map
 draws = rfc.draws
+
+hold_variables = {
+    'malaria': ['DAH', 'flood', 'gdppc', 'suitability'],
+    'dengue': ['gdppc', 'suitability', 'urban'],
+}
+
+run_hold_variables = False
+
+dah_scenarios = rfc.dah_scenarios
+dah_scenarios = ['Baseline','Constant']
+# dah_scenarios = ['reference','better', 'worse']
+
+causes = rfc.cause_map
+causes = ['malaria', 'dengue']
+causes = ['dengue']
+
 
 # Jobmon setup
 user = getpass.getuser()
@@ -61,7 +76,7 @@ task_template = tool.get_task_template(
     template_name="as_cause_draw_aggregation",
     default_cluster_name="slurm",
     default_compute_resources={
-        "memory": "100G",
+        "memory": "40G",
         "cores": 2,
         "runtime": "10m",
         "queue": queue,
@@ -76,20 +91,20 @@ task_template = tool.get_task_template(
         "--dah_scenario {{dah_scenario}} "
         "--measure {{measure}} "
         "--draw {{draw}} "
+        "--hold_variable {{hold_variable}} "
     ).format(script_root=SCRIPT_ROOT),
-    node_args=["cause", "ssp_scenario", "dah_scenario", "measure", "draw"],
+    node_args=["cause", "ssp_scenario", "dah_scenario", "measure", "draw", "hold_variable"],
     task_args=[],
     op_args=[],
 )
 
-dah_scenarios = rfc.dah_scenarios
-dah_scenarios = ['Baseline','Constant']
+
 # Add tasks
 tasks = []
 # for cause in cause_map:
-for cause in ['malaria']:
+for cause in causes:
     for ssp_scenario in ssp_scenarios:
-        for measure in measure_map:
+        for measure in ['mortality', 'incidence']:
             for draw in draws:
                 if cause == "malaria":
                     for dah_scenario in dah_scenarios:
@@ -100,18 +115,48 @@ for cause in ['malaria']:
                             dah_scenario=dah_scenario,
                             measure=measure,
                             draw=draw,
+                            hold_variable='None'  # No hold variable for primary task
                         )
                         tasks.append(task)
                 else:
-                    # Create the primary task
                     task = task_template.create_task(
                         cause=cause,
                         ssp_scenario=ssp_scenario,
-                        dah_scenario=None,
+                        dah_scenario='None',
                         measure=measure,
                         draw=draw,
+                        hold_variable='None'  # No hold variable for primary task
                     )
                     tasks.append(task)
+if run_hold_variables:
+    for cause in causes:
+        for hold_variable in hold_variables[cause]:
+            for ssp_scenario in ssp_scenarios:
+                for measure in ['mortality', 'incidence']:
+                    for draw in draws:
+                        if cause == "malaria":
+                            for dah_scenario in dah_scenarios:
+                                # Create the task with hold variable
+                                task = task_template.create_task(
+                                    cause=cause,
+                                    ssp_scenario=ssp_scenario,
+                                    dah_scenario=dah_scenario,
+                                    measure=measure,
+                                    draw=draw,
+                                    hold_variable=hold_variable
+                                )
+                                tasks.append(task)
+                        else:
+                            # Create the task with hold variable
+                            task = task_template.create_task(
+                                cause=cause,
+                                ssp_scenario=ssp_scenario,
+                                dah_scenario='None',
+                                measure=measure,
+                                draw=draw,
+                                hold_variable=hold_variable
+                            )
+                            tasks.append(task)
 
 print(f"Number of tasks: {len(tasks)}")
 

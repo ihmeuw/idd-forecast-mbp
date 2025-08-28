@@ -53,11 +53,6 @@ forecast_by_draw_df_path_template = "{FORECASTING_DATA_PATH}/{cause}_forecast_ss
 hierarchy_df_path = f'{PROCESSED_DATA_PATH}/full_hierarchy_lsae_1209.parquet'
 hierarchy_df = read_parquet_with_integer_ids(hierarchy_df_path)
 
-
-# Hierarchy path
-hierarchy_df_path = f'{PROCESSED_DATA_PATH}/full_hierarchy_lsae_1209.parquet'
-hierarchy_df = read_parquet_with_integer_ids(hierarchy_df_path)
-
 # LSAE 1209 variable path
 VARIABLE_DATA_PATH = f"{PROCESSED_DATA_PATH}/{hierarchy}"
 # CLIMATE 1209 variable path

@@ -5,6 +5,7 @@ from rra_tools.shell_tools import mkdir  # type: ignore
 from idd_forecast_mbp import constants as rfc
 from idd_forecast_mbp.helper_functions import level_filter
 from idd_forecast_mbp.parquet_functions import read_parquet_with_integer_ids, write_parquet
+from idd_forecast_mbp.xarray_functions import convert_to_xarray, write_netcdf
 
 PROCESSED_DATA_PATH = rfc.PROCESSED_DATA_PATH
 FORECASTING_DATA_PATH = rfc.FORECASTING_DATA_PATH
@@ -12,6 +13,7 @@ GBD_DATA_PATH = rfc.GBD_DATA_PATH
 FHS_DATA_PATH = f"{PROCESSED_DATA_PATH}/age_specific_fhs"
 
 as_full_cause_df_path_template = '{PROCESSED_DATA_PATH}/as_full_{cause}_df.parquet'
+as_full_cause_ds_path_template = '{PROCESSED_DATA_PATH}/as_full_{cause}_ds.nc'
 ################################################################
 #### Paths, loading, and cleaning
 ################################################################
@@ -157,5 +159,22 @@ for cause in cause_map:
         as_full_cause_df.loc[as_full_cause_df['age_group_id'].isin(force_zero_age_ids), [f'{cause}_{measure_map[measure]["short"]}_{metric}' for measure in measure_map]] = 0
         as_full_cause_df.loc[as_full_cause_df['age_group_id'].isin(force_zero_age_ids), [f'aa_{cause}_{measure_map[measure]["short"]}_{metric}' for measure in measure_map]] = 0
     as_full_cause_df_path = as_full_cause_df_path_template.format(PROCESSED_DATA_PATH=PROCESSED_DATA_PATH, cause=cause)
+    as_full_cause_ds_path = as_full_cause_ds_path_template.format(PROCESSED_DATA_PATH=PROCESSED_DATA_PATH, cause=cause)
     write_parquet(as_full_cause_df, as_full_cause_df_path)
+
+
+    as_full_cause_ds = convert_to_xarray(
+        as_full_cause_df,
+        dimensions=['location_id', 'year_id', 'sex_id', 'age_group_id'],
+        dimension_dtypes={'location_id': 'int32', 'year_id': 'int16', 'sex_id': 'int16', 'age_group_id': 'int16'},
+        auto_optimize_dtypes=True
+    )
+    
+    write_netcdf(as_full_cause_ds, as_full_cause_ds_path,
+        compression=True,
+        compression_level=4,
+        chunking=True,
+        chunk_by_dim={'location_id': 1500, 'year_id': 79},
+        engine='netcdf4'
+    )
     print(f"Wrote {as_full_cause_df_path}")

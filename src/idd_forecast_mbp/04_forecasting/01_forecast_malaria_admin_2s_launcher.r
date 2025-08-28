@@ -11,20 +11,20 @@ USER <- Sys.getenv('USER')
 repo_dir <- glue("/ihme/homes/{USER}/repos/idd-forecast-mbp")
 message_dir <- "/mnt/team/idd/pub"
 
-if (RUN_WITH_OPTIONS) {
-  script <- glue("{repo_dir}/src/idd_forecast_mbp/04_forecasting/forecast_malaria_admin_2s_options_rocket.r")
-} else {
-  script <- glue("{repo_dir}/src/idd_forecast_mbp/04_forecasting/forecast_malaria_admin_2s_rocket.r") 
-}
+script <- glue("{repo_dir}/src/idd_forecast_mbp/04_forecasting/forecast_malaria_admin_2s_rocket.r") 
+
 
 draws <- sprintf("%03d", 0:99)
 ssp_scenarios <- c("ssp126", "ssp245", "ssp585")
-dah_scenario_names <- c("Baseline", "Constant", "Decreasing", "Increasing")
+# dah_scenario_names <- c("Baseline", "Constant")#, "Decreasing", "Increasing")
+dah_scenario_names <- c('reference', 'better', 'worse')
 
 param_map_filepath <- glue("/mnt/team/idd/pub/forecast-mbp/04-forecasting_data/malaria_param_map.csv")
 param_map <- data.table(expand.grid(draw_num = 0:99,
                                     ssp_scenario = ssp_scenarios,
                                     dah_scenario_name = dah_scenario_names))
+param_map$counterfactual <- FALSE
+param_map$model_date <- '2025_07_08'
 write.csv(param_map,  param_map_filepath, row.names = FALSE)
 
 

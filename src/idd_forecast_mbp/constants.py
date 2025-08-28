@@ -10,6 +10,7 @@ MODELING_DATA_PATH = MODEL_ROOT / "03-modeling_data"
 FORECASTING_DATA_PATH = MODEL_ROOT / "04-forecasting_data"
 UPLOAD_DATA_PATH = MODEL_ROOT / "05-upload_data"
 VISUALIZATION_PATH = MODEL_ROOT / "06-visualization"
+FIGURES_PATH = MODEL_ROOT / "07-figures"
 GBD_DATA_PATH = f"{RAW_DATA_PATH}/gbd"
 LSAE_INPUT_PATH = PROCESSED_DATA_PATH / "lsae_1209"
 
@@ -49,13 +50,14 @@ cause_map = {
     'malaria':{
         'cause_id': 345,
         'reference_age_group_id': 3,
-        'reference_sex_id': 1
-
+        'reference_sex_id': 1,
+        'cause_name': 'Malaria',
     },
     'dengue': {
         'cause_id': 357,
         'reference_age_group_id': 3,
-        'reference_sex_id': 1
+        'reference_sex_id': 1,
+        'cause_name': 'Dengue',
     }
 }
 
@@ -109,6 +111,23 @@ measure_map = {
         "name": "mortality",
         "rate_name": "Mortality rate",
         "count_name": "Deaths",
+        "short": "mort",
+    },
+    "incidence": {
+        "measure_id": 6, 
+        "name": "incidence",
+        "rate_name": "Incidence rate",
+        "count_name": "Cases",
+        "short": "inc",
+    }
+}
+
+full_measure_map = {
+    "mortality": {
+        "measure_id": 1,
+        "name": "mortality",
+        "rate_name": "Mortality rate",
+        "count_name": "Deaths",
         "short": "mort"
     },
     "incidence": {
@@ -117,6 +136,27 @@ measure_map = {
         "rate_name": "Incidence rate",
         "count_name": "Cases",
         "short": "inc"
+    },
+    "daly": {
+        "measure_id": 2, 
+        "name": "daly",
+        "rate_name": "DALY rate",
+        "count_name": "DALYs",
+        "short": "daly"
+    },
+    "yld": {
+        "measure_id": 3, 
+        "name": "yld",
+        "rate_name": "YLD rate",
+        "count_name": "YLDs",
+        "short": "yld"
+    },
+    "yll": {
+        "measure_id": 4, 
+        "name": "yll",
+        "rate_name": "YLL rate",
+        "count_name": "YLLs",
+        "short": "yll"
     }
 }
 
@@ -139,6 +179,30 @@ age_type_map = {
     "age_specific": {
         "name": "Age-specific",
         "age_type": "as"
+    }
+}
+
+ssp_scenario_map = {
+    "ssp126": {
+        "name": "RCP 2.6",
+        "rcp_scenario": 2.6,
+        "color": "#046C9A",
+        "dhs_scenario": 66,
+        "dhs_vbd_scenario": 75
+    },
+    "ssp245": {
+        "name": "RCP 4.5",
+        "rcp_scenario": 4.5,
+        "color": "#E58601",
+        "dhs_scenario": 0,
+        "dhs_vbd_scenario": 0
+    },
+    "ssp585": {
+        "name": "RCP 8.5",
+        "rcp_scenario": 8.5,
+        "color": "#A42820",
+        "dhs_scenario": 54,
+        "dhs_vbd_scenario": 76
     }
 }
 

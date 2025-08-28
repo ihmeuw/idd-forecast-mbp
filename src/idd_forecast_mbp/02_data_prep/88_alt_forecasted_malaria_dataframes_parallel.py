@@ -9,10 +9,7 @@ repo_name = rfc.repo_name
 package_name = rfc.package_name
 
 # Script directory
-SCRIPT_ROOT = rfc.REPO_ROOT / repo_name / "src" / package_name / "04_forecasting"
-
-dengue_hold_variables = ['gdppc', 'suitability', 'urban']
-run_hold_variables = True
+SCRIPT_ROOT = rfc.REPO_ROOT / repo_name / "src" / package_name / "02_data_prep"
 
 ssp_scenarios = rfc.ssp_scenarios
 draws = rfc.draws
@@ -20,7 +17,7 @@ draws = rfc.draws
 # Jobmon setup
 user = getpass.getuser()
 
-log_dir = Path("/mnt/team/idd/pub/")
+log_dir = Path(f"/mnt/share/homes/{user}/{package_name}/")
 log_dir.mkdir(parents=True, exist_ok=True)
 # Create directories for stdout and stderr
 stdout_dir = log_dir / "stdout"
@@ -30,10 +27,10 @@ stderr_dir.mkdir(parents=True, exist_ok=True)
 
 # Project
 project = "proj_rapidresponse"  # Adjust this to your project name if needed
-queue = 'long.q'
+
 
 wf_uuid = uuid.uuid4()
-tool_name = f"{package_name}_dengue_level_5_age_sex_forecasting"
+tool_name = f"{package_name}_draw_level_dataframe_generation"
 tool = Tool(name=tool_name)
 
 # Create a workflow
@@ -46,10 +43,10 @@ workflow = tool.create_workflow(
 workflow.set_default_compute_resources_from_dict(
     cluster_name="slurm",
     dictionary={
-        "memory": "25G",
-        "cores": 4,
-        "runtime": "5m",
-        "queue": queue,
+        "memory": "15G",
+        "cores": 1,
+        "runtime": "60m",
+        "queue": "all.q",
         "project": project,
         "stdout": str(stdout_dir),
         "stderr": str(stderr_dir),
@@ -58,24 +55,23 @@ workflow.set_default_compute_resources_from_dict(
 
 # Define the task template for processing each year batch
 task_template = tool.get_task_template(
-    template_name="dengue_as_calculation",
+    template_name="alt_forecasted_malaria_dataframe_creation",
     default_cluster_name="slurm",
     default_compute_resources={
         "memory": "50G",
-        "cores": 4,
-        "runtime": "10m",
-        "queue": queue,
+        "cores": 1,
+        "runtime": "1m",
+        "queue": "all.q",
         "project": project,
         "stdout": str(stdout_dir),
         "stderr": str(stderr_dir),
     },
     command_template=(
-        "python {script_root}/as_dengue_shifts.py "
+        "python {script_root}/alt_forecasted_malaria_dataframes.py "
         "--ssp_scenario {{ssp_scenario}} "
         "--draw {{draw}} "
-        "--hold_variable {{hold_variable}} "
     ).format(script_root=SCRIPT_ROOT),
-    node_args=["ssp_scenario", "draw", "hold_variable"],
+    node_args=["ssp_scenario", "draw"],
     task_args=[],
     op_args=[],
 )
@@ -88,20 +84,8 @@ for ssp_scenario in ssp_scenarios:
         task = task_template.create_task(
             ssp_scenario=ssp_scenario,
             draw=draw,
-            hold_variable='None',
         )
         tasks.append(task)
-if run_hold_variables:
-    for hold_variable in dengue_hold_variables:
-        for ssp_scenario in ssp_scenarios:
-            for draw in draws:
-                # Create the task with hold variable
-                task = task_template.create_task(
-                    ssp_scenario=ssp_scenario,
-                    draw=draw,
-                    hold_variable=hold_variable,
-                )
-                tasks.append(task)
 
 print(f"Number of tasks: {len(tasks)}")
 

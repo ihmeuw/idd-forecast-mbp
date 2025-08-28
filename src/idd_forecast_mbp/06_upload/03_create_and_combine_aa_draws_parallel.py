@@ -8,10 +8,27 @@ from idd_forecast_mbp import constants as rfc
 repo_name = rfc.repo_name
 package_name = rfc.package_name
 
+hold_variables = {
+    'malaria': ['DAH', 'flood', 'gdppc', 'suitability'],
+    'dengue': ['gdppc', 'suitability', 'urban'],
+}
+run_hold_variables = False
 
-run_date = "2025_07_08"
+template_name = f'{repo_name}_06_03_create_and_combine'
+
+run_date = "2025_07_24"
+run_date = '2025_08_04'
+run_date = '2025_08_11'
 dah_scenarios = rfc.dah_scenarios
 dah_scenarios = ['Baseline', 'Constant']
+dah_scenarios = ['Baseline']
+# dah_scenarios = ['reference', 'better', 'worse']
+
+causes = rfc.cause_map
+# causes = ['dengue']
+ssp_scenarios = rfc.ssp_scenarios
+# ssp_scenarios = ['ssp245']
+
 
 # Script directory
 SCRIPT_ROOT = rfc.REPO_ROOT / repo_name / "src" / package_name / "06_upload"
@@ -31,7 +48,7 @@ stderr_dir.mkdir(parents=True, exist_ok=True)
 
 # Project
 project = "proj_rapidresponse"  # Adjust this to your project name if needed
-queue = 'all.q'
+queue = 'long.q'
 
 wf_uuid = uuid.uuid4()
 tool_name = f"{package_name}_create_summaries_{wf_uuid}"
@@ -61,12 +78,12 @@ memory = "80G"
 
 # Define the task template for processing each year batch
 task_template = tool.get_task_template(
-    template_name="final_cause_summary_creation",
+    template_name=template_name,
     default_cluster_name="slurm",
     default_compute_resources={
         "memory": memory,
         "cores": 16,
-        "runtime": "40m",
+        "runtime": "45m",
         "queue": queue,
         "project": project,
         "stdout": str(stdout_dir),
@@ -78,21 +95,20 @@ task_template = tool.get_task_template(
         "--ssp_scenario {{ssp_scenario}} "
         "--dah_scenario {{dah_scenario}} "
         "--measure {{measure}} "
+        "--hold_variable {{hold_variable}} "
         "--run_date {{run_date}}"
     ).format(script_root=SCRIPT_ROOT),
-    node_args=["cause", "ssp_scenario", "dah_scenario", "measure", "run_date"],
+    node_args=["cause", "ssp_scenario", "dah_scenario", "measure", "hold_variable", "run_date"],
     task_args=[],
     op_args=[],
 )
 
-causes_to_process = rfc.cause_map
-# causes_to_process = ['dengue']
-# Add tasks
+
 tasks = []
 
-for cause in rfc.cause_map:
-    for ssp_scenario in rfc.ssp_scenarios:
-        for measure in rfc.measure_map:
+for cause in causes:
+    for ssp_scenario in ssp_scenarios:
+        for measure in ['mortality', 'incidence']:
             if cause == "malaria":
                 for dah_scenario in dah_scenarios:
                     # Create the primary task
@@ -101,20 +117,49 @@ for cause in rfc.cause_map:
                         ssp_scenario=ssp_scenario,
                         dah_scenario=dah_scenario,
                         measure=measure,
-                        run_date=run_date
+                        hold_variable='None',
+                        run_date=run_date,
                     )
                     tasks.append(task)
             else:
-                dah_scenario = None
                 # Create the primary task
                 task = task_template.create_task(
                     cause=cause,
                     ssp_scenario=ssp_scenario,
-                    dah_scenario=dah_scenario,
+                    dah_scenario='None',
                     measure=measure,
-                    run_date=run_date
+                    hold_variable='None',
+                    run_date=run_date,
                 )
                 tasks.append(task)
+if run_hold_variables:
+    for cause in causes:
+        for hold_variable in hold_variables[cause]:
+            for ssp_scenario in rfc.ssp_scenarios:
+                for measure in ['mortality', 'incidence']:
+                    if cause == "malaria":
+                        for dah_scenario in dah_scenarios:
+                            # Create the primary task
+                            task = task_template.create_task(
+                                cause=cause,
+                                ssp_scenario=ssp_scenario,
+                                dah_scenario=dah_scenario,
+                                measure=measure,
+                                hold_variable=hold_variable,
+                                run_date=run_date
+                            )
+                            tasks.append(task)
+                    else:
+                        # Create the primary task
+                        task = task_template.create_task(
+                            cause=cause,
+                            ssp_scenario=ssp_scenario,
+                            dah_scenario=None,
+                            measure=measure,
+                            hold_variable=hold_variable,
+                            run_date=run_date
+                        )
+                        tasks.append(task)
 
 print(f"Number of tasks: {len(tasks)}")
 

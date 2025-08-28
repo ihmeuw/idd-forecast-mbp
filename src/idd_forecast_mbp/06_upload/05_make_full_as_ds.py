@@ -20,39 +20,40 @@ MODELING_DATA_PATH = rfc.MODEL_ROOT / "03-modeling_data"
 FORECASTING_DATA_PATH = rfc.MODEL_ROOT / "04-forecasting_data"
 UPLOAD_DATA_PATH = rfc.MODEL_ROOT / "05-upload_data" / "upload_folders"
 
-full_ds_path_template = "{UPLOAD_DATA_PATH}/{best_run_date}/full_aa_ds_{dah_scenario}.nc"
+full_ds_path_template = "{UPLOAD_DATA_PATH}/{best_run_date}/full_as_ds_{dah_scenario}.nc"
 #
 measure_map = rfc.measure_map
 metric_map = rfc.metric_map
 cause_map = rfc.cause_map
 ssp_scenarios = rfc.ssp_scenarios
-aa_merge_variables = rfc.aa_merge_variables
+as_merge_variables = rfc.as_merge_variables
 
 hierarchy_ds_path = f"{PROCESSED_DATA_PATH}/full_hierarchy_2023_lsae_1209.nc"
 hierarchy_ds = read_netcdf_with_integer_ids(hierarchy_ds_path, engine='netcdf4')
 
 # Read the NetCDF versions instead of Parquet
-aa_full_malaria_ds_path = PROCESSED_DATA_PATH / "aa_full_malaria_ds.nc"
-aa_full_dengue_ds_path = PROCESSED_DATA_PATH / "aa_full_dengue_ds.nc"
+as_full_malaria_ds_path = PROCESSED_DATA_PATH / "as_2003_full_malaria_ds.nc"
+as_full_dengue_ds_path = PROCESSED_DATA_PATH / "as_2003_full_dengue_ds.nc"
 
-aa_full_malaria_ds = read_netcdf_with_integer_ids(aa_full_malaria_ds_path, engine='netcdf4')
-aa_full_dengue_ds = read_netcdf_with_integer_ids(aa_full_dengue_ds_path, engine='netcdf4')
+as_full_malaria_ds = read_netcdf_with_integer_ids(as_full_malaria_ds_path, engine='netcdf4')
+as_full_dengue_ds = read_netcdf_with_integer_ids(as_full_dengue_ds_path, engine='netcdf4')
 
-aa_path_templates = {
+as_path_templates = {
     'malaria': {
-        'past': aa_full_malaria_ds,
-        'future': "{UPLOAD_DATA_PATH}/{run_date}/aa_cause_malaria_measure_{measure}_metric_{metric}_ssp_scenario_{ssp_scenario}_dah_scenario_{dah_scenario}/mean.nc"
+        'past': as_full_malaria_ds,
+        'future': "{UPLOAD_DATA_PATH}/{run_date}/as_cause_malaria_measure_{measure}_metric_{metric}_ssp_scenario_{ssp_scenario}_dah_scenario_{dah_scenario}/mean.nc"
     },
     'dengue': {
-        'past': aa_full_dengue_ds,
-        'future': "{UPLOAD_DATA_PATH}/{run_date}/aa_cause_dengue_measure_{measure}_metric_{metric}_ssp_scenario_{ssp_scenario}/mean.nc"
+        'past': as_full_dengue_ds,
+        'future': "{UPLOAD_DATA_PATH}/{run_date}/as_cause_dengue_measure_{measure}_metric_{metric}_ssp_scenario_{ssp_scenario}/mean.nc"
     },
 }
 
-aa_full_population_ds_path = f"{PROCESSED_DATA_PATH}/aa_2023_full_population_ds.nc"
-aa_full_population_ds = read_netcdf_with_integer_ids(aa_full_population_ds_path)
+as_full_population_ds_path = f"{PROCESSED_DATA_PATH}/as_2023_full_population_ds.nc"
+as_full_population_ds = read_netcdf_with_integer_ids(as_full_population_ds_path)
 
-for dah_scenario in ['Baseline', 'Constant']:
+# for dah_scenario in ['Baseline', 'Constant']:
+for dah_scenario in ['Baseline']:
     causes = list(cause_map.keys())
     measures = list(measure_map.keys())
     ssp_scenarios_list = list(ssp_scenarios)
@@ -60,13 +61,13 @@ for dah_scenario in ['Baseline', 'Constant']:
     datasets = []
     for cause in causes:
         # Use xarray Dataset directly for past data
-        past_ds = aa_path_templates[cause]['past']
+        past_ds = as_path_templates[cause]['past']
         cause_datasets = []
         for ssp_scenario in ssp_scenarios_list:
             measure_datasets = []
             for measure in measures:
                 # Load future data
-                aa_path = aa_path_templates[cause]['future'].format(
+                as_path = as_path_templates[cause]['future'].format(
                     UPLOAD_DATA_PATH=UPLOAD_DATA_PATH,
                     run_date=best_run_date,
                     measure=measure,
@@ -74,7 +75,7 @@ for dah_scenario in ['Baseline', 'Constant']:
                     ssp_scenario=ssp_scenario,
                     dah_scenario=dah_scenario
                 )
-                future_ds = read_netcdf_with_integer_ids(aa_path, engine='netcdf4')
+                future_ds = read_netcdf_with_integer_ids(as_path, engine='netcdf4')
                 future_ds = future_ds.rename({'mean_value': 'count'})
 
                 # Select past data for this measure and metric
@@ -109,7 +110,7 @@ for dah_scenario in ['Baseline', 'Constant']:
         datasets.append(cause_ds)
 
     full_ds = xr.concat(datasets, dim='cause')
-    full_ds = xr.merge([full_ds, aa_full_population_ds], join='left')
+    full_ds = xr.merge([full_ds, as_full_population_ds], join='left')
     full_ds['rate'] = full_ds['count'] / full_ds['population']
     full_ds = xr.merge([full_ds, hierarchy_ds], join='left')
     full_ds = ensure_id_coordinates_are_integers(full_ds)

@@ -14,6 +14,7 @@ import sys
 import itertools
 from idd_forecast_mbp import constants as rfc
 from idd_forecast_mbp.parquet_functions import read_parquet_with_integer_ids, write_parquet
+from idd_forecast_mbp.xarray_functions import read_netcdf_with_integer_ids, write_netcdf, convert_with_preset
 import glob
 
 import argparse
@@ -23,12 +24,15 @@ parser = argparse.ArgumentParser(description="Rake base dengue and complete the 
 # Define arguments
 parser.add_argument("--ssp_scenario", type=str, required=True, help="SSP scenario (e.g., 'ssp126', 'ssp245', 'ssp585')")
 parser.add_argument("--draw", type=str, required=True, help="Draw number (e.g., '001', '002', etc.)")
+parser.add_argument("--hold_variable", type=str, required=True, default='None', help="Hold variable (e.g., 'gdppc', 'suitability', 'urban') or None for primary task")
+
 
 # Parse arguments
 args = parser.parse_args()
 
 ssp_scenario = args.ssp_scenario
 draw = args.draw
+hold_variable = args.hold_variable
 
 # For testing purposes, you can uncomment and modify the following lines:
 # ssp_scenario = 'ssp126'
@@ -75,11 +79,20 @@ as_merge_variables = rfc.as_merge_variables
 ###----------------------------------------------------------###
 
 # 2.1 Input/Output Path Logic
-input_cause_draw_path = f"{FORECASTING_DATA_PATH}/{cause}_forecast_ssp_scenario_{ssp_scenario}_draw_{draw}_with_predictions.parquet"
-output_cause_draw_path = f"{FORECASTING_DATA_PATH}/raked_{cause}_forecast_ssp_scenario_{ssp_scenario}_draw_{draw}_with_predictions.parquet"
+if hold_variable == 'None':
+    input_cause_draw_path = f"{FORECASTING_DATA_PATH}/{cause}_forecast_ssp_scenario_{ssp_scenario}_draw_{draw}_with_predictions.parquet"
+    output_cause_draw_path = f"{FORECASTING_DATA_PATH}/raked_{cause}_forecast_ssp_scenario_{ssp_scenario}_draw_{draw}_with_predictions.nc"
+else:
+    input_cause_draw_path = f"{FORECASTING_DATA_PATH}/{cause}_forecast_ssp_scenario_{ssp_scenario}_draw_{draw}_with_predictions_hold_{hold_variable}.nc"
+    output_cause_draw_path = f"{FORECASTING_DATA_PATH}/raked_{cause}_forecast_ssp_scenario_{ssp_scenario}_draw_{draw}_with_predictions_hold_{hold_variable}.nc"
 
 
-reference_df = read_parquet_with_integer_ids(input_cause_draw_path)
+if hold_variable == 'None':
+    reference_df = read_parquet_with_integer_ids(input_cause_draw_path)
+else:
+    ds = read_netcdf_with_integer_ids(input_cause_draw_path)
+    reference_df = ds.to_dataframe().reset_index()
+
 suit_col = [col for col in reference_df.columns if 'suit' in col]
 reference_df = reference_df.drop(columns=suit_col + ['as_id', 'age_group_id', 'sex_id', 'log_gdppc_mean', 'logit_urban_1km_threshold_300', 'A0_af', 'logit_dengue_cfr'], errors='ignore')
 level_5_location_ids = reference_df['location_id'].unique()
@@ -162,4 +175,5 @@ forecast_df = forecast_df.merge(forecast_2022_df[['location_id', 'age_group_id',
 forecast_df['logit_dengue_cfr_pred'] = forecast_df['logit_dengue_cfr_pred_raw'] + forecast_df['shift']
 forecast_df = forecast_df.drop(columns=['shift', 'logit_dengue_cfr_pred_raw'], errors='ignore')
 
-write_parquet(forecast_df, output_cause_draw_path)
+forecast_ds = convert_with_preset(forecast_df, preset='as_variables')
+write_netcdf(forecast_ds, output_cause_draw_path)
