@@ -26,6 +26,7 @@ import sys
 import itertools
 from idd_forecast_mbp import constants as rfc
 from idd_forecast_mbp.parquet_functions import read_parquet_with_integer_ids, write_parquet
+from idd_forecast_mbp.xarray_functions import convert_with_preset, write_netcdf, read_netcdf_with_integer_ids
 import glob
 
 # Memory and time tracking function
@@ -47,13 +48,14 @@ parser = argparse.ArgumentParser(description="Add DAH Sceanrios and create draw 
 parser.add_argument("--ssp_scenario", type=str, required=True, help="SSP scenario (e.g., 'ssp126', 'ssp245', 'ssp585')")
 parser.add_argument("--dah_scenario", type=str, required=False, default='Baseline', help="DAH scenario (e.g., 'Baseline')")
 parser.add_argument("--draw", type=str, required=True, help="Draw number (e.g., '001', '002', etc.)")
+parser.add_argument("--hold_variable", type=str, required=True, default='None', help="Hold variable for the forecast data")
 
 # Parse arguments
 args = parser.parse_args()
-
 ssp_scenario = args.ssp_scenario
 dah_scenario = args.dah_scenario
 draw = args.draw
+hold_variable = args.hold_variable
 
 # ssp_scenario = "ssp126"
 # dah_scenario = "Baseline"
@@ -98,7 +100,18 @@ GBD_DATA_PATH = rfc.GBD_DATA_PATH
 # Creates: input_cause_draw_path, output_cause_draw_path
 # Output: Cause-specific file paths
 
-input_cause_draw_path = f"{FORECASTING_DATA_PATH}/{cause}_forecast_ssp_scenario_{ssp_scenario}_dah_scenario_{dah_scenario}_draw_{draw}_with_predictions.parquet"
+# input_cause_draw_path = f"{FORECASTING_DATA_PATH}/{cause}_forecast_ssp_scenario_{ssp_scenario}_dah_scenario_{dah_scenario}_draw_{draw}_with_predictions.parquet"
+if hold_variable == 'None':
+    input_cause_draw_path = f"{FORECASTING_DATA_PATH}/{cause}_forecast_ssp_scenario_{ssp_scenario}_dah_scenario_{dah_scenario}_draw_{draw}_with_predictions.nc"
+    output_malaria_incidence_draw_path = f"{FORECASTING_DATA_PATH}/as_{cause}_measure_incidence_ssp_scenario_{ssp_scenario}_dah_scenario_{dah_scenario}_draw_{draw}_with_predictions.nc"
+    output_malaria_mortality_draw_path = f"{FORECASTING_DATA_PATH}/as_{cause}_measure_mortality_ssp_scenario_{ssp_scenario}_dah_scenario_{dah_scenario}_draw_{draw}_with_predictions.nc"
+else:
+    input_cause_draw_path = f"{FORECASTING_DATA_PATH}/{cause}_forecast_ssp_scenario_{ssp_scenario}_dah_scenario_{dah_scenario}_draw_{draw}_with_predictions_hold_{hold_variable}.nc"
+    output_malaria_incidence_draw_path = f"{FORECASTING_DATA_PATH}/as_{cause}_measure_incidence_ssp_scenario_{ssp_scenario}_dah_scenario_{dah_scenario}_draw_{draw}_with_predictions_hold_{hold_variable}.nc"
+    output_malaria_mortality_draw_path = f"{FORECASTING_DATA_PATH}/as_{cause}_measure_mortality_ssp_scenario_{ssp_scenario}_dah_scenario_{dah_scenario}_draw_{draw}_with_predictions_hold_{hold_variable}.nc"
+
+
+
 
 # 2.2 Template Path Definitions
 # Purpose: Define path templates for various data sources
@@ -149,11 +162,19 @@ print('Loaded hierarchy')
 forecast_years = list(range(2022, 2101))
 forecast_year_filter = ('year_id', 'in', forecast_years)
 
-df = read_parquet_with_integer_ids(input_cause_draw_path,
-    filters=[forecast_year_filter])
+ds = read_netcdf_with_integer_ids(input_cause_draw_path)
+ds = ds.sel(year_id=forecast_years)
+df = ds.to_dataframe().reset_index()
+# df = read_parquet_with_integer_ids(input_cause_draw_path,
+#     filters=[forecast_year_filter])
+modeling_location_ids = df['location_id'].unique().tolist()
+modeling_location_filter = ('location_id', 'in', modeling_location_ids)
 
-
-t1 = log_time_and_memory("Before forecast data processing")
+aa_pop_df = read_parquet_with_integer_ids(aa_full_population_df_path,
+                                         filters=[modeling_location_filter, forecast_year_filter])
+aa_pop_df = aa_pop_df.rename(columns={'population': 'aa_population'})
+df = df.merge(aa_pop_df[['location_id', 'year_id', 'aa_population']],
+              on=['location_id', 'year_id'], how='left')
 
 df['aa_malaria_mort_rate'] = np.exp(df['log_aa_malaria_mort_rate_pred'])
 df['aa_malaria_inc_rate'] = np.exp(df['log_aa_malaria_inc_rate_pred'])
@@ -164,12 +185,7 @@ for col in df.columns:
 
 df['aa_malaria_mort_count'] = df['aa_malaria_mort_rate'] * df['aa_population']
 df['aa_malaria_inc_count'] = df['aa_malaria_inc_rate'] * df['aa_population']
-t2 = log_time_and_memory("After forecast data processing")
-print(f"Forecast data processing time: {t2 - t1:.2f} seconds")
 
-print('Loaded forecast data')
-
-t1 = log_time_and_memory("Before creating location filters")
 
 md_gbd_location_df = hierarchy_df[hierarchy_df['most_detailed_gbd'] == True].copy()
 
@@ -179,10 +195,7 @@ last_year = min(forecast_years)
 md_gbd_location_filter = ('location_id', 'in', md_gbd_location_df['location_id'].unique().tolist())
 
 last_year_filter = ('year_id', '==', last_year)
-t2 = log_time_and_memory("After creating location filters")
-print(f"Location filter creation time: {t2 - t1:.2f} seconds")
 
-t1 = log_time_and_memory("Before loading as_md_gbd_malaria_df")
 as_md_gbd_malaria_df = read_parquet_with_integer_ids(as_md_gbd_malaria_df_path)
 as_md_gbd_malaria_df = as_md_gbd_malaria_df.rename(columns={'location_id': 'gbd_location_id'})
 as_md_gbd_malaria_df = as_md_gbd_malaria_df[(as_md_gbd_malaria_df['rr_inc_as'] > 0) | (as_md_gbd_malaria_df['rr_mort_as'] > 0)].copy()
@@ -191,132 +204,80 @@ gbd_location_ids = as_md_gbd_malaria_df['gbd_location_id'].unique().tolist()
 level_5_location_ids = hierarchy_df[(hierarchy_df['level'] == 5) & (hierarchy_df['gbd_location_id'].isin(gbd_location_ids))]['location_id'].unique().tolist()
 level_5_location_filter = ('location_id', 'in', level_5_location_ids)
 
-t2 = log_time_and_memory("After loading as_md_gbd_malaria_df")
-print(f"as_md_gbd_malaria_df loading time: {t2 - t1:.2f} seconds")
-print(f"as_md_gbd_malaria_df shape: {as_md_gbd_malaria_df.shape}")
-
-print('Loaded as_md_gbd_malaria_df')
-
-t1 = log_time_and_memory("Before loading population data")
 forecast_columns_to_read = as_merge_variables + ['population']
 forecast_df = read_parquet_with_integer_ids(as_full_population_df_path,
                                             columns = forecast_columns_to_read,
                                             filters = [level_5_location_filter, forecast_year_filter])
-t2 = log_time_and_memory("After loading population data")
-print(f"Population data loading time: {t2 - t1:.2f} seconds")
-print(f"Population data shape: {forecast_df.shape}")
 
-t1 = log_time_and_memory("Before merging forecast data into population")
+
+
 forecast_df = forecast_df.merge(df[['location_id', 'year_id', 'aa_malaria_mort_count', 'aa_malaria_inc_count']],
                                 on=['location_id', 'year_id'], how='left')
-t2 = log_time_and_memory("After merging forecast data into population")
-print(f"Forecast data merge time: {t2 - t1:.2f} seconds")
-print(f"Merged dataframe shape: {forecast_df.shape}")
 
-print('Merged forecast data into population')
 
 # Clean up to free memory
-t1 = log_time_and_memory("Before cleaning up df")
 del df
 gc.collect()
-t2 = log_time_and_memory("After cleaning up df")
-print(f"Memory freed: {t1 - t2:.2f} GB")
 
-t1 = log_time_and_memory("Before merging hierarchy into forecast data")
+
 forecast_df = forecast_df.merge(hierarchy_df[['location_id', 'gbd_location_id']],
                                 on='location_id', how='left')
-t2 = log_time_and_memory("After merging hierarchy into forecast data")
-print(f"Hierarchy merge time: {t2 - t1:.2f} seconds")
-print(f"Merged dataframe shape: {forecast_df.shape}")
 
-t1 = log_time_and_memory("Before merging relative risks into forecast data")
+
 forecast_df = forecast_df.merge(as_md_gbd_malaria_df[['gbd_location_id', 'age_group_id', 'sex_id', 'rr_inc_as', 'rr_mort_as']],
                                 on=['gbd_location_id', 'age_group_id', 'sex_id'], how='left')
-t2 = log_time_and_memory("After merging relative risks into forecast data")
-print(f"Relative risks merge time: {t2 - t1:.2f} seconds")
-print(f"Merged dataframe shape: {forecast_df.shape}")
+
 
 # Clean up to free memory
-t1 = log_time_and_memory("Before cleaning up as_md_gbd_malaria_df")
 del as_md_gbd_malaria_df
 gc.collect()
-t2 = log_time_and_memory("After cleaning up as_md_gbd_malaria_df")
-print(f"Memory freed: {t1 - t2:.2f} GB")
 
-print('Merged relative risks into population')
 
-t1 = log_time_and_memory("Before calculating weighted RRs")
 forecast_df['rr_inc_as_pop'] = forecast_df['rr_inc_as'] * forecast_df['population']
 forecast_df['rr_mort_as_pop'] = forecast_df['rr_mort_as'] * forecast_df['population']
-t2 = log_time_and_memory("After calculating weighted RRs")
-print(f"Weighted RR calculation time: {t2 - t1:.2f} seconds")
 
-t1 = log_time_and_memory("Before aggregating by location and year")
+
 forecast_df['sum_rr_inc_as_pop'] = forecast_df.groupby(['location_id', 'year_id'])['rr_inc_as_pop'].transform('sum')
 forecast_df['sum_rr_mort_as_pop'] = forecast_df.groupby(['location_id', 'year_id'])['rr_mort_as_pop'].transform('sum')
-t2 = log_time_and_memory("After aggregating by location and year")
-print(f"Aggregation time: {t2 - t1:.2f} seconds")
 
-t1 = log_time_and_memory("Before calculating fractions")
+
 forecast_df['inc_fraction'] = forecast_df['rr_inc_as_pop'] / forecast_df['sum_rr_inc_as_pop']
 forecast_df['mort_fraction'] = forecast_df['rr_mort_as_pop'] / forecast_df['sum_rr_mort_as_pop']
-t2 = log_time_and_memory("After calculating fractions")
-print(f"Fraction calculation time: {t2 - t1:.2f} seconds")
 
-# Drop temporary columns used for calculations
-t1 = log_time_and_memory("Before cleaning up from fraction calculations")
+
 forecast_df.drop(columns=['rr_inc_as_pop', 'rr_mort_as_pop', 'sum_rr_inc_as_pop', 'sum_rr_mort_as_pop', 'rr_inc_as', 'rr_mort_as','population'], inplace=True)
-t2 = log_time_and_memory("After cleaning up from fraction calculations")
-print(f"Fraction cleaning time: {t2 - t1:.2f} seconds")
-#
-t1 = log_time_and_memory("Before calculating predictions")
+
+
 forecast_df['malaria_inc_count_pred'] = forecast_df['inc_fraction'] * forecast_df['aa_malaria_inc_count']
 forecast_df['malaria_mort_count_pred'] = forecast_df['mort_fraction'] * forecast_df['aa_malaria_mort_count']
 # Set any row with age_group_id 2 to zero for incidence and mortality counts
 forecast_df.loc[forecast_df['age_group_id'] == 2, 'malaria_inc_count_pred'] = 0
 forecast_df.loc[forecast_df['age_group_id'] == 2, 'malaria_mort_count_pred'] = 0
-t2 = log_time_and_memory("After calculating predictions")
-print(f"Prediction calculation time: {t2 - t1:.2f} seconds")
+
+
 
 # Drop fraction columns as they are no longer needed
-t1 = log_time_and_memory("Before cleaning up after predictions")
+
 forecast_df.drop(columns=['inc_fraction', 'mort_fraction'], inplace=True)
 #
-t2 = log_time_and_memory("After cleaning up after predictions")
-print(f"Cleaning up after predictions time: {t2 - t1:.2f} seconds")
 
-print('Finished all arithmetic operations')
-
-t1 = log_time_and_memory("Before preparing column sets for output")
 non_measure_columns = [col for col in forecast_df.columns if 'inc' not in col and 'mort' not in col]
 incidence_columns = [col for col in forecast_df.columns if 'inc' in col]
 mortality_columns = [col for col in forecast_df.columns if 'mort' in col]
-t2 = log_time_and_memory("After preparing column sets for output")
-print(f"Column set preparation time: {t2 - t1:.2f} seconds")
 
-output_malaria_incidence_draw_path = f"{FORECASTING_DATA_PATH}/as_{cause}_measure_incidence_ssp_scenario_{ssp_scenario}_dah_scenario_{dah_scenario}_draw_{draw}_with_predictions.parquet"
-output_malaria_mortality_draw_path = f"{FORECASTING_DATA_PATH}/as_{cause}_measure_mortality_ssp_scenario_{ssp_scenario}_dah_scenario_{dah_scenario}_draw_{draw}_with_predictions.parquet"
 
 # Save output files
-t1 = log_time_and_memory("Before writing incidence file")
-write_parquet(forecast_df[non_measure_columns + incidence_columns], output_malaria_incidence_draw_path)
-t2 = log_time_and_memory("After writing incidence file")
-print(f"Incidence file writing time: {t2 - t1:.2f} seconds")
-print('Wrote malaria incidence draw data to parquet')
+incidence_df = forecast_df[non_measure_columns + incidence_columns]
+incidence_ds = convert_with_preset(incidence_df, preset='as_variables')
+write_netcdf(incidence_ds, output_malaria_incidence_draw_path)
 
-t1 = log_time_and_memory("Before writing mortality file")
-write_parquet(forecast_df[non_measure_columns + mortality_columns], output_malaria_mortality_draw_path)
-t2 = log_time_and_memory("After writing mortality file")
-print(f"Mortality file writing time: {t2 - t1:.2f} seconds")
-print('Wrote malaria mortality draw data to parquet')
+
+mortality_df = forecast_df[non_measure_columns + mortality_columns]
+mortality_ds = convert_with_preset(mortality_df, preset='as_variables')
+write_netcdf(mortality_ds, output_malaria_mortality_draw_path)
+
+
 
 # Final cleanup
-t1 = log_time_and_memory("Before final cleanup")
 del forecast_df
 gc.collect()
-t2 = log_time_and_memory("After final cleanup")
-print(f"Memory freed in final cleanup: {t1 - t2:.2f} GB")
-
-end_time = time.time()
-print(f"Total execution time: {end_time - start_time:.2f} seconds")
-final_memory = log_time_and_memory("End of script")

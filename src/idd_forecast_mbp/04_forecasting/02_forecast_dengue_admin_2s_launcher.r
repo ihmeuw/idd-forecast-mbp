@@ -12,6 +12,7 @@ ssp_scenarios <- c("ssp126", "ssp245", "ssp585")
 param_map_filepath <- glue("/mnt/team/idd/pub/forecast-mbp/04-forecasting_data/dengue_param_map.csv")
 param_map <- data.table(expand.grid(draw_num = 0:99,
                                     ssp_scenario = ssp_scenarios))
+param_map$counterfactual <- FALSE
 write.csv(param_map,  param_map_filepath, row.names = FALSE)
 
 

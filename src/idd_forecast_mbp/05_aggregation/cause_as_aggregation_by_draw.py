@@ -10,7 +10,7 @@ import itertools
 from rra_tools.shell_tools import mkdir # type: ignore
 from idd_forecast_mbp import constants as rfc
 from idd_forecast_mbp.parquet_functions import read_parquet_with_integer_ids, write_parquet
-from idd_forecast_mbp.xarray_functions import write_netcdf, convert_with_preset
+from idd_forecast_mbp.xarray_functions import read_netcdf_with_integer_ids, write_netcdf, convert_with_preset
 import argparse
 
 parser = argparse.ArgumentParser(description="Add DAH Sceanrios and create draw level dataframes for forecating malaria")
@@ -21,6 +21,8 @@ parser.add_argument("--measure", type=str, required=False, default="mortality", 
 parser.add_argument("--ssp_scenario", type=str, required=True, help="SSP scenario (e.g., 'ssp126', 'ssp245', 'ssp585')")
 parser.add_argument("--dah_scenario", type=str, required=False, help="DAH scenario (e.g., 'Baseline')")
 parser.add_argument("--draw", type=str, required=True, help="Draw number (e.g., '001', '002', etc.)")
+# parser.add_argument("--vaccinate", type=str, required=True, default='None', help="Vaccine status (e.g., 'True' or 'False')")
+parser.add_argument("--hold_variable", type=str, required=True, default='None', help="Hold variable (e.g., 'gdppc', 'suitability', 'urban') or None for primary task")
 
 # Parse arguments
 args = parser.parse_args()
@@ -30,6 +32,8 @@ measure = args.measure
 ssp_scenario = args.ssp_scenario
 dah_scenario = args.dah_scenario
 draw = args.draw
+vaccinate = 'None'
+hold_variable = args.hold_variable
 
 measure_map = rfc.measure_map
 
@@ -38,13 +42,27 @@ FORECASTING_DATA_PATH = rfc.MODEL_ROOT / "04-forecasting_data"
 UPLOAD_DATA_PATH = rfc.MODEL_ROOT / "05-upload_data"
 
 if cause == "malaria":
-    forecast_df_path = f"{FORECASTING_DATA_PATH}/as_{cause}_measure_{measure}_ssp_scenario_{ssp_scenario}_dah_scenario_{dah_scenario}_draw_{draw}_with_predictions.parquet"
-    processed_forecast_df_path = f"{UPLOAD_DATA_PATH}/full_as_{cause}_measure_{measure}_ssp_scenario_{ssp_scenario}_dah_scenario_{dah_scenario}_draw_{draw}_with_predictions.parquet"
-    processed_forecast_ds_path = f"{UPLOAD_DATA_PATH}/full_as_{cause}_measure_{measure}_ssp_scenario_{ssp_scenario}_dah_scenario_{dah_scenario}_draw_{draw}_with_predictions.nc"
-else:   
-    forecast_df_path = f"{FORECASTING_DATA_PATH}/as_{cause}_measure_{measure}_ssp_scenario_{ssp_scenario}_draw_{draw}_with_predictions.parquet"
-    processed_forecast_df_path = f"{UPLOAD_DATA_PATH}/full_as_{cause}_measure_{measure}_ssp_scenario_{ssp_scenario}_draw_{draw}_with_predictions.parquet"
-    processed_forecast_ds_path = f"{UPLOAD_DATA_PATH}/full_as_{cause}_measure_{measure}_ssp_scenario_{ssp_scenario}_draw_{draw}_with_predictions.nc"
+    if hold_variable == 'None':
+        forecast_ds_path = f"{FORECASTING_DATA_PATH}/as_{cause}_measure_{measure}_ssp_scenario_{ssp_scenario}_dah_scenario_{dah_scenario}_draw_{draw}_with_predictions.nc"
+        processed_forecast_ds_path = f"{UPLOAD_DATA_PATH}/full_as_{cause}_measure_{measure}_ssp_scenario_{ssp_scenario}_dah_scenario_{dah_scenario}_draw_{draw}_with_predictions.nc"
+    else:
+        forecast_ds_path = f"{FORECASTING_DATA_PATH}/as_{cause}_measure_{measure}_ssp_scenario_{ssp_scenario}_dah_scenario_{dah_scenario}_draw_{draw}_with_predictions_hold_{hold_variable}.nc"
+        processed_forecast_ds_path = f"{UPLOAD_DATA_PATH}/full_as_{cause}_measure_{measure}_ssp_scenario_{ssp_scenario}_dah_scenario_{dah_scenario}_draw_{draw}_with_predictions_hold_{hold_variable}.nc"
+else:
+    if hold_variable == 'None':
+        if vaccinate == 'None':
+            forecast_ds_path = f"{FORECASTING_DATA_PATH}/as_{cause}_measure_{measure}_ssp_scenario_{ssp_scenario}_draw_{draw}_with_predictions.nc"
+            processed_forecast_ds_path = f"{UPLOAD_DATA_PATH}/full_as_{cause}_measure_{measure}_ssp_scenario_{ssp_scenario}_draw_{draw}_with_predictions.nc"
+        else:
+            forecast_ds_path = f"{FORECASTING_DATA_PATH}/as_{cause}_measure_{measure}_ssp_scenario_{ssp_scenario}_no_vaccinate_draw_{draw}_with_predictions.nc"
+            processed_forecast_ds_path = f"{UPLOAD_DATA_PATH}/full_as_{cause}_measure_{measure}_ssp_scenario_{ssp_scenario}_no_vaccinate_draw_{draw}_with_predictions.nc"
+    else:
+        if vaccinate == 'None':
+            forecast_ds_path = f"{FORECASTING_DATA_PATH}/as_{cause}_measure_{measure}_ssp_scenario_{ssp_scenario}_draw_{draw}_with_predictions_hold_{hold_variable}.nc"
+            processed_forecast_ds_path = f"{UPLOAD_DATA_PATH}/full_as_{cause}_measure_{measure}_ssp_scenario_{ssp_scenario}_draw_{draw}_with_predictions_hold_{hold_variable}.nc"
+        else:
+            forecast_ds_path = f"{FORECASTING_DATA_PATH}/as_{cause}_measure_{measure}_ssp_scenario_{ssp_scenario}_no_vaccinate_draw_{draw}_with_predictions_hold_{hold_variable}.nc"
+            processed_forecast_ds_path = f"{UPLOAD_DATA_PATH}/full_as_{cause}_measure_{measure}_ssp_scenario_{ssp_scenario}_no_vaccinate_draw_{draw}_with_predictions_hold_{hold_variable}.nc"
 
 # Hierarchy path
 hierarchy_df_path = f'{PROCESSED_DATA_PATH}/full_hierarchy_lsae_1209.parquet'
@@ -53,7 +71,7 @@ hierarchy_df = read_parquet_with_integer_ids(hierarchy_df_path)
 as_full_population_df_path = f"{PROCESSED_DATA_PATH}/as_2023_full_population.parquet"
 as_merge_variables = rfc.as_merge_variables
 
-def process_forecast_data(forecast_df_path, measure, hierarchy_df):
+def process_forecast_data(forecast_ds_path, measure, hierarchy_df):
     """
     Process forecast data, adding necessary columns and formatting.
     
@@ -72,7 +90,8 @@ def process_forecast_data(forecast_df_path, measure, hierarchy_df):
     pandas.DataFrame
         Full hierarchy forecast dataframe with all necessary columns and aggregations applied.
     """
-    df = read_parquet_with_integer_ids(forecast_df_path)
+    ds = read_netcdf_with_integer_ids(forecast_ds_path)
+    df = ds.to_dataframe().reset_index()
     df = df[df["year_id"] >= 2022]
     short = measure_map[measure]["short"]
     df = df.rename(columns={col: col.replace(f'{cause}_{short}_', '') for col in df.columns if f'{cause}_{short}_' in col})
@@ -108,9 +127,9 @@ def process_forecast_data(forecast_df_path, measure, hierarchy_df):
 if cause == "malaria":
     print(f"Running for measure: {measure}, ssp_scenario: {ssp_scenario}, dah_scenario: {dah_scenario}, draw: {draw}")
 else:
-    print(f"Running for measure: {measure}, ssp_scenario: {ssp_scenario}, draw: {draw}")
+    print(f"Running for measure: {measure}, ssp_scenario: {ssp_scenario}, vaccinate: {vaccinate}, draw: {draw}")
 
-full_hierarchy_forecast_df = process_forecast_data(forecast_df_path, measure, hierarchy_df)
+full_hierarchy_forecast_df = process_forecast_data(forecast_ds_path, measure, hierarchy_df)
 
 full_hierarchy_forecast_ds = convert_with_preset(
     full_hierarchy_forecast_df,
@@ -122,9 +141,6 @@ full_hierarchy_forecast_ds = convert_with_preset(
     },
     validate_dimensions=False  # Skip validation since we may have sparse data after aggregation
 )
-
-# Save the processed dataframe
-write_parquet(full_hierarchy_forecast_df, processed_forecast_df_path)
 
 write_netcdf(
     full_hierarchy_forecast_ds, 

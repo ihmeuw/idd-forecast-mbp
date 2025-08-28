@@ -40,6 +40,30 @@ malaria_pfpr_mod <- scam(logit_malaria_pfpr ~ logit_malaria_suitability +
                            control = list(maxit = 300))  # Limit iterations
 
 
+tmp_data <- past_data[rep(1,12),c("logit_malaria_suitability", "gdppc_mean", 
+                          "mal_DAH_total_per_capita", "people_flood_days_per_capita",
+                          "A0_af")]
+
+tmp_data$A0_af = levels(past_data$A0_af)[2]
+tmp_data$mal_DAH_total_per_capita[2:12] <- 0:10
+tmp_data$pred <- predict(malaria_pfpr_mod, newdata = tmp_data)
+# plot(tmp_data$mal_DAH_total_per_capita[2:12], tmp_data$pred[2:12], type = 'b', 
+#      xlab = "Malaria DAH per capita", ylab = "Predicted logit malaria PFPR",
+#      main = "Malaria PFPR vs Malaria DAH per capita")
+
+invlogit = function(x) {
+  exp(x) / (1 + exp(x))
+}
+
+
+df = data.frame(from = 0:9,
+                to = 1:10,
+                start = invlogit(tmp_data$pred[2:11]),
+                end = invlogit(tmp_data$pred[3:12]),
+                relative_reduction = 100*(1 - invlogit(tmp_data$pred[3:12]) / invlogit(tmp_data$pred[2:11])))
+
+plot(df$from, df$relative_reduction)
+
 
 
 mod_df <- past_data[which(past_data$aa_malaria_mort_rate > 0),]
@@ -57,45 +81,26 @@ incidence_scam_mod <- scam(log_aa_malaria_inc_rate ~ s(logit_malaria_pfpr, k = 1
                            optimizer = "efs",      # Faster optimizer
                            control = list(maxit = 300))  # Limit iterations
 
-mod_df <- past_data[which(past_data$aa_malaria_inc_rate > 0 & past_data$aa_malaria_mort_rate > 0),]
-mod_df$cfr = mod_df$aa_malaria_mort_rate / mod_df$aa_malaria_inc_rate
-mod_df$cfr = pmin(mod_df$cfr, 0.016)
-mod_df$logit_cfr <- log(mod_df$cfr / (1 - mod_df$cfr))
-
-cfr_lm_mod <- lm(logit_cfr ~ aa_malaria_inc_rate + 
-                       log_gdppc_mean + A0_af,
-                     data = mod_df)  # Limit iterations
 
 
-cfr_scam_mod <- scam(logit_cfr ~ s(aa_malaria_inc_rate, k = 10, bs = "mpi") + 
-                                s(log_gdppc_mean, k = 10, bs = "mpd") + A0_af,
-                           data = mod_df,
-                           optimizer = "efs",      # Faster optimizer
-                           control = list(maxit = 300))  # Limit iterations
+mod_df <- past_data[which(past_data$base_malaria_mort_rate > 0),]
+mortality_base_scam_mod <- scam(log_base_malaria_mort_rate ~ s(logit_malaria_pfpr, k = 10, bs = "mpi") +
+                                  log_gdppc_mean +
+                                  A0_af,
+                                data = mod_df,
+                                optimizer = "efs",      # Faster optimizer
+                                control = list(maxit = 300))  # Limit iterations
 
-cfr_gam_mod <- gam(logit_cfr ~ A0_af,
-                   data = mod_df)
-plot(cfr_gam_mod, pages = 1)
-summary(cfr_gam_mod)
-# 
-# mod_df <- past_data[which(past_data$base_malaria_mort_rate > 0),]
-# mortality_base_scam_mod <- scam(log_base_malaria_mort_rate ~ s(logit_malaria_pfpr, k = 10, bs = "mpi") + 
-#                                   log_gdppc_mean + 
-#                                   A0_af,
-#                                 data = mod_df,
-#                                 optimizer = "efs",      # Faster optimizer
-#                                 control = list(maxit = 300))  # Limit iterations
-# 
-# mod_df <- past_data[which(past_data$base_malaria_inc_rate  > 0),]
-# incidence_base_scam_mod <- scam(log_base_malaria_inc_rate ~ s(logit_malaria_pfpr, k = 10, bs = "mpi") + 
-#                                   log_gdppc_mean + A0_af,
-#                                 data = mod_df,
-#                                 optimizer = "efs",      # Faster optimizer
-#                                 control = list(maxit = 300))  # Limit iterations
+mod_df <- past_data[which(past_data$base_malaria_inc_rate  > 0),]
+incidence_base_scam_mod <- scam(log_base_malaria_inc_rate ~ s(logit_malaria_pfpr, k = 10, bs = "mpi") +
+                                  log_gdppc_mean + A0_af,
+                                data = mod_df,
+                                optimizer = "efs",      # Faster optimizer
+                                control = list(maxit = 300))  # Limit iterations
 
-# model_names <- c("malaria_pfpr_mod", "mortality_scam_mod", "incidence_scam_mod", "mortality_base_scam_mod",
-#                  "incidence_base_scam_mod")
-model_names <- c("malaria_pfpr_mod", "mortality_scam_mod", "incidence_scam_mod")
+model_names <- c("malaria_pfpr_mod", "mortality_scam_mod", "incidence_scam_mod", "mortality_base_scam_mod",
+                 "incidence_base_scam_mod")
+
 
 save(list = model_names, file = glue("{data_path}/2025_07_26_malaria_models.RData"))
 

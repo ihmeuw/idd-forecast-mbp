@@ -11,9 +11,13 @@ package_name = rfc.package_name
 # Script directory
 SCRIPT_ROOT = rfc.REPO_ROOT / repo_name / "src" / package_name / "04_forecasting"
 
+malaria_hold_variables = ['DAH', 'flood', 'gdppc', 'suitability']
+run_hold_variables = True
+
 ssp_scenarios = rfc.ssp_scenarios
 dah_scenarios = rfc.dah_scenarios
 dah_scenarios = ["Baseline", "Constant"]
+# dah_scenarios = ['reference', 'better', 'worse']
 modeling_measure_map = rfc.modeling_measure_map
 draws = rfc.draws
 
@@ -74,8 +78,9 @@ task_template = tool.get_task_template(
         "--ssp_scenario {{ssp_scenario}} "
         "--dah_scenario {{dah_scenario}} "
         "--draw {{draw}} "
+        "--hold_variable {{hold_variable}} "
     ).format(script_root=SCRIPT_ROOT),
-    node_args=["ssp_scenario", "dah_scenario", "draw"],
+    node_args=["ssp_scenario", "dah_scenario", "draw", "hold_variable"],
     task_args=[],
     op_args=[],
 )
@@ -89,8 +94,22 @@ for ssp_scenario in ssp_scenarios:
                 ssp_scenario=ssp_scenario,
                 dah_scenario=dah_scenario,
                 draw=draw,
+                hold_variable='None'
             )
             tasks.append(task)
+            
+if run_hold_variables:
+    for hold_variable in malaria_hold_variables:
+        for ssp_scenario in ssp_scenarios:
+            for draw in draws:
+                for dah_scenario in dah_scenarios:
+                    task = task_template.create_task(
+                        ssp_scenario=ssp_scenario,
+                        dah_scenario=dah_scenario,
+                        draw=draw,
+                        hold_variable=hold_variable
+                    )
+                    tasks.append(task)
 
 print(f"Number of tasks: {len(tasks)}")
 

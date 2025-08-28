@@ -21,6 +21,7 @@ import sys
 import itertools
 from idd_forecast_mbp import constants as rfc
 from idd_forecast_mbp.parquet_functions import read_parquet_with_integer_ids, write_parquet
+from idd_forecast_mbp.xarray_functions import convert_with_preset, write_netcdf, read_netcdf_with_integer_ids
 import glob
 
 import argparse
@@ -30,12 +31,16 @@ parser = argparse.ArgumentParser(description="Add DAH Sceanrios and create draw 
 # Define arguments
 parser.add_argument("--ssp_scenario", type=str, required=True, help="SSP scenario (e.g., 'ssp126', 'ssp245', 'ssp585')")
 parser.add_argument("--draw", type=str, required=True, help="Draw number (e.g., '001', '002', etc.)")
+parser.add_argument("--hold_variable", type=str, required=True, default='None', help="Hold variable (e.g., 'gdppc', 'suitability', 'urban') or None for primary task")
 
 # Parse arguments
 args = parser.parse_args()
 
 ssp_scenario = args.ssp_scenario
 draw = args.draw
+hold_variable = args.hold_variable
+
+
 
 # For testing purposes, you can uncomment and modify the following lines:
 # ssp_scenario = 'ssp126'
@@ -70,6 +75,21 @@ MODELING_DATA_PATH = rfc.MODELING_DATA_PATH
 FORECASTING_DATA_PATH = rfc.FORECASTING_DATA_PATH
 GBD_DATA_PATH = rfc.GBD_DATA_PATH
 
+include_no_vaccinate = False
+
+if hold_variable == 'None':
+    input_cause_draw_path = f"{FORECASTING_DATA_PATH}/raked_{cause}_forecast_ssp_scenario_{ssp_scenario}_draw_{draw}_with_predictions.nc"
+    output_dengue_incidence_draw_path = f"{FORECASTING_DATA_PATH}/as_{cause}_measure_incidence_ssp_scenario_{ssp_scenario}_draw_{draw}_with_predictions.nc"
+    output_dengue_mortality_draw_path = f"{FORECASTING_DATA_PATH}/as_{cause}_measure_mortality_ssp_scenario_{ssp_scenario}_draw_{draw}_with_predictions.nc"
+    output_dengue_incidence_draw_path_no_vaccinate = f"{FORECASTING_DATA_PATH}/as_{cause}_measure_incidence_ssp_scenario_{ssp_scenario}_no_vaccinate_draw_{draw}_with_predictions.nc"
+    output_dengue_mortality_draw_path_no_vaccinate = f"{FORECASTING_DATA_PATH}/as_{cause}_measure_mortality_ssp_scenario_{ssp_scenario}_no_vaccinate_draw_{draw}_with_predictions.nc"
+else:
+    input_cause_draw_path = f"{FORECASTING_DATA_PATH}/raked_{cause}_forecast_ssp_scenario_{ssp_scenario}_draw_{draw}_with_predictions_hold_{hold_variable}.nc"
+    output_dengue_incidence_draw_path = f"{FORECASTING_DATA_PATH}/as_{cause}_measure_incidence_ssp_scenario_{ssp_scenario}_draw_{draw}_with_predictions_hold_{hold_variable}.nc"
+    output_dengue_mortality_draw_path = f"{FORECASTING_DATA_PATH}/as_{cause}_measure_mortality_ssp_scenario_{ssp_scenario}_draw_{draw}_with_predictions_hold_{hold_variable}.nc"
+    output_dengue_incidence_draw_path_no_vaccinate = f"{FORECASTING_DATA_PATH}/as_{cause}_measure_incidence_ssp_scenario_{ssp_scenario}_no_vaccinate_draw_{draw}_with_predictions_hold_{hold_variable}.nc"
+    output_dengue_mortality_draw_path_no_vaccinate = f"{FORECASTING_DATA_PATH}/as_{cause}_measure_mortality_ssp_scenario_{ssp_scenario}_no_vaccinate_draw_{draw}_with_predictions_hold_{hold_variable}.nc"
+
 ###----------------------------------------------------------###
 ### 2. File Path Generation
 ###----------------------------------------------------------###
@@ -79,7 +99,7 @@ GBD_DATA_PATH = rfc.GBD_DATA_PATH
 # Logic: Malaria includes DAH scenario in filename, others don't
 # Creates: input_cause_draw_path, output_cause_draw_path
 # Output: Cause-specific file paths
-input_cause_draw_path = f"{FORECASTING_DATA_PATH}/raked_{cause}_forecast_ssp_scenario_{ssp_scenario}_draw_{draw}_with_predictions.parquet"
+
 
 # 2.2 Template Path Definitions
 # Purpose: Define path templates for various data sources
@@ -124,9 +144,10 @@ columns_to_read = as_merge_variables + ['logit_dengue_cfr_pred', 'base_log_dengu
 future_year_ids = list(range(2022, 2101))
 year_filter = ('year_id', 'in', future_year_ids)
 
-df = read_parquet_with_integer_ids(input_cause_draw_path,
-                                   columns = columns_to_read,
-                                   filters = [year_filter])
+ds = read_netcdf_with_integer_ids(input_cause_draw_path)
+ds = ds.sel(year_id = future_year_ids)
+df = ds.to_dataframe().reset_index()
+df = df[columns_to_read].copy()
 
 df['dengue_cfr_pred'] = 1 / (1 + np.exp(-df['logit_dengue_cfr_pred']))
 df = df.drop(columns=['logit_dengue_cfr_pred'])
@@ -187,11 +208,24 @@ forecast_df = forecast_df[keep_columns]
 
 ##################################################################
 ##################################################################
-##### Vaccination
+##### Save, vaccinate, and save again
 ##################################################################
-##################################################################
+################################################################## 
+non_measure_columns = [col for col in forecast_df.columns if 'inc' not in col and 'mort' not in col]
+incidence_columns = [col for col in forecast_df.columns if 'inc' in col]
+mortality_columns = [col for col in forecast_df.columns if 'mort' in col]
+
+if include_no_vaccinate:
+    incidence_df = forecast_df[non_measure_columns + incidence_columns]
+    incidence_ds = convert_with_preset(incidence_df, preset='as_variables')
+    write_netcdf(incidence_ds, output_dengue_incidence_draw_path)
+
+    mortality_df = forecast_df[non_measure_columns + mortality_columns]
+    mortality_ds = convert_with_preset(mortality_df, preset='as_variables')
+    write_netcdf(mortality_ds, output_dengue_mortality_draw_path)
 
 ##### Vaccination
+
 locations = ['Singapore', 'Brazil', 'Indonesia', 'Thailand']
 location_ids = hierarchy_df[hierarchy_df['location_name'].isin(locations)]['location_id'].unique()
 children_ids = hierarchy_df[hierarchy_df['parent_id'].isin(location_ids)]['location_id'].unique()
@@ -207,8 +241,6 @@ grand_children_ids = hierarchy_df[hierarchy_df['parent_id'].isin(children_ids)][
 
 dengue_vaccine_df_path = f"{FORECASTING_DATA_PATH}/dengue_vaccine_df.parquet"
 dengue_vaccine_df = read_parquet_with_integer_ids(dengue_vaccine_df_path)
-
-# Ultra-efficient vectorized approach
 
 # Create vaccination lookup table
 vaccine_lookup = dengue_vaccine_df.set_index('age_group_id')
@@ -241,13 +273,10 @@ for year in range(2023, 2101):
             forecast_df.loc[year_mask, 'dengue_mort_count_pred'] *= reductions
 
 
-output_dengue_incidence_draw_path = f"{FORECASTING_DATA_PATH}/as_{cause}_measure_incidence_ssp_scenario_{ssp_scenario}_draw_{draw}_with_predictions.parquet"
-output_dengue_mortality_draw_path = f"{FORECASTING_DATA_PATH}/as_{cause}_measure_mortality_ssp_scenario_{ssp_scenario}_draw_{draw}_with_predictions.parquet"
+mortality_df = forecast_df[non_measure_columns + mortality_columns]
+mortality_ds = convert_with_preset(mortality_df, preset='as_variables')
+write_netcdf(mortality_ds, output_dengue_mortality_draw_path)
 
-non_measure_columns = [col for col in forecast_df.columns if 'inc' not in col and 'mort' not in col]
-incidence_columns = [col for col in forecast_df.columns if 'inc' in col]
-mortality_columns = [col for col in forecast_df.columns if 'mort' in col]
-
-
-write_parquet(forecast_df[non_measure_columns + incidence_columns], output_dengue_incidence_draw_path)
-write_parquet(forecast_df[non_measure_columns + mortality_columns], output_dengue_mortality_draw_path)
+incidence_df = forecast_df[non_measure_columns + incidence_columns]
+incidence_ds = convert_with_preset(incidence_df, preset='as_variables')
+write_netcdf(incidence_ds, output_dengue_incidence_draw_path)

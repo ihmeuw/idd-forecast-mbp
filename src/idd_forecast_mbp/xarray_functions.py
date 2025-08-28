@@ -9,7 +9,26 @@ from pathlib import Path
 # ds_merged = xr.merge([ds, ds_locations])
 
 
-
+def print_netcdf_dimensions(filepaths):
+    """
+    Print the dimensions and their sizes for a list of NetCDF files.
+    
+    Parameters:
+    -----------
+    filepaths : list of str
+        Paths to NetCDF files
+    """
+    import xarray as xr
+    for fp in filepaths:
+        try:
+            ds = xr.open_dataset(fp)
+            print(f"\nFile: {fp}")
+            print("Dimensions:")
+            for dim, size in ds.dims.items():
+                print(f"  {dim}: {size}")
+            ds.close()
+        except Exception as e:
+            print(f"Error reading {fp}: {e}")
 
 def read_netcdf_with_integer_ids(path, **kwargs):
     '''Read a NetCDF file and ensure ID coordinates are integers.'''
