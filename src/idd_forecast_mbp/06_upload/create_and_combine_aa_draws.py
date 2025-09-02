@@ -108,7 +108,10 @@ folders_and_files = {
 
 # Check all folders and their files at once
 folder_results = check_folders_for_files(folders_and_files, delete_existing=delete_existing)
-no_need_to_run = all(folder_results.values())
+if delete_existing:
+    no_need_to_run = False
+else:
+    no_need_to_run = all(folder_results.values())
 
 if no_need_to_run:
     print("All required files are already present and you didn't say to delete. No need to run the script.")
@@ -217,58 +220,77 @@ complete_coords = {
 # Reindex the original dataset to the complete coordinate space
 upload_ds_complete = upload_ds.reindex(complete_coords, fill_value=0.0)
 
-# Update the dataset reference
-as_ds = upload_ds_complete
-as_ds = as_ds.rename({'count_pred': 'val'})
+# Process dataset once
+as_ds = upload_ds_complete.rename({'count_pred': 'val'})
+as_ds = as_ds.assign_coords(
+    draw_id=as_ds.draw_id.astype(str).astype(int)
+)
+
+draw_ids = as_ds.coords['draw_id'].values
+
+print("Writing individual draw files...")
+for draw_id in draw_ids:
+    single_draw_ds = as_ds.sel(draw_id=draw_id)
+    single_draw_file = f"{as_upload_folder_path}/draw_{draw_id}.nc"
+    write_netcdf(
+        ds=single_draw_ds,
+        filepath=single_draw_file,
+        compression_level=1,
+        use_temp_file=False
+    )
+    print(f"Saved {single_draw_file}")
+
+as_ds = as_ds.drop_indexes(as_ds.indexes)
+
+# Write means first (smaller files)
+print("Writing age-specific mean...")
 as_mean_ds = as_ds.to_array().mean(dim='draw_id').to_dataset(name='val')
-
-################ Calculate all-age mean and sum ################
-aa_ds = upload_ds.sum(dim=['sex_id', 'age_group_id'])
-aa_mean_ds = aa_ds.to_array().mean(dim='draw_id').to_dataset(name='val')
-
-############### Write the datasets to NetCDF files ################
-# Write the all-age mean to NetCDF
-print(f"Writing to all-age mean to {aa_upload_mean_file_path}")
-write_netcdf(
-    ds=aa_mean_ds,
-    filepath=aa_upload_mean_file_path,
-    compression_level=4,  # Good balance for large files
-    max_chunk_size=2000,  # Larger chunks for forecast data
-    chunk_threshold=500000  # Lower threshold for better chunking
-)
-
-
-# Write the all-age draws to NetCDF
-print(f"Writing to all-age draws  to {aa_upload_draws_file_path}")
-write_netcdf(
-    ds=aa_ds,
-    filepath=aa_upload_draws_file_path,
-    compression_level=4,  # Good balance for large files
-    max_chunk_size=2000,  # Larger chunks for forecast data
-    chunk_threshold=500000  # Lower threshold for better chunking
-)
-
-# Write the age-specific mean to NetCDF
-print(f"Writing to age-specific mean to {as_upload_mean_file_path}")
 write_netcdf(
     ds=as_mean_ds,
     filepath=as_upload_mean_file_path,
-    compression_level=4,  # Good balance for large files
-    max_chunk_size=2000,  # Larger chunks for forecast data
-    chunk_threshold=500000  # Lower threshold for better chunking
+    compression_level=1
 )
+del as_mean_ds
 
-# # Write the age- and sex-specific draws to NetCDF
-print(f"Writing to age- and sex-specific draws to {as_upload_draws_file_path}")
-write_netcdf(
-    ds=as_ds,
-    filepath=as_upload_draws_file_path,
-    compression_level=1,  # Fastest compression
-    chunk_by_dim={
-        'location_id': 1500,  # Chunk locations into groups of 1500
-        'year_id': 79,        # Keep all years together
-        'age_group_id': 25,   # Keep all ages together
-        'sex_id': 2           # Keep both sexes together
-    },
-    use_temp_file=False
-)
+# Then all-age datasets
+print("Writing all-age datasets...")
+aa_ds = as_ds.sum(dim=['sex_id', 'age_group_id'])
+aa_mean_ds = aa_ds.to_array().mean(dim='draw_id').to_dataset(name='val')
+
+write_netcdf(ds=aa_mean_ds, filepath=aa_upload_mean_file_path, compression_level=1, max_chunk_size=2000, chunk_threshold=500000)
+write_netcdf(ds=aa_ds, filepath=aa_upload_draws_file_path, compression_level=1, max_chunk_size=2000, chunk_threshold=500000)
+del aa_ds, aa_mean_ds
+
+# encoding = {var: {'compression': 'gzip', 'compression_opts': 1} for var in as_ds.data_vars}
+# as_ds.to_netcdf(as_upload_draws_file_path, engine='h5netcdf', encoding=encoding)
+# os.chmod(as_upload_draws_file_path, 0o775)
+
+
+
+
+
+
+
+
+
+
+# # Finally the large age-specific draws
+# print("Writing age-specific draws...")
+
+# as_ds_rechunked = as_ds.chunk({
+#     'draw_id': 10,
+#     'location_id': 1500,
+#     'year_id': -1,
+#     'age_group_id': -1,
+#     'sex_id': -1
+# })
+
+# write_netcdf(
+#     ds=as_ds_rechunked,
+#     filepath=as_upload_draws_file_path,
+#     compression_level=1,
+#     use_temp_file=False
+# )
+
+
+

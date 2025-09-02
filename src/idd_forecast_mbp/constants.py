@@ -52,12 +52,14 @@ cause_map = {
         'reference_age_group_id': 3,
         'reference_sex_id': 1,
         'cause_name': 'Malaria',
+        'fhs_cause_name': 'malaria'
     },
     'dengue': {
         'cause_id': 357,
         'reference_age_group_id': 3,
         'reference_sex_id': 1,
         'cause_name': 'Dengue',
+        'fhs_cause_name': 'ntd_dengue'
     }
 }
 

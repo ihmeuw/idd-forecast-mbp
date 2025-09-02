@@ -90,7 +90,7 @@ task_template = tool.get_task_template(
         "stderr": str(stderr_dir),
     },
     command_template=(
-        "python {script_root}/create_and_combine_aa_draws.py "
+        "python {script_root}/create_and_combine_as_draws.py "
         "--cause {{cause}} "
         "--ssp_scenario {{ssp_scenario}} "
         "--dah_scenario {{dah_scenario}} "
