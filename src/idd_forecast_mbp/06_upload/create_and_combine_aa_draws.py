@@ -34,11 +34,11 @@ args = parser.parse_args()
 cause = args.cause
 ssp_scenario = args.ssp_scenario
 dah_scenario = args.dah_scenario
-vaccinate = 'None'
 measure = args.measure
 hold_variable = args.hold_variable
 run_date = args.run_date
 delete_existing = args.delete_existing
+delete_existing = True
 
 # hold_variable = "None"
 # vaccinate = "None"
@@ -60,42 +60,38 @@ FINAL_UPLOAD_DATA_PATH = UPLOAD_DATA_PATH
 FHS_DATA_PATH = f"{PROCESSED_DATA_PATH}/age_specific_fhs"
 
 ssp_draws = rfc.draws
-measure_map = rfc.measure_map
 metric_map = rfc.metric_map
 cause_map = rfc.cause_map
 ssp_scenarios = rfc.ssp_scenarios
 scenario = ssp_scenarios[ssp_scenario]["dhs_scenario"] #  is the DHS scenario name
 
-if cause == "malaria":
-    if hold_variable == 'None':
-        processed_forecast_ds_path_template = "{UPLOAD_DATA_PATH}/full_as_{cause}_measure_{measure}_ssp_scenario_{ssp_scenario}_dah_scenario_{dah_scenario}_draw_{draw}_with_predictions.nc"
-        as_upload_folder_path = f"{FINAL_UPLOAD_DATA_PATH}/upload_folders/{run_date}/as_cause_{cause}_measure_{measure}_metric_{metric}_ssp_scenario_{ssp_scenario}_dah_scenario_{dah_scenario}"
-        aa_upload_folder_path = f"{FINAL_UPLOAD_DATA_PATH}/upload_folders/{run_date}/aa_cause_{cause}_measure_{measure}_metric_{metric}_ssp_scenario_{ssp_scenario}_dah_scenario_{dah_scenario}"
-    else:
-        processed_forecast_ds_path_template = "{UPLOAD_DATA_PATH}/full_as_{cause}_measure_{measure}_ssp_scenario_{ssp_scenario}_dah_scenario_{dah_scenario}_draw_{draw}_with_predictions_hold_{hold_variable}.nc"
-        as_upload_folder_path = f"{FINAL_UPLOAD_DATA_PATH}/upload_folders/{run_date}/as_cause_{cause}_measure_{measure}_metric_{metric}_ssp_scenario_{ssp_scenario}_dah_scenario_{dah_scenario}_hold_variable_{hold_variable}"
-        aa_upload_folder_path = f"{FINAL_UPLOAD_DATA_PATH}/upload_folders/{run_date}/aa_cause_{cause}_measure_{measure}_metric_{metric}_ssp_scenario_{ssp_scenario}_dah_scenario_{dah_scenario}_hold_variable_{hold_variable}"
-    
+if hold_variable == 'None':
+    hold_text = ''
 else:
-    if hold_variable == 'None':
-        if vaccinate == 'None':
-            processed_forecast_ds_path_template = "{UPLOAD_DATA_PATH}/full_as_{cause}_measure_{measure}_ssp_scenario_{ssp_scenario}_draw_{draw}_with_predictions.nc"
-            as_upload_folder_path = f"{FINAL_UPLOAD_DATA_PATH}/upload_folders/{run_date}/as_cause_{cause}_measure_{measure}_metric_{metric}_ssp_scenario_{ssp_scenario}"
-            aa_upload_folder_path = f"{FINAL_UPLOAD_DATA_PATH}/upload_folders/{run_date}/aa_cause_{cause}_measure_{measure}_metric_{metric}_ssp_scenario_{ssp_scenario}"
-        else:
-            processed_forecast_ds_path_template = "{UPLOAD_DATA_PATH}/full_as_{cause}_measure_{measure}_ssp_scenario_{ssp_scenario}_no_vaccinate_draw_{draw}_with_predictions.nc"
-            as_upload_folder_path = f"{FINAL_UPLOAD_DATA_PATH}/upload_folders/{run_date}/as_cause_{cause}_measure_{measure}_metric_{metric}_ssp_scenario_{ssp_scenario}_no_vaccinate"
-            aa_upload_folder_path = f"{FINAL_UPLOAD_DATA_PATH}/upload_folders/{run_date}/aa_cause_{cause}_measure_{measure}_metric_{metric}_ssp_scenario_{ssp_scenario}_no_vaccinate"
-    else:
-        if vaccinate == 'None':
-            processed_forecast_ds_path_template = "{UPLOAD_DATA_PATH}/full_as_{cause}_measure_{measure}_ssp_scenario_{ssp_scenario}_draw_{draw}_with_predictions_hold_{hold_variable}.nc"
-            as_upload_folder_path = f"{FINAL_UPLOAD_DATA_PATH}/upload_folders/{run_date}/as_cause_{cause}_measure_{measure}_metric_{metric}_ssp_scenario_{ssp_scenario}_hold_variable_{hold_variable}"
-            aa_upload_folder_path = f"{FINAL_UPLOAD_DATA_PATH}/upload_folders/{run_date}/aa_cause_{cause}_measure_{measure}_metric_{metric}_ssp_scenario_{ssp_scenario}_hold_variable_{hold_variable}"
-        else:
-            processed_forecast_ds_path_template = "{UPLOAD_DATA_PATH}/full_as_{cause}_measure_{measure}_ssp_scenario_{ssp_scenario}_no_vaccinate_draw_{draw}_with_predictions_hold_{hold_variable}.nc"
-            as_upload_folder_path = f"{FINAL_UPLOAD_DATA_PATH}/upload_folders/{run_date}/as_cause_{cause}_measure_{measure}_metric_{metric}_ssp_scenario_{ssp_scenario}_no_vaccinate_hold_variable_{hold_variable}"
-            aa_upload_folder_path = f"{FINAL_UPLOAD_DATA_PATH}/upload_folders/{run_date}/aa_cause_{cause}_measure_{measure}_metric_{metric}_ssp_scenario_{ssp_scenario}_no_vaccinate_hold_variable_{hold_variable}"
-    
+    hold_text = f'_hold_{hold_variable}'
+if cause == 'dengue':
+    dah_text = ''
+else:
+    dah_text = f'_dah_scenario_{dah_scenario}'
+
+
+processed_forecast_ds_path_template = "{UPLOAD_DATA_PATH}/upload_folders/{run_date}/full_as_{cause}_measure_{measure}_ssp_scenario_{ssp_scenario}{dah_text}_draw_{draw}_with_predictions{hold_text}.nc"
+as_upload_folder_path_template = "{FINAL_UPLOAD_DATA_PATH}/upload_folders/{run_date}/as_cause_{cause}_measure_{measure}_metric_{metric}_ssp_scenario_{ssp_scenario}{dah_text}{hold_text}"
+aa_upload_folder_path_template = "{FINAL_UPLOAD_DATA_PATH}/upload_folders/{run_date}/aa_cause_{cause}_measure_{measure}_metric_{metric}_ssp_scenario_{ssp_scenario}{dah_text}{hold_text}"
+
+def get_aa_path(cause, measure, metric, ssp_scenario, dah_text, hold_text, run_date):
+    as_upload_folder_path = as_upload_folder_path_template.format(FINAL_UPLOAD_DATA_PATH=FINAL_UPLOAD_DATA_PATH, run_date=run_date, 
+                                                                           cause=cause, measure=measure, metric=metric, ssp_scenario=ssp_scenario, dah_text=dah_text, hold_text=hold_text)
+    aa_upload_folder_path = aa_upload_folder_path_template.format(FINAL_UPLOAD_DATA_PATH=FINAL_UPLOAD_DATA_PATH, run_date=run_date, 
+                                                                           cause=cause, measure=measure, metric=metric, ssp_scenario=ssp_scenario, dah_text=dah_text, hold_text=hold_text)
+    return as_upload_folder_path, aa_upload_folder_path
+
+
+
+as_upload_folder_path, aa_upload_folder_path = get_aa_path(cause = cause, measure = measure, metric = metric,
+                                            ssp_scenario = ssp_scenario, dah_text = dah_text,
+                                            hold_text = hold_text, run_date = run_date)
+
 as_upload_draws_file_path = f"{as_upload_folder_path}/draws.nc"
 as_upload_mean_file_path = f"{as_upload_folder_path}/mean.nc"
 aa_upload_draws_file_path = f"{aa_upload_folder_path}/draws.nc"
@@ -148,21 +144,21 @@ print(f"Processing SSP scenario: {ssp_scenario}")
 scenario = ssp_scenarios[ssp_scenario]["dhs_scenario"]
 print(f"Scenario: {scenario}")
 
-def get_file_path(draw, cause, measure, ssp_scenario, dah_scenario=None, vaccinate = None, hold_variable=None):
+def get_draw_file_path(UPLOAD_DATA_PATH, run_date, draw, cause, measure, ssp_scenario, dah_text, hold_text):
     """Generate file path based on cause type"""
     return processed_forecast_ds_path_template.format(
         UPLOAD_DATA_PATH=UPLOAD_DATA_PATH,
+        run_date=run_date,
         cause=cause,
         measure=measure,
         ssp_scenario=ssp_scenario,
-        dah_scenario=dah_scenario,
-        vaccinate=vaccinate,
+        dah_text=dah_text,
         draw=draw,
-        hold_variable=hold_variable
+        hold_text=hold_text
     )
 
 # Generate all file paths for all draws
-file_paths = [get_file_path(draw, cause, measure, ssp_scenario, dah_scenario, vaccinate, hold_variable) 
+file_paths = [get_draw_file_path(UPLOAD_DATA_PATH, run_date, draw, cause, measure, ssp_scenario, dah_text, hold_text) 
               for draw in ssp_draws]
 
 print(f"Loading {len(file_paths)} files...")
@@ -226,39 +222,39 @@ as_ds = as_ds.assign_coords(
     draw_id=as_ds.draw_id.astype(str).astype(int)
 )
 
-draw_ids = as_ds.coords['draw_id'].values
+# draw_ids = as_ds.coords['draw_id'].values
 
-print("Writing individual draw files...")
-for draw_id in draw_ids:
-    single_draw_ds = as_ds.sel(draw_id=draw_id)
-    single_draw_file = f"{as_upload_folder_path}/draw_{draw_id}.nc"
-    write_netcdf(
-        ds=single_draw_ds,
-        filepath=single_draw_file,
-        compression_level=1,
-        use_temp_file=False
-    )
-    print(f"Saved {single_draw_file}")
+# print("Writing individual draw files...")
+# for draw_id in draw_ids:
+#     single_draw_ds = as_ds.sel(draw_id=draw_id)
+#     single_draw_file = f"{as_upload_folder_path}/draw_{draw_id}.nc"
+#     write_netcdf(
+#         ds=single_draw_ds,
+#         filepath=single_draw_file,
+#         compression_level=1,
+#         use_temp_file=False
+#     )
+#     print(f"Saved {single_draw_file}")
 
 as_ds = as_ds.drop_indexes(as_ds.indexes)
 
 # Write means first (smaller files)
-print("Writing age-specific mean...")
-as_mean_ds = as_ds.to_array().mean(dim='draw_id').to_dataset(name='val')
-write_netcdf(
-    ds=as_mean_ds,
-    filepath=as_upload_mean_file_path,
-    compression_level=1
-)
-del as_mean_ds
+# print("Writing age-specific mean...")
+# as_mean_ds = as_ds.to_array().mean(dim='draw_id').to_dataset(name='val')
+# write_netcdf(
+#     ds=as_mean_ds,
+#     filepath=as_upload_mean_file_path,
+#     compression_level=4
+# )
+# del as_mean_ds
 
 # Then all-age datasets
 print("Writing all-age datasets...")
 aa_ds = as_ds.sum(dim=['sex_id', 'age_group_id'])
 aa_mean_ds = aa_ds.to_array().mean(dim='draw_id').to_dataset(name='val')
 
-write_netcdf(ds=aa_mean_ds, filepath=aa_upload_mean_file_path, compression_level=1, max_chunk_size=2000, chunk_threshold=500000)
-write_netcdf(ds=aa_ds, filepath=aa_upload_draws_file_path, compression_level=1, max_chunk_size=2000, chunk_threshold=500000)
+write_netcdf(ds=aa_mean_ds, filepath=aa_upload_mean_file_path, compression_level=4, max_chunk_size=2000, chunk_threshold=500000)
+write_netcdf(ds=aa_ds, filepath=aa_upload_draws_file_path, compression_level=4, max_chunk_size=2000, chunk_threshold=500000)
 del aa_ds, aa_mean_ds
 
 # encoding = {var: {'compression': 'gzip', 'compression_opts': 1} for var in as_ds.data_vars}

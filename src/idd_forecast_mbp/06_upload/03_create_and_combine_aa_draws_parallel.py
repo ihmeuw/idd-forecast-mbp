@@ -9,10 +9,20 @@ repo_name = rfc.repo_name
 package_name = rfc.package_name
 
 hold_variables = {
-    'malaria': ['DAH', 'flood', 'gdppc', 'suitability'],
-    'dengue': ['gdppc', 'suitability', 'urban'],
+    'malaria': ['DAH', 'flood', 'gdppc', 'suitability', 'population', 'as_structure'],
+    'dengue': ['gdppc', 'suitability', 'urban', 'population', 'as_structure'],
 }
-run_hold_variables = False
+
+hold_variables = {
+    'malaria': ['population', 'as_structure'],
+    'dengue': ['population', 'as_structure'],
+}
+
+
+run_hold_variables = True
+run_base_variables = False
+
+
 
 template_name = f'{repo_name}_06_03_create_and_combine'
 
@@ -23,6 +33,9 @@ dah_scenarios = rfc.dah_scenarios
 dah_scenarios = ['Baseline', 'Constant']
 dah_scenarios = ['Baseline']
 # dah_scenarios = ['reference', 'better', 'worse']
+# measures = ['mortality', 'incidence', 'yll', 'yld', 'daly']
+full_measure_map = rfc.full_measure_map
+measures = full_measure_map
 
 causes = rfc.cause_map
 # causes = ['dengue']
@@ -48,7 +61,7 @@ stderr_dir.mkdir(parents=True, exist_ok=True)
 
 # Project
 project = "proj_rapidresponse"  # Adjust this to your project name if needed
-queue = 'all.q'
+queue = 'long.q'
 
 wf_uuid = uuid.uuid4()
 tool_name = f"{package_name}_create_summaries_{wf_uuid}"
@@ -74,7 +87,7 @@ workflow.set_default_compute_resources_from_dict(
     }
 )
 
-memory = "100G"
+memory = "35G"
 
 # Define the task template for processing each year batch
 task_template = tool.get_task_template(
@@ -83,7 +96,7 @@ task_template = tool.get_task_template(
     default_compute_resources={
         "memory": memory,
         "cores": 10,
-        "runtime": "60m",
+        "runtime": "75m",
         "queue": queue,
         "project": project,
         "stdout": str(stdout_dir),
@@ -105,38 +118,40 @@ task_template = tool.get_task_template(
 
 
 tasks = []
-
-for cause in causes:
-    for ssp_scenario in ssp_scenarios:
-        for measure in ['mortality', 'incidence']:
-            if cause == "malaria":
-                for dah_scenario in dah_scenarios:
+dah_scenarios = ['Baseline', 'Constant']
+if run_base_variables:
+    for cause in causes:
+        for ssp_scenario in ssp_scenarios:
+            for measure in measures:
+                if cause == "malaria":
+                    for dah_scenario in dah_scenarios:
+                        # Create the primary task
+                        task = task_template.create_task(
+                            cause=cause,
+                            ssp_scenario=ssp_scenario,
+                            dah_scenario=dah_scenario,
+                            measure=measure,
+                            hold_variable='None',
+                            run_date=run_date,
+                        )
+                        tasks.append(task)
+                else:
                     # Create the primary task
                     task = task_template.create_task(
                         cause=cause,
                         ssp_scenario=ssp_scenario,
-                        dah_scenario=dah_scenario,
+                        dah_scenario='None',
                         measure=measure,
                         hold_variable='None',
                         run_date=run_date,
                     )
                     tasks.append(task)
-            else:
-                # Create the primary task
-                task = task_template.create_task(
-                    cause=cause,
-                    ssp_scenario=ssp_scenario,
-                    dah_scenario='None',
-                    measure=measure,
-                    hold_variable='None',
-                    run_date=run_date,
-                )
-                tasks.append(task)
+dah_scenarios = ['Baseline']
 if run_hold_variables:
     for cause in causes:
         for hold_variable in hold_variables[cause]:
             for ssp_scenario in rfc.ssp_scenarios:
-                for measure in ['mortality', 'incidence']:
+                for measure in measures:
                     if cause == "malaria":
                         for dah_scenario in dah_scenarios:
                             # Create the primary task

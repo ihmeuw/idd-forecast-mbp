@@ -85,16 +85,15 @@ task_template = tool.get_task_template(
         "stderr": str(stderr_dir),
     },
     command_template=(
-        "python {script_root}/cause_as_aggregation_by_draw.py "
+        "python {script_root}/create_as_dalys_by_draw_raked_parallel.py "
         "--cause {{cause}} "
         "--ssp_scenario {{ssp_scenario}} "
         "--dah_scenario {{dah_scenario}} "
-        "--measure {{measure}} "
         "--draw {{draw}} "
         "--hold_variable {{hold_variable}} "
         "--run_date {{run_date}} "
     ).format(script_root=SCRIPT_ROOT),
-    node_args=["cause", "ssp_scenario", "dah_scenario", "measure", "draw", "hold_variable","run_date"],
+    node_args=["cause", "ssp_scenario", "dah_scenario", "draw", "hold_variable","run_date"],
     task_args=[],
     op_args=[],
 )
@@ -106,64 +105,58 @@ dah_scenarios = ['Baseline', 'Constant']
 # for cause in cause_map:
 for cause in causes:
     for ssp_scenario in ssp_scenarios:
-        for measure in ['mortality', 'incidence']:
-            for draw in draws:
-                if cause == "malaria":
-                    for dah_scenario in dah_scenarios:
-                        # Create the primary task
-                        task = task_template.create_task(
-                            cause=cause,
-                            ssp_scenario=ssp_scenario,
-                            dah_scenario=dah_scenario,
-                            measure=measure,
-                            draw=draw,
-                            run_date=run_date,
-                            hold_variable='None'  # No hold variable for primary task
-                        )
-                        tasks.append(task)
-                else:
+        for draw in draws:
+            if cause == "malaria":
+                for dah_scenario in dah_scenarios:
+                    # Create the primary task
                     task = task_template.create_task(
                         cause=cause,
                         ssp_scenario=ssp_scenario,
-                        dah_scenario='None',
-                        measure=measure,
+                        dah_scenario=dah_scenario,
                         draw=draw,
                         run_date=run_date,
                         hold_variable='None'  # No hold variable for primary task
                     )
                     tasks.append(task)
+            else:
+                task = task_template.create_task(
+                    cause=cause,
+                    ssp_scenario=ssp_scenario,
+                    dah_scenario='None',
+                    draw=draw,
+                    run_date=run_date,
+                    hold_variable='None'  # No hold variable for primary task
+                )
+                tasks.append(task)
 dah_scenarios = ['Baseline']
 if run_hold_variables:
     for cause in causes:
         for hold_variable in hold_variables[cause]:
             for ssp_scenario in ssp_scenarios:
-                for measure in ['mortality', 'incidence']:
-                    for draw in draws:
-                        if cause == "malaria":
-                            for dah_scenario in dah_scenarios:
-                                # Create the task with hold variable
-                                task = task_template.create_task(
-                                    cause=cause,
-                                    ssp_scenario=ssp_scenario,
-                                    dah_scenario=dah_scenario,
-                                    measure=measure,
-                                    draw=draw,
-                                    run_date=run_date,
-                                    hold_variable=hold_variable
-                                )
-                                tasks.append(task)
-                        else:
+                for draw in draws:
+                    if cause == "malaria":
+                        for dah_scenario in dah_scenarios:
                             # Create the task with hold variable
                             task = task_template.create_task(
                                 cause=cause,
                                 ssp_scenario=ssp_scenario,
-                                dah_scenario='None',
-                                measure=measure,
+                                dah_scenario=dah_scenario,
                                 draw=draw,
                                 run_date=run_date,
                                 hold_variable=hold_variable
                             )
                             tasks.append(task)
+                    else:
+                        # Create the task with hold variable
+                        task = task_template.create_task(
+                            cause=cause,
+                            ssp_scenario=ssp_scenario,
+                            dah_scenario='None',
+                            draw=draw,
+                            run_date=run_date,
+                            hold_variable=hold_variable
+                        )
+                        tasks.append(task)
 
 print(f"Number of tasks: {len(tasks)}")
 

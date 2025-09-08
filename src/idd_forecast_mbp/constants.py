@@ -130,36 +130,96 @@ full_measure_map = {
         "name": "mortality",
         "rate_name": "Mortality rate",
         "count_name": "Deaths",
-        "short": "mort"
+        "short": "mort",
+        'ssp126': {
+            'rate': '20250709_first_sub_rcp26_first_sub_climate_vector_borne_diseases_100d_hiv_shocks_covid_all_s8',
+            'count': '20250709_first_sub_rcp26_first_sub_climate_vector_borne_diseases_100d_hiv_shocks_covid_all_s8_num'
+        },
+        'ssp245': {
+            'rate': '20250709_first_sub_rcp45_climate_ref_100d_hiv_shocks_covid_all_s8',
+            'count': '20250709_first_sub_rcp45_climate_ref_100d_hiv_shocks_covid_all_s8_num'
+        },
+        'ssp585': {
+            'rate': '20250709_first_sub_rcp85_first_sub_climate_vector_borne_diseases_100d_hiv_shocks_covid_all_s8',
+            'count': '20250709_first_sub_rcp85_first_sub_climate_vector_borne_diseases_100d_hiv_shocks_covid_all_s8_num'
+        }
     },
     "incidence": {
         "measure_id": 6, 
         "name": "incidence",
         "rate_name": "Incidence rate",
         "count_name": "Cases",
-        "short": "inc"
+        "short": "inc",
+        'ssp126': {
+            'rate': '20250719_rcp26_first_sub_climate_vector_borne_diseases_scen75_agg',
+            'count': '20250719_rcp26_first_sub_climate_vector_borne_diseases_scen75_agg_num'
+        },
+        'ssp245': {
+            'rate': '20250719_rcp45_first_sub_climate_ref_scen0_agg',
+            'count': '20250719_rcp45_first_sub_climate_ref_scen0_agg_num'
+        },
+        'ssp585': {
+            'rate': '20250719_rcp85_first_sub_climate_vector_borne_diseases_scen76_agg',
+            'count': '20250719_rcp85_first_sub_climate_vector_borne_diseases_scen76_agg_num'
+        }
     },
     "daly": {
         "measure_id": 2, 
         "name": "daly",
         "rate_name": "DALY rate",
         "count_name": "DALYs",
-        "short": "daly"
+        "short": "daly",
+        'ssp126': {
+            'rate': '20250719_rcp26_first_sub_climate_vector_borne_diseases_scen75_agg',
+            'count': '20250719_rcp26_first_sub_climate_vector_borne_diseases_scen75_agg_num'
+        },
+        'ssp245': {
+            'rate': '20250719_rcp45_first_sub_climate_ref_agg',
+            'count': '20250719_rcp45_first_sub_climate_ref_agg_num'
+        },
+        'ssp585': {
+            'rate': '20250719_rcp85_first_sub_climate_vector_borne_diseases_scen76_agg',
+            'count': '20250719_rcp85_first_sub_climate_vector_borne_diseases_scen76_agg_num'
+        }
     },
     "yld": {
         "measure_id": 3, 
         "name": "yld",
         "rate_name": "YLD rate",
         "count_name": "YLDs",
-        "short": "yld"
+        "short": "yld",
+        'ssp126': {
+            'rate': '20250719_rcp26_first_sub_climate_vector_borne_diseases_scen75_agg',
+            'count': '20250719_rcp26_first_sub_climate_vector_borne_diseases_scen75_agg_num'
+        },
+        'ssp245': {
+            'rate': '20250719_rcp45_first_sub_climate_ref_scen0_agg',
+            'count': '20250719_rcp45_first_sub_climate_ref_scen0_agg_num'
+        },
+        'ssp585': {
+            'rate': '20250719_rcp85_first_sub_climate_vector_borne_diseases_scen76_agg',
+            'count': '20250719_rcp85_first_sub_climate_vector_borne_diseases_scen76_agg_num'
+        }
     },
     "yll": {
         "measure_id": 4, 
         "name": "yll",
         "rate_name": "YLL rate",
         "count_name": "YLLs",
-        "short": "yll"
-    }
+        "short": "yll",
+        'ssp126': {
+            'rate' : '20250709_rcp26_first_sub_climate_vector_borne_diseases_agg',
+            'count': '20250709_rcp26_first_sub_climate_vector_borne_diseases_agg_num'
+        },
+        'ssp245': {
+            'rate' : '20250709_rcp45_first_sub_climate_ref_agg',
+            'count': '20250709_rcp45_first_sub_climate_ref_agg_num'
+        },
+        'ssp585': {
+            'rate' : '20250709_rcp85_first_sub_climate_vector_borne_diseases_agg',
+            'count': '20250709_rcp85_first_sub_climate_vector_borne_diseases_agg_num'
+        }
+    },
 }
 
 metric_map = {
@@ -291,4 +351,3 @@ problematic_rule_map = {
         }        
     }
 }
-
