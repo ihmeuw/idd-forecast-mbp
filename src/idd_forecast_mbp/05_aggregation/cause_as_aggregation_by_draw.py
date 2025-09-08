@@ -23,6 +23,8 @@ parser.add_argument("--dah_scenario", type=str, required=False, help="DAH scenar
 parser.add_argument("--draw", type=str, required=True, help="Draw number (e.g., '001', '002', etc.)")
 # parser.add_argument("--vaccinate", type=str, required=True, default='None', help="Vaccine status (e.g., 'True' or 'False')")
 parser.add_argument("--hold_variable", type=str, required=True, default='None', help="Hold variable (e.g., 'gdppc', 'suitability', 'urban') or None for primary task")
+parser.add_argument("--run_hold_variables", type=bool, required=False, default=False, help="Whether to run hold variables")
+parser.add_argument("--run_date", type=str, required=True, default='2025_07_08', help="Run date in format YYYY_MM_DD (e.g., '2025_06_25')")
 
 # Parse arguments
 args = parser.parse_args()
@@ -34,6 +36,7 @@ dah_scenario = args.dah_scenario
 draw = args.draw
 vaccinate = 'None'
 hold_variable = args.hold_variable
+run_date = args.run_date
 
 measure_map = rfc.measure_map
 
@@ -44,31 +47,30 @@ UPLOAD_DATA_PATH = rfc.MODEL_ROOT / "05-upload_data"
 if cause == "malaria":
     if hold_variable == 'None':
         forecast_ds_path = f"{FORECASTING_DATA_PATH}/as_{cause}_measure_{measure}_ssp_scenario_{ssp_scenario}_dah_scenario_{dah_scenario}_draw_{draw}_with_predictions.nc"
-        processed_forecast_ds_path = f"{UPLOAD_DATA_PATH}/full_as_{cause}_measure_{measure}_ssp_scenario_{ssp_scenario}_dah_scenario_{dah_scenario}_draw_{draw}_with_predictions.nc"
+        processed_forecast_ds_path = f"{UPLOAD_DATA_PATH}/upload_folders/{run_date}/full_as_{cause}_measure_{measure}_ssp_scenario_{ssp_scenario}_dah_scenario_{dah_scenario}_draw_{draw}_with_predictions.nc"
     else:
         forecast_ds_path = f"{FORECASTING_DATA_PATH}/as_{cause}_measure_{measure}_ssp_scenario_{ssp_scenario}_dah_scenario_{dah_scenario}_draw_{draw}_with_predictions_hold_{hold_variable}.nc"
-        processed_forecast_ds_path = f"{UPLOAD_DATA_PATH}/full_as_{cause}_measure_{measure}_ssp_scenario_{ssp_scenario}_dah_scenario_{dah_scenario}_draw_{draw}_with_predictions_hold_{hold_variable}.nc"
+        processed_forecast_ds_path = f"{UPLOAD_DATA_PATH}/upload_folders/{run_date}/full_as_{cause}_measure_{measure}_ssp_scenario_{ssp_scenario}_dah_scenario_{dah_scenario}_draw_{draw}_with_predictions_hold_{hold_variable}.nc"
 else:
     if hold_variable == 'None':
         if vaccinate == 'None':
             forecast_ds_path = f"{FORECASTING_DATA_PATH}/as_{cause}_measure_{measure}_ssp_scenario_{ssp_scenario}_draw_{draw}_with_predictions.nc"
-            processed_forecast_ds_path = f"{UPLOAD_DATA_PATH}/full_as_{cause}_measure_{measure}_ssp_scenario_{ssp_scenario}_draw_{draw}_with_predictions.nc"
+            processed_forecast_ds_path = f"{UPLOAD_DATA_PATH}/upload_folders/{run_date}/full_as_{cause}_measure_{measure}_ssp_scenario_{ssp_scenario}_draw_{draw}_with_predictions.nc"
         else:
             forecast_ds_path = f"{FORECASTING_DATA_PATH}/as_{cause}_measure_{measure}_ssp_scenario_{ssp_scenario}_no_vaccinate_draw_{draw}_with_predictions.nc"
-            processed_forecast_ds_path = f"{UPLOAD_DATA_PATH}/full_as_{cause}_measure_{measure}_ssp_scenario_{ssp_scenario}_no_vaccinate_draw_{draw}_with_predictions.nc"
+            processed_forecast_ds_path = f"{UPLOAD_DATA_PATH}/upload_folders/{run_date}/full_as_{cause}_measure_{measure}_ssp_scenario_{ssp_scenario}_no_vaccinate_draw_{draw}_with_predictions.nc"
     else:
         if vaccinate == 'None':
             forecast_ds_path = f"{FORECASTING_DATA_PATH}/as_{cause}_measure_{measure}_ssp_scenario_{ssp_scenario}_draw_{draw}_with_predictions_hold_{hold_variable}.nc"
-            processed_forecast_ds_path = f"{UPLOAD_DATA_PATH}/full_as_{cause}_measure_{measure}_ssp_scenario_{ssp_scenario}_draw_{draw}_with_predictions_hold_{hold_variable}.nc"
+            processed_forecast_ds_path = f"{UPLOAD_DATA_PATH}/upload_folders/{run_date}/full_as_{cause}_measure_{measure}_ssp_scenario_{ssp_scenario}_draw_{draw}_with_predictions_hold_{hold_variable}.nc"
         else:
             forecast_ds_path = f"{FORECASTING_DATA_PATH}/as_{cause}_measure_{measure}_ssp_scenario_{ssp_scenario}_no_vaccinate_draw_{draw}_with_predictions_hold_{hold_variable}.nc"
-            processed_forecast_ds_path = f"{UPLOAD_DATA_PATH}/full_as_{cause}_measure_{measure}_ssp_scenario_{ssp_scenario}_no_vaccinate_draw_{draw}_with_predictions_hold_{hold_variable}.nc"
+            processed_forecast_ds_path = f"{UPLOAD_DATA_PATH}/upload_folders/{run_date}/full_as_{cause}_measure_{measure}_ssp_scenario_{ssp_scenario}_no_vaccinate_draw_{draw}_with_predictions_hold_{hold_variable}.nc"
 
 # Hierarchy path
 hierarchy_df_path = f'{PROCESSED_DATA_PATH}/full_hierarchy_lsae_1209.parquet'
 hierarchy_df = read_parquet_with_integer_ids(hierarchy_df_path)
 
-as_full_population_df_path = f"{PROCESSED_DATA_PATH}/as_2023_full_population.parquet"
 as_merge_variables = rfc.as_merge_variables
 
 def process_forecast_data(forecast_ds_path, measure, hierarchy_df):
@@ -136,7 +138,6 @@ full_hierarchy_forecast_ds = convert_with_preset(
     preset='as_variables',
     variable_dtypes={
         'count_pred': 'float32',
-        'population': 'float32',
         'level': 'int8'
     },
     validate_dimensions=False  # Skip validation since we may have sparse data after aggregation

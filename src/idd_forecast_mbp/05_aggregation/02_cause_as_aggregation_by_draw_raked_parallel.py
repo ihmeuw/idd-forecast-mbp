@@ -76,8 +76,8 @@ task_template = tool.get_task_template(
     template_name="as_cause_draw_aggregation",
     default_cluster_name="slurm",
     default_compute_resources={
-        "memory": "40G",
-        "cores": 2,
+        "memory": "20G",
+        "cores": 8,
         "runtime": "10m",
         "queue": queue,
         "project": project,
@@ -85,7 +85,7 @@ task_template = tool.get_task_template(
         "stderr": str(stderr_dir),
     },
     command_template=(
-        "python {script_root}/cause_as_aggregation_by_draw.py "
+        "python {script_root}/cause_as_aggregation_by_draw_raked.py "
         "--cause {{cause}} "
         "--ssp_scenario {{ssp_scenario}} "
         "--dah_scenario {{dah_scenario}} "
