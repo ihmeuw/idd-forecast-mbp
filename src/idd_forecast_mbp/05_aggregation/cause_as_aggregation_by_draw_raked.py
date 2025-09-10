@@ -61,12 +61,15 @@ output_measures = output_input_matching[measure]
 for output_measure in output_measures:
     # Calculate multipliers
     
-    output_folder = folder_template_dict[cause].format(direction='output', measure=output_measure, ssp_scenario=ssp_scenario, suffix='_raked')
+    output_folder = folder_template_dict[cause].format(direction='output/2025_09_08', measure=output_measure, ssp_scenario=ssp_scenario, suffix='_raked')
     draw_int = int(draw)
     output_ds_path = f'{raked_base}/{output_folder}/draw_{draw_int}.nc'
     output_ds = xr.open_dataset(output_ds_path)
     output_ds = output_ds.drop_vars(['draw', 'draw_id', 'scenario']).rename({'value': 'val'})
-    output_ds = output_ds.squeeze('draw').squeeze('scenario')
+    # Squeeze only if 'draw' and 'scenario' are coordinates
+    for dim in ['draw', 'scenario']:
+        if dim in output_ds.coords:
+            output_ds = output_ds.squeeze(dim)
     
     input_folder = folder_template_dict[cause].format(direction='input', measure=measure, ssp_scenario=ssp_scenario, suffix='')
     input_ds_path = f'{raked_base}/{input_folder}/draw_{draw_int}.nc'

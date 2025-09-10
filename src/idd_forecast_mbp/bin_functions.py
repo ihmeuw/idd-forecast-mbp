@@ -49,13 +49,7 @@ def draw_legend_bins(ax, plot_dict):
     bin_height = bin_top - bin_bottom
     bin_label_y = bin_bottom - bin_label_gap
     
-    if plot_dict['data_type'] == 'raster':
-        if map_type == 'outcome':
-            category_labels = pretty_bin_labels(bin_dict['bins'], zero_bin=True, le=False, ge=True)
-        else:
-            category_labels = pretty_bin_labels(bin_dict['bins'], le=True, ge=True)
-    else:
-        category_labels = plot_dict['bin_dict']['bin_labels']
+    category_labels = plot_dict['bin_dict']['bin_labels']
     
     bin_dict['n_bins'] = len(category_labels)
     n_bins = bin_dict['n_bins']

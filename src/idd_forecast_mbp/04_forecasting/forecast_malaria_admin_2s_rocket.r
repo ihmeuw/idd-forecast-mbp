@@ -82,6 +82,10 @@ forecast_df <- as.data.frame(arrow::read_parquet(input_forecast_df_path))
 message(exp(min(forecast_df$log_aa_malaria_mort_rate, na.rm = TRUE)))
 forecast_df$A0_af <- as.factor(forecast_df$A0_af)
 
+
+
+
+
 forecast_df$malaria_suit_fraction <- forecast_df$malaria_suitability / 365
 forecast_df$malaria_suit_fraction <- pmin(pmax(forecast_df$malaria_suit_fraction, 0.001), 0.999)
 forecast_df$logit_malaria_suitability <- log(forecast_df$malaria_suit_fraction / (1 - forecast_df$malaria_suit_fraction))
