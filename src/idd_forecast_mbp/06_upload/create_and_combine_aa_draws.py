@@ -24,7 +24,7 @@ parser.add_argument("--ssp_scenario", type=str, required=True, help="SSP scenari
 parser.add_argument("--dah_scenario", type=str, required=False, default="Baseline", help="DAH scenario (e.g., 'Baseline')")
 parser.add_argument("--measure", type=str, required=False, default="mortality", help="measure (e.g., 'mortality', 'incidence')")
 parser.add_argument("--hold_variable", type=str, required=False, default='None', help="Hold variable (e.g., 'gdppc', 'suitability', 'urban') or None for primary task")
-parser.add_argument("--run_date", type=str, required=True, default='2025_07_08', help="Run date in format YYYY_MM_DD (e.g., '2025_06_25')")
+parser.add_argument("--run_date", type=str, required=True, help="Run date in format YYYY_MM_DD (e.g., '2025_06_25')")
 parser.add_argument("--delete_existing", type=str, required=False, default=True, help="Flag to indicate if existing upload folder should be deleted")
 
 
@@ -92,6 +92,9 @@ as_upload_folder_path, aa_upload_folder_path = get_aa_path(cause = cause, measur
                                             ssp_scenario = ssp_scenario, dah_text = dah_text,
                                             hold_text = hold_text, run_date = run_date)
 
+# Just make sure that aa folder exists
+mkdir(aa_upload_folder_path, exist_ok=True, parents=True)
+
 as_upload_draws_file_path = f"{as_upload_folder_path}/draws.nc"
 as_upload_mean_file_path = f"{as_upload_folder_path}/mean.nc"
 aa_upload_draws_file_path = f"{aa_upload_folder_path}/draws.nc"
@@ -101,19 +104,6 @@ folders_and_files = {
     as_upload_folder_path: [as_upload_draws_file_path, as_upload_mean_file_path],
     aa_upload_folder_path: [aa_upload_draws_file_path, aa_upload_mean_file_path]
 }
-
-# Check all folders and their files at once
-folder_results = check_folders_for_files(folders_and_files, delete_existing=delete_existing)
-if delete_existing:
-    no_need_to_run = False
-else:
-    no_need_to_run = all(folder_results.values())
-
-if no_need_to_run:
-    print("All required files are already present and you didn't say to delete. No need to run the script.")
-    exit(0)
-else:
-    print("Some files or folders were missing or needed to be deleted. Proceeding with the script.")
 
 age_metadata_path = f"{FHS_DATA_PATH}/age_metadata.parquet"
 
@@ -167,25 +157,18 @@ print(f"Loading {len(file_paths)} files...")
 upload_ds = xr.open_mfdataset(
     file_paths,
     combine='nested',
-    concat_dim='draw_id',  # This creates a new dimension for the draws
-    chunks='auto',  # Enable dask for lazy loading and memory efficiency
+    concat_dim='draw_id',  
+    chunks='auto', 
     drop_variables=['gbd_location_id', 'aa_count', 'level']
 )
 
 # Assign proper draw names to the new dimension
-upload_ds = upload_ds.assign_coords(draw_id=ssp_draws)
-
-# The variables will be named after the draw_dim coordinate values (which are the ssp_draws)
-# So they should already have the correct names like '000', '001', etc.
-print(f"Variable names created: {list(upload_ds.data_vars)}")
-
-print("Data loading complete (lazy - data stays on disk until computed)")
-print(f"Dataset variables: {list(upload_ds.data_vars)}")
-print(f"Dataset shape: {upload_ds.dims}")
-
-# ULTRA-FAST ALTERNATIVE: Use xr.zeros_like and reindex
-import xarray as xr
-import numpy as np
+if isinstance(ssp_draws[0], str):
+    ssp_draws_int = [int(x) for x in ssp_draws]
+else:
+    ssp_draws_int = ssp_draws
+    
+upload_ds = upload_ds.assign_coords(draw_id=ssp_draws_int)
 
 # Get the existing coordinates from your dataset
 existing_location_ids = upload_ds.coords['location_id'].values
@@ -210,83 +193,38 @@ complete_coords = {
     'year_id': year_ids,
     'age_group_id': age_group_ids_full,
     'sex_id': sex_ids_full,
-    'draw_id': ssp_draws
+    'draw_id': ssp_draws_int
 }
 
 # Reindex the original dataset to the complete coordinate space
 upload_ds_complete = upload_ds.reindex(complete_coords, fill_value=0.0)
+print("Rechunking to reduce chunk overhead...")
+upload_ds_complete = upload_ds_complete.chunk({
+    'draw_id': 10,  # 10 draws per chunk instead of 1
+    'location_id': -1,  # Keep other dimensions as-is
+    'year_id': -1,
+    'age_group_id': -1,
+    'sex_id': -1
+})
+print("New chunks:", upload_ds_complete.chunks)
 
 # Process dataset once
 as_ds = upload_ds_complete.rename({'count_pred': 'val'})
-as_ds = as_ds.assign_coords(
-    draw_id=as_ds.draw_id.astype(str).astype(int)
-)
-
-# draw_ids = as_ds.coords['draw_id'].values
-
-# print("Writing individual draw files...")
-# for draw_id in draw_ids:
-#     single_draw_ds = as_ds.sel(draw_id=draw_id)
-#     single_draw_file = f"{as_upload_folder_path}/draw_{draw_id}.nc"
-#     write_netcdf(
-#         ds=single_draw_ds,
-#         filepath=single_draw_file,
-#         compression_level=1,
-#         use_temp_file=False
-#     )
-#     print(f"Saved {single_draw_file}")
-
-as_ds = as_ds.drop_indexes(as_ds.indexes)
-
-# Write means first (smaller files)
-# print("Writing age-specific mean...")
-# as_mean_ds = as_ds.to_array().mean(dim='draw_id').to_dataset(name='val')
-# write_netcdf(
-#     ds=as_mean_ds,
-#     filepath=as_upload_mean_file_path,
-#     compression_level=4
-# )
-# del as_mean_ds
 
 # Then all-age datasets
 print("Writing all-age datasets...")
 aa_ds = as_ds.sum(dim=['sex_id', 'age_group_id'])
-aa_mean_ds = aa_ds.to_array().mean(dim='draw_id').to_dataset(name='val')
+aa_ds = aa_ds.assign_coords(
+    location_id=aa_ds.location_id.astype(np.int32),
+    year_id=aa_ds.year_id.astype(np.int16),
+    draw_id=aa_ds.draw_id.astype(np.int8)
+)
 
+aa_mean_ds = aa_ds.to_array().mean(dim='draw_id').to_dataset(name='val')
+aa_mean_ds = aa_mean_ds.assign_coords(
+    location_id=aa_mean_ds.location_id.astype(np.int32),
+    year_id=aa_mean_ds.year_id.astype(np.int16)
+)
 write_netcdf(ds=aa_mean_ds, filepath=aa_upload_mean_file_path, compression_level=4, max_chunk_size=2000, chunk_threshold=500000)
 write_netcdf(ds=aa_ds, filepath=aa_upload_draws_file_path, compression_level=4, max_chunk_size=2000, chunk_threshold=500000)
 del aa_ds, aa_mean_ds
-
-# encoding = {var: {'compression': 'gzip', 'compression_opts': 1} for var in as_ds.data_vars}
-# as_ds.to_netcdf(as_upload_draws_file_path, engine='h5netcdf', encoding=encoding)
-# os.chmod(as_upload_draws_file_path, 0o775)
-
-
-
-
-
-
-
-
-
-
-# # Finally the large age-specific draws
-# print("Writing age-specific draws...")
-
-# as_ds_rechunked = as_ds.chunk({
-#     'draw_id': 10,
-#     'location_id': 1500,
-#     'year_id': -1,
-#     'age_group_id': -1,
-#     'sex_id': -1
-# })
-
-# write_netcdf(
-#     ds=as_ds_rechunked,
-#     filepath=as_upload_draws_file_path,
-#     compression_level=1,
-#     use_temp_file=False
-# )
-
-
-

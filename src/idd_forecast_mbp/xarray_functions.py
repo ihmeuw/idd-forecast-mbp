@@ -30,10 +30,24 @@ def print_netcdf_dimensions(filepaths):
         except Exception as e:
             print(f"Error reading {fp}: {e}")
 
+def cast_coordinate_types(ds: xr.Dataset) -> xr.Dataset:
+    """Cast coordinate types for memory efficiency."""
+    coord_type_map = {
+        "location_id": "int32",
+        "year_id": "int16",
+        "age_group_id": "int16",
+        "sex_id": "int8",
+    }
+    for coord, dtype in coord_type_map.items():
+        if coord in ds.coords:
+            ds = ds.assign_coords({coord: ds[coord].astype(dtype)})
+    return ds
+
 def read_netcdf_with_integer_ids(path, **kwargs):
     '''Read a NetCDF file and ensure ID coordinates are integers.'''
     ds = xr.open_dataset(path, **kwargs)
-    ds = sort_id_coordinates(ds)
+    ds = cast_coordinate_types(ds)
+    ds = sort_coordinates(ds)
     return ensure_id_coordinates_are_integers(ds)
 
 def write_netcdf(ds, filepath, max_retries=3, engine='netcdf4', 
@@ -219,26 +233,26 @@ def write_netcdf(ds, filepath, max_retries=3, engine='netcdf4',
     return False
 
 
-def sort_id_coordinates(ds):
+def sort_coordinates(ds, coords=None, prioritize=None):
     '''
-    Sorts the Dataset by id coordinates with 'location_id' and 'year_id' having priority if they exist.
+    Sorts the Dataset by specified coordinates, prioritizing any listed in `prioritize`.
+    Only 1-D coordinates are used for sorting.
     '''
-    id_coords = [coord for coord in ds.coords if coord.endswith('_id')]
+    if coords is None:
+        coords = list(ds.coords)
+    if prioritize is None:
+        prioritize = ['location_id', 'year_id']
 
-    # Reorder to put location_id first and year_id second
-    ordered_coords = []
-    if 'location_id' in id_coords:
-        ordered_coords.append('location_id')
-    if 'year_id' in id_coords:
-        ordered_coords.append('year_id')
+    # Only keep 1-D coordinates
+    coords_1d = [c for c in coords if ds.coords[c].ndim == 1]
 
-    # Add remaining id coordinates
-    remaining_coords = [coord for coord in id_coords if coord not in ['location_id', 'year_id']]
-    id_coords = ordered_coords + remaining_coords
-    
-    if id_coords:
-        ds = ds.sortby(id_coords)
+    # Prioritize specified coordinates
+    ordered_coords = [coord for coord in prioritize if coord in coords_1d]
+    remaining_coords = [coord for coord in coords_1d if coord not in ordered_coords]
+    sort_order = ordered_coords + remaining_coords
 
+    if sort_order:
+        ds = ds.sortby(sort_order)
     return ds
 
 

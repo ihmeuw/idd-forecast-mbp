@@ -1,7 +1,8 @@
 __all__ = [
     "get_multiplier",
     "get_summary_ds_from_ds",
-    "get_value_w_UI"
+    "get_value_w_UI",
+    "format_mean_lower_upper"
 ]
 
 
@@ -70,51 +71,25 @@ def get_summary_ds_from_ds(ds, var_name='val', dim='draw_id'):
     
     return summary_ds
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-def smart_UI_format(val, UI=False, reference_val=None, percentage=False):
+def smart_UI_format(val, UI=False, reference_val=None, percentage=False, rate = False):
     """Format number with 3 sig figs or percentage-specific rounding."""
     val = float(val)
     original_val = val  # Keep original for unit decisions
     
+
     if percentage:
         val *= 100
         if reference_val is not None:
             reference_val *= 100
+    elif rate:
+        val *= 100000
+        if reference_val is not None:
+            reference_val *= 100000
     
     # Determine scale based on reference_val (or val if no reference)
     use_millions = False
     use_billions = False
-    if not percentage:
+    if not percentage and not rate:
         check_val = reference_val if reference_val is not None else original_val
         if abs(check_val) >= 1_000_000_000:
             use_billions = True
@@ -124,17 +99,10 @@ def smart_UI_format(val, UI=False, reference_val=None, percentage=False):
             val /= 1_000_000
     
     # Format based on type
-    if percentage:
-        if abs(val) >= 100:
-            # 3 sig figs for |val| >= 100
-            power = int(np.floor(np.log10(abs(val)))) if val != 0 else 0
-            scale = 10 ** (power - 2)
-            rounded = np.round(val / scale) * scale
-            decimals = max(0, 2 - power)
-        else:
-            # 1 decimal place for |val| < 100
-            rounded = round(val, 1)
-            decimals = 1
+    if percentage or rate:
+        # Always 1 decimal place for percentages
+        rounded = round(val, 1)
+        decimals = 1
         formatted = f"{rounded:.{decimals}f}" if decimals > 0 else str(int(rounded))
     else:
         if val == 0:
@@ -166,7 +134,7 @@ def smart_UI_format(val, UI=False, reference_val=None, percentage=False):
     # Only count digits for separator logic, ignore minus sign
     integer_part = formatted.split('·')[0]
     num_digits = len(integer_part.lstrip('-'))
-    if num_digits > 3:
+    if num_digits > 4: # DONT ADD THE GAP FOR NUMBERS IN THE THOUSANDS
         parts = formatted.split('·')
         integer = parts[0]
         # Handle minus sign separately
@@ -192,19 +160,29 @@ def smart_UI_format(val, UI=False, reference_val=None, percentage=False):
         
     return formatted
 
-def get_value_w_UI(vec, nested=False, percentage=False, first=False):
+def get_value_w_UI(vec, nested=False, percentage=False, rate = False, first=False, use_precalculated=False):
     """Main function to format values with uncertainty intervals."""
-    if hasattr(vec, 'to_series'):
-        vec = vec.to_series()
-    
-    mean_val = round(vec.mean(), 6)
-    lower, upper = vec.quantile([0.025, 0.975]).values
+    if use_precalculated:
+        if 'val' in vec.columns:
+            mean_val = vec['val'].iloc[0]
+        elif 'mean' in vec.columns:
+            mean_val = vec['mean'].iloc[0]
+        else:
+            raise ValueError("DataFrame must have 'val' or 'mean' column when use_precalculated=True")
+        lower = vec['lower'].iloc[0] if 'lower' in vec.columns else vec['lower_2.5'].iloc[0]
+        upper = vec['upper'].iloc[0] if 'upper' in vec.columns else vec['upper_97.5'].iloc[0]
+    else:
+        if hasattr(vec, 'to_series'):
+            vec = vec.to_series()
+        
+        mean_val = round(vec.mean(), 6)
+        lower, upper = vec.quantile([0.025, 0.975]).values
     
     # Format all values
-    mean_fmt = smart_UI_format(mean_val, percentage=percentage)
-    lower_fmt = smart_UI_format(lower, UI=True, reference_val=mean_val, percentage=percentage)
-    upper_fmt = smart_UI_format(upper, UI=True, reference_val=mean_val, percentage=percentage)
-    
+    mean_fmt = smart_UI_format(mean_val, percentage=percentage, rate = rate)
+    lower_fmt = smart_UI_format(lower, UI=True, reference_val=mean_val, percentage=percentage, rate = rate)
+    upper_fmt = smart_UI_format(upper, UI=True, reference_val=mean_val, percentage=percentage, rate = rate)
+
     # Build output strings
     raw_text = f"{mean_val} (95% UI: {lower}, {upper})"
     open_bracket = '[' if nested else '('
@@ -221,5 +199,4 @@ def get_UI_text(vec, first=False, nested=False, percentage=False):
     return get_value_w_UI(vec, nested=nested, percentage=percentage, first=first)
 
 def format_mean_lower_upper(vec, percentage=False, first=False):
-    vec = vec.rename(columns={'val': 'mean'})
-    return get_value_w_UI(vec, percentage=percentage, first=first)
+    return get_value_w_UI(vec, percentage=percentage, first=first, use_precalculated=True)

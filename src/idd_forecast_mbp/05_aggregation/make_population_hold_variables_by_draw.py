@@ -132,7 +132,7 @@ def process_forecast_data(ds, hierarchy_df):
             parent_df = parent_df.merge(hierarchy_df[["location_id", "level"]], on="location_id", how="left")
             df = pd.concat([df, parent_df], ignore_index=True)
             child_df = parent_df.copy()
-        df = df.drop(columns=['level'])
+        df = df.drop(columns=[col for col in df.columns if col.startswith('level')])
         ds = convert_with_preset(
             df, preset='as_variables', variable_dtypes={'count_pred': 'float32'}, validate_dimensions=False)
         return ds

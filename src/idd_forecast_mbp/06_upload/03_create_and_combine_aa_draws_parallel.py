@@ -13,14 +13,9 @@ hold_variables = {
     'dengue': ['gdppc', 'suitability', 'urban', 'population', 'as_structure'],
 }
 
-hold_variables = {
-    'malaria': ['population', 'as_structure'],
-    'dengue': ['population', 'as_structure'],
-}
 
-
-run_hold_variables = True
-run_base_variables = False
+run_hold_variables = False
+run_base_variables = True
 
 
 
@@ -31,9 +26,7 @@ run_date = '2025_08_04'
 run_date = '2025_08_28'
 dah_scenarios = rfc.dah_scenarios
 dah_scenarios = ['Baseline', 'Constant']
-dah_scenarios = ['Baseline']
-# dah_scenarios = ['reference', 'better', 'worse']
-# measures = ['mortality', 'incidence', 'yll', 'yld', 'daly']
+
 full_measure_map = rfc.full_measure_map
 measures = full_measure_map
 
@@ -87,7 +80,7 @@ workflow.set_default_compute_resources_from_dict(
     }
 )
 
-memory = "35G"
+memory = "80G"
 
 # Define the task template for processing each year batch
 task_template = tool.get_task_template(

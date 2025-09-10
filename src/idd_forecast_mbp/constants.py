@@ -14,6 +14,7 @@ FIGURES_PATH = MODEL_ROOT / "07-figures"
 GBD_DATA_PATH = f"{RAW_DATA_PATH}/gbd"
 LSAE_INPUT_PATH = PROCESSED_DATA_PATH / "lsae_1209"
 
+FHS_RESULTS_PATH = '/mnt/share/forecasting/data/9/future'
 
 repo_name = "idd-forecast-mbp"
 package_name = "idd_forecast_mbp"
@@ -124,6 +125,16 @@ measure_map = {
     }
 }
 
+
+ds_coords = ['location_id', 'year_id', 'sex_id', 'age_group_id']
+
+fhs_population_paths = {
+    'ssp245': f'{FHS_RESULTS_PATH}/population/20250709_first_sub_rcp45_climate_ref_100d_hiv_shocks_covid_all/population_agg.nc',
+    'ssp126': f'{FHS_RESULTS_PATH}/population/20250709_first_sub_rcp26_first_sub_climate_vector_borne_diseases_100d_hiv_shocks_covid_all/population_agg.nc',
+    'ssp585': f'{FHS_RESULTS_PATH}/population/20250709_first_sub_rcp85_first_sub_climate_vector_borne_diseases_100d_hiv_shocks_covid_all/population_agg.nc',
+}
+
+
 full_measure_map = {
     "mortality": {
         "measure_id": 1,
@@ -131,6 +142,7 @@ full_measure_map = {
         "rate_name": "Mortality rate",
         "count_name": "Deaths",
         "short": "mort",
+        'fhs_name': 'death',
         'ssp126': {
             'rate': '20250709_first_sub_rcp26_first_sub_climate_vector_borne_diseases_100d_hiv_shocks_covid_all_s8',
             'count': '20250709_first_sub_rcp26_first_sub_climate_vector_borne_diseases_100d_hiv_shocks_covid_all_s8_num'
@@ -150,6 +162,7 @@ full_measure_map = {
         "rate_name": "Incidence rate",
         "count_name": "Cases",
         "short": "inc",
+        'fhs_name': 'incidence',
         'ssp126': {
             'rate': '20250719_rcp26_first_sub_climate_vector_borne_diseases_scen75_agg',
             'count': '20250719_rcp26_first_sub_climate_vector_borne_diseases_scen75_agg_num'
@@ -169,6 +182,7 @@ full_measure_map = {
         "rate_name": "DALY rate",
         "count_name": "DALYs",
         "short": "daly",
+        'fhs_name': 'daly',
         'ssp126': {
             'rate': '20250719_rcp26_first_sub_climate_vector_borne_diseases_scen75_agg',
             'count': '20250719_rcp26_first_sub_climate_vector_borne_diseases_scen75_agg_num'
@@ -188,6 +202,7 @@ full_measure_map = {
         "rate_name": "YLD rate",
         "count_name": "YLDs",
         "short": "yld",
+        'fhs_name': 'yld',
         'ssp126': {
             'rate': '20250719_rcp26_first_sub_climate_vector_borne_diseases_scen75_agg',
             'count': '20250719_rcp26_first_sub_climate_vector_borne_diseases_scen75_agg_num'
@@ -207,6 +222,7 @@ full_measure_map = {
         "rate_name": "YLL rate",
         "count_name": "YLLs",
         "short": "yll",
+        'fhs_name': 'yll',
         'ssp126': {
             'rate' : '20250709_rcp26_first_sub_climate_vector_borne_diseases_agg',
             'count': '20250709_rcp26_first_sub_climate_vector_borne_diseases_agg_num'
