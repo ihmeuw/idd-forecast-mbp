@@ -70,7 +70,10 @@ def get_fhs_ds_multi(data_dict):
     for ssp_scenario in ssp_scenarios:
         fhs_metric_path = measure_data[ssp_scenario][metric]
         if draws:
-            file_name = cause_map[cause]['fhs_cause_name'] + '.nc'
+            if cause == 'all':
+                file_name = '_all.nc'
+            else:
+                file_name = cause_map[cause]['fhs_cause_name'] + '.nc'
             ds_path = f'{FHS_RESULTS_PATH}/{fhs_name}/{fhs_metric_path}/{file_name}'
             ds = xr.open_dataset(ds_path)
         else:
