@@ -13,6 +13,7 @@ VISUALIZATION_PATH = MODEL_ROOT / "06-visualization"
 FIGURES_PATH = MODEL_ROOT / "07-figures"
 GBD_DATA_PATH = f"{RAW_DATA_PATH}/gbd"
 LSAE_INPUT_PATH = PROCESSED_DATA_PATH / "lsae_1209"
+MANUSCRIPT_PATH = MODEL_ROOT / "08-manuscript_material"
 
 FHS_RESULTS_PATH = '/mnt/share/forecasting/data/9/future'
 
@@ -262,21 +263,21 @@ age_type_map = {
 
 ssp_scenario_map = {
     "ssp126": {
-        "name": "RCP 2.6",
+        "name": "RCP2.6",
         "rcp_scenario": 2.6,
         "color": "#046C9A",
         "dhs_scenario": 66,
         "dhs_vbd_scenario": 75
     },
     "ssp245": {
-        "name": "RCP 4.5",
+        "name": "RCP4.5",
         "rcp_scenario": 4.5,
         "color": "#E58601",
         "dhs_scenario": 0,
         "dhs_vbd_scenario": 0
     },
     "ssp585": {
-        "name": "RCP 8.5",
+        "name": "RCP8.5",
         "rcp_scenario": 8.5,
         "color": "#A42820",
         "dhs_scenario": 54,
@@ -286,19 +287,19 @@ ssp_scenario_map = {
 
 ssp_scenarios = {
     "ssp126": {
-        "name": "RCP 2.6",
+        "name": "RCP2.6",
         "rcp_scenario": 2.6,
         "color": "#046C9A",
         "dhs_scenario": 66
     },
     "ssp245": {
-        "name": "RCP 4.5",
+        "name": "RCP4.5",
         "rcp_scenario": 4.5,
         "color": "#E58601",
         "dhs_scenario": 0
     },
     "ssp585": {
-        "name": "RCP 8.5",
+        "name": "RCP8.5",
         "rcp_scenario": 8.5,
         "color": "#A42820",
         "dhs_scenario": 54
@@ -365,5 +366,34 @@ problematic_rule_map = {
             'count_raking_factor_conditional': 100000, # This combined with 0 means this is turned off
             'rate_max_conditional': .1        	        # Flag if raking factor > 10 AND rate > 0.2
         }        
+    }
+}
+
+
+covariate_map = {
+    'suitability' : {
+        'var': 'suitability',
+        'ylabel': 'Suitability (days)',
+        'title' : 'Temperature Suitability'
+    },
+    'gdppc_mean': {
+        'var': 'gdppc_mean',
+        'ylabel': 'GDP per Capita',
+        'title' : 'GDP per Capita (in 2020 USD)'
+    },
+    'dah_pc': {
+        'var': 'dah_pc',
+        'ylabel': 'DAH per Capita',
+        'title' : 'DAH per Capita (in 2020 USD)'
+    },
+    'flooding_pc': {
+        'var': 'flooding_pc',
+        'ylabel': 'Flood days per capita',
+        'title' : 'flood days per capita'
+    },
+    'urbanization': {
+        'var': 'urbanization',
+        'ylabel': 'Urbanization (%)',
+        'title' : 'Urbanization'
     }
 }

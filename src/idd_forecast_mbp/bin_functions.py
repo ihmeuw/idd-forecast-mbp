@@ -5,7 +5,8 @@ __all__ = [
     "smart_format",
     "pretty_bin_labels",
     "add_colorbar",
-    "add_legend_panel_colorbar"
+    "add_legend_panel_colorbar",
+    "clip_data_to_bins"
 ]
 
 import pandas as pd
@@ -31,12 +32,36 @@ import matplotlib.gridspec as gridspec
 from idd_forecast_mbp.helper_functions import read_income_paths
 from idd_forecast_mbp.parquet_functions import read_parquet_with_integer_ids
 from idd_forecast_mbp.xarray_functions import read_netcdf_with_integer_ids, convert_to_xarray, write_netcdf
+from idd_forecast_mbp.color_functions import (
+    create_change_colormap, 
+    create_outcome_colormap, 
+    create_diverging_colors,
+    get_colors
+)
 
 
-def draw_legend_bins(ax, plot_dict):
-    map_type = plot_dict['map_type']
-    legend_dict = plot_dict['legend_dict']
-    bin_dict = plot_dict['bin_dict']
+def clip_data_to_bins(df, data_column, bins):
+    """Clip data values to ensure they fall within bin boundaries."""
+    df = df.copy()
+    min_bin, max_bin = bins[0], bins[-1]
+    
+    # Show clipping stats
+    original_min, original_max = df[data_column].min(), df[data_column].max()
+    clipped_count = ((df[data_column] < min_bin) | (df[data_column] > max_bin)).sum()
+    
+    if clipped_count > 0:
+        print(f"Clipping {clipped_count} values outside bins [{min_bin}, {max_bin}]")
+        print(f"Original range: [{original_min:.2f}, {original_max:.2f}]")
+    
+    # Clip the data
+    df[data_column] = df[data_column].clip(lower=min_bin, upper=max_bin)
+    
+    return df
+
+def draw_legend_bins(ax, map_plot_dict):
+    map_type = map_plot_dict['map_type']
+    legend_dict = map_plot_dict['legend_dict']
+    bin_dict = map_plot_dict['bin_dict']
     legend_panel = legend_dict['legend_panel']
     legend_bin_spacing = legend_panel['legend_bin_spacing']
     legend_margin = legend_panel['legend_margin']
@@ -49,7 +74,7 @@ def draw_legend_bins(ax, plot_dict):
     bin_height = bin_top - bin_bottom
     bin_label_y = bin_bottom - bin_label_gap
     
-    category_labels = plot_dict['bin_dict']['bin_labels']
+    category_labels = map_plot_dict['bin_dict']['bin_labels']
     
     bin_dict['n_bins'] = len(category_labels)
     n_bins = bin_dict['n_bins']
@@ -72,44 +97,41 @@ def draw_legend_bins(ax, plot_dict):
         rect = Rectangle((bin_left[i], bin_bottom), bin_width, bin_height, facecolor=bin_colors[i], edgecolor='black', linewidth=0.5)
         ax.add_patch(rect)
         ax.text(bin_left[i] + bin_width / 2, bin_label_y, category_labels[i], ha='center', va='top',
-                        fontsize=plot_dict['fontsizes']['legend_label_fontsize'])
+                        fontsize=map_plot_dict['fontsizes']['legend_label_fontsize'])
 
-def add_legend(fig, ax, plot_dict):
-    if plot_dict['have_legend_panel']:
-        if plot_dict['legend_dict']['use_colorbar']:
-            add_legend_panel_colorbar(fig, ax, plot_dict)
+def add_legend(fig, ax, map_plot_dict):
+    if map_plot_dict['have_legend_panel']:
+        if map_plot_dict['legend_dict']['use_colorbar']:
+            add_legend_panel_colorbar(fig, ax, map_plot_dict)
         else:
-            draw_legend_bins(ax, plot_dict)
+            draw_legend_bins(ax, map_plot_dict)
     else:
-        add_colorbar(fig, ax, plot_dict)
+        add_colorbar(fig, ax, map_plot_dict)
 
-def get_bin_info(plot_dict, valid_data, map_data_masked):
-    map_type = plot_dict['map_type']
-    bin_dict = plot_dict['bin_dict']
-    # Categorization logic (same as before)
+def get_bin_info(map_plot_dict, plot_data):
+    map_type = map_plot_dict['map_type']
+
+    if map_type == 'outcome':
+        # Outcome map
+        create_outcome_colormap(map_plot_dict)            
+    else:
+        create_change_colormap(map_plot_dict)
+
+    map_plot_dict['bin_dict']['bin_labels'] = pretty_bin_labels(map_plot_dict)
+    bin_dict = map_plot_dict['bin_dict']
     bins = bin_dict['bins']
     n_bins = bin_dict['n_bins']
-    base_colormap = plt.colormaps[plot_dict['colors_dict']['base_cmap']]
-    if bins[0] == 0:
-        white_rgba = to_rgba('white')
-        bin_colors = np.vstack([white_rgba, base_colormap(np.linspace(0.1, 0.9, n_bins - 1))])
-
-    else:
-        bin_colors = base_colormap(np.linspace(0.1, 0.9, n_bins))
-
-    cmap = ListedColormap(bin_colors)
-    categorical_data = np.full_like(map_data_masked, np.nan)
+    plot_data_values = plot_data.values if hasattr(plot_data, 'values') else plot_data
+    categorical_data = np.full_like(plot_data_values, np.nan)
     for i in range(n_bins):
-        if i == 0:
-            mask = map_data_masked <= bins[i+1]
+        if i == 0.0:
+            mask = plot_data_values <= bins[i+1]
         elif i == n_bins - 1:
-            mask = map_data_masked > bins[i]
+            mask = plot_data_values > bins[i]
         else:
-            mask = (map_data_masked > bins[i]) & (map_data_masked <= bins[i+1])
+            mask = (plot_data_values > bins[i]) & (plot_data_values <= bins[i+1])
         categorical_data[mask] = i
 
-    bin_dict['bin_colors'] = bin_colors
-    bin_dict['cmap'] = cmap
     bin_dict['categorical_data'] = categorical_data
 
 def smart_format(val):
@@ -120,14 +142,14 @@ def smart_format(val):
         s = f"{val:,.2f}".rstrip('0').rstrip('.')
         return s
     
-def pretty_bin_labels(plot_dict):
-    bins = plot_dict['bin_dict']['bins']
-    le = plot_dict['bin_dict']['le']
-    ge = plot_dict['bin_dict']['ge']
-    zero_bin = plot_dict['bin_dict']['zero_bin']
-    prefix_units = plot_dict['bin_dict']['prefix_units']
-    suffix_units = plot_dict['bin_dict']['suffix_units']
-    abbreviate_labels = plot_dict['bin_dict']['abbreviate_labels']
+def pretty_bin_labels(map_plot_dict):
+    bins = map_plot_dict['bin_dict']['bins']
+    le = map_plot_dict['bin_dict']['le']
+    ge = map_plot_dict['bin_dict']['ge']
+    zero_bin = map_plot_dict['bin_dict']['zero_bin']
+    prefix_units = map_plot_dict['bin_dict']['prefix_units']
+    suffix_units = map_plot_dict['bin_dict']['suffix_units']
+    abbreviate_labels = map_plot_dict['bin_dict']['abbreviate_labels']
     # bins: array-like of bin edges
     # fmt: format for numbers (default: 2 significant digits)
 
@@ -188,12 +210,12 @@ def pretty_bin_labels(plot_dict):
 
     return labels
 
-def add_colorbar(fig, ax, plot_dict):
-    figure_dict = plot_dict['figure_dict']
-    legend_dict = plot_dict['legend_dict']
-    bins = plot_dict['bin_dict']['bins']
+def add_colorbar(fig, ax, map_plot_dict):
+    figure_dict = map_plot_dict['figure_dict']
+    legend_dict = map_plot_dict['legend_dict']
+    bins = map_plot_dict['bin_dict']['bins']
     bin_centers = [(bins[i] + bins[i+1]) / 2 for i in range(len(bins)-1)]
-    sm = plt.cm.ScalarMappable(cmap=plot_dict['bin_dict']['cmap'], norm=plot_dict['bin_dict']['norm'])
+    sm = plt.cm.ScalarMappable(cmap=map_plot_dict['bin_dict']['cmap'], norm=map_plot_dict['bin_dict']['norm'])
     sm.set_array([])
     cbar = fig.colorbar(sm, ax=ax, orientation='horizontal', 
                         shrink=legend_dict['color_bar_dict']['shrink'], 
@@ -204,7 +226,7 @@ def add_colorbar(fig, ax, plot_dict):
     cbar.set_ticklabels(figure_dict['bin_labels'], fontsize=figure_dict['tick_font_size'])
     cbar.set_label(figure_dict['colorbar_label'], fontsize=figure_dict['colorbar_title_font_size'])
 
-def add_legend_panel_colorbar(fig, ax_legend, plot_dict):
+def add_legend_panel_colorbar(fig, ax_legend, map_plot_dict):
     """
     Fixed version that uses the calculated parameters properly
     """
@@ -212,14 +234,14 @@ def add_legend_panel_colorbar(fig, ax_legend, plot_dict):
     ax_legend.axis('off')
 
     # Get colorbar data
-    bin_dict = plot_dict['bin_dict']
+    bin_dict = map_plot_dict['bin_dict']
     cmap = bin_dict['cmap'] 
     norm = bin_dict['norm']
     bins = bin_dict.get('bins', None)
     bin_labels = bin_dict.get('bin_labels', None)
-    colorbar_label = plot_dict['full_outcome_label']
+    colorbar_label = map_plot_dict['full_outcome_label']
     
-    color_bar_dict = plot_dict['legend_dict']['color_bar_dict']
+    color_bar_dict = map_plot_dict['legend_dict']['color_bar_dict']
 
     # Create ScalarMappable
     sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
@@ -242,7 +264,7 @@ def add_legend_panel_colorbar(fig, ax_legend, plot_dict):
 
     cbar_ax = fig.add_axes([cbar_left, cbar_bottom, cbar_width, cbar_height])
 
-    extend_option = 'max' if plot_dict.get('extend_colorbar', False) else 'neither'
+    extend_option = 'max' if map_plot_dict.get('extend_colorbar', False) else 'neither'
     cbar = fig.colorbar(sm, cax=cbar_ax, orientation='horizontal', extend=extend_option)
 
     if bins is not None and bin_labels is not None:
