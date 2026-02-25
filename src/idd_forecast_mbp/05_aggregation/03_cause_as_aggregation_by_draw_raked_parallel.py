@@ -11,10 +11,9 @@ package_name = rfc.package_name
 # Script directory
 SCRIPT_ROOT = rfc.REPO_ROOT / repo_name / "src" / package_name / "05_aggregation"
 
-run_date = '2025_08_28'
-
+# run_date = '2025_08_28'
+run_date = 'GK_2025_11_02'
 ssp_scenarios = rfc.ssp_scenarios
-dah_scenarios = rfc.dah_scenarios
 draws = rfc.draws
 
 hold_variables = {
@@ -22,14 +21,15 @@ hold_variables = {
     'dengue': ['gdppc', 'suitability', 'urban'],
 }
 
-run_hold_variables = True
+run_hold_variables = False
 
-dah_scenarios = rfc.dah_scenarios
-dah_scenarios = ['Baseline','Constant']
+# dah_scenarios = rfc.dah_scenarios
+# dah_scenarios = ['Baseline','Constant']
+dah_scenarios = ['GK_reference_2025_11_02', 'GK_cut20_2025_11_02']
 # dah_scenarios = ['reference','better', 'worse']
 
 causes = rfc.cause_map
-causes = ['malaria', 'dengue']
+causes = ['malaria']
 
 
 # Jobmon setup
@@ -102,7 +102,7 @@ task_template = tool.get_task_template(
 
 # Add tasks
 tasks = []
-dah_scenarios = ['Baseline', 'Constant']
+# dah_scenarios = ['Baseline', 'Constant']
 # for cause in cause_map:
 for cause in causes:
     for ssp_scenario in ssp_scenarios:
@@ -132,7 +132,7 @@ for cause in causes:
                         hold_variable='None'  # No hold variable for primary task
                     )
                     tasks.append(task)
-dah_scenarios = ['Baseline']
+
 if run_hold_variables:
     for cause in causes:
         for hold_variable in hold_variables[cause]:
@@ -140,18 +140,17 @@ if run_hold_variables:
                 for measure in ['mortality', 'incidence']:
                     for draw in draws:
                         if cause == "malaria":
-                            for dah_scenario in dah_scenarios:
-                                # Create the task with hold variable
-                                task = task_template.create_task(
-                                    cause=cause,
-                                    ssp_scenario=ssp_scenario,
-                                    dah_scenario=dah_scenario,
-                                    measure=measure,
-                                    draw=draw,
-                                    run_date=run_date,
-                                    hold_variable=hold_variable
-                                )
-                                tasks.append(task)
+                            # Create the task with hold variable
+                            task = task_template.create_task(
+                                cause=cause,
+                                ssp_scenario=ssp_scenario,
+                                dah_scenario='Baseline',
+                                measure=measure,
+                                draw=draw,
+                                run_date=run_date,
+                                hold_variable=hold_variable
+                            )
+                            tasks.append(task)
                         else:
                             # Create the task with hold variable
                             task = task_template.create_task(

@@ -29,6 +29,9 @@ counterfactual <- param_map[task_id, counterfactual]
 model_date <- param_map[task_id, model_date]
 draw <- sprintf("%03d", draw_num)
 
+
+# model_date <- "2025_07_26"
+
 covariates_to_hold <- c('gdppc', 'DAH', 'flood','suitability')
 
 # 

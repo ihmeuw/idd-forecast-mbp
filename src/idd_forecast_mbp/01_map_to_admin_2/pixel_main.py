@@ -15,7 +15,7 @@ from typing import Literal, NamedTuple
 import itertools
 from rra_tools.shell_tools import mkdir # type: ignore
 from idd_forecast_mbp import constants as rfc
-from idd_forecast_mbp.helper_functions import load_yaml_dictionary, parse_yaml_dictionary
+from idd_forecast_mbp.yaml_functions import load_yaml_dictionary, parse_yaml_dictionary
 import argparse
 import yaml
 

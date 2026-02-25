@@ -4,7 +4,7 @@ from jobmon.client.tool import Tool  # type: ignore
 from pathlib import Path
 import geopandas as gpd  # type: ignore
 from idd_forecast_mbp import constants as rfc
-from idd_forecast_mbp.helper_functions import load_yaml_dictionary
+from idd_forecast_mbp.yaml_functions import load_yaml_dictionary
 
 repo_name = rfc.repo_name
 package_name = rfc.package_name

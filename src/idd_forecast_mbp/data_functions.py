@@ -197,14 +197,6 @@ def load_cov_data(cov_dict, model = 'MIROC6', measure = 'fldfrc', adjustment = '
             # Remove the extra dimensions (scenario, year) by squeezing them out
             ds = ds.squeeze()
 
-    reference_population, _ = load_population_data(2025, resolution="0.1")
-    water_mask = np.isnan(reference_population)
-    print("Available data variables:", list(ds.data_vars.keys()))
-    print("Available coordinates:", list(ds.coords.keys()))
-    print("All variables:", list(ds.variables.keys()))
-    print("Dataset structure:")
-    print(ds)
-
     # Instead of ds = ds['value'], use the actual variable name
     # For example, if the variable is called 'storm_hours':
     # ds = ds['storm_hours']
@@ -212,13 +204,10 @@ def load_cov_data(cov_dict, model = 'MIROC6', measure = 'fldfrc', adjustment = '
     data_vars = list(ds.data_vars.keys())
     if len(data_vars) == 1:
         variable_name = data_vars[0]
-        print(f"Using variable: {variable_name}")
         ds = ds[variable_name]
     else:
         print(f"Multiple data variables found: {data_vars}")
         # You'll need to specify which one you want
-
-    ds = ds.where(~water_mask)
 
     return ds
 
@@ -227,7 +216,7 @@ def get_raster_data(map_plot_dict):
     cause = map_plot_dict['cause']
     metric = map_plot_dict['metric']
     statistic = map_plot_dict['statistic']
-    resolution = map_plot_dict['resolution']
+    resolution = map_plot_dict['resolution']  # This is your actual resolution!
     periods = map_plot_dict['periods']
     map_type = map_plot_dict['map_type']
 
@@ -245,13 +234,18 @@ def get_raster_data(map_plot_dict):
             period_count = np.zeros_like(reference_population)
             period_rate = np.zeros_like(reference_population)
             period_population = np.zeros_like(reference_population)
+            # Create water mask at the correct resolution
+            water_mask = np.zeros_like(reference_population, dtype=bool)
 
             for year in range(start_year, end_year + 1):
-                population_data, transform = load_population_data(year, resolution="0.1")
+                population_data, transform = load_population_data(year, resolution=resolution)  # Use resolution parameter!
                 period_population += population_data
+                # Build water mask from actual population data
+                year_water_mask = np.isnan(population_data)
+                water_mask = water_mask | year_water_mask
+                
                 cov_dict = {'cov': measure, 'year': year, 'ssp_scenario': period_dict.get('ssp_scenario', 'ssp245'), 'cause': cause}
                 cov_ds = load_cov_data(cov_dict)
-                # Handle both flood and storm data by squeezing any extra dimensions
                 cov_value = cov_ds.squeeze()
                 yearly_impact_per_capita = reproject_cov_slice(cov_value, population_data, transform)
                 period_rate += yearly_impact_per_capita
@@ -264,20 +258,22 @@ def get_raster_data(map_plot_dict):
                 period_population = period_population / (end_year - start_year + 1)
 
             if metric == 'count':
-                periods.append(period_count)
+                period_data = period_count
             else:
-                periods.append(period_rate)
+                period_data = period_rate
+            
+            # Apply water mask to numpy array
+            period_data[water_mask] = np.nan
+            periods.append(period_data)
 
-        # Do map type calculations in xarray
+        # Do map type calculations with numpy arrays
         if map_type == 'outcome':
             plot_data = periods[0]
             
         elif map_type == 'percent_change':
-            # Percent change calculation in xarray
             plot_data = (periods[1] - periods[0]) / periods[0] * 100
 
         elif map_type in ['change', 'scenario_comparison']:
-            # Absolute change/difference calculation in xarray
             plot_data = periods[1] - periods[0]
 
     get_bin_info(map_plot_dict, plot_data)
@@ -440,7 +436,7 @@ def get_outcome_df(map_plot_dict):
             
         elif map_plot_dict['outcome_type'] == 'dah_pc':
             # Get DAH data
-            outcome_ds = get_dah_ds(year_ids=years, location_ids='all', dah_scenarios=['Baseline']).load()
+            outcome_ds = get_dah_ds(year_ids=years, dah_scenarios=['Baseline']).load()
             current_location_ids = set(outcome_ds.location_id.values)
             missing_location_ids_set = set(map_plot_dict['map_a2_loc_ids'])
             all_location_ids = sorted(current_location_ids.union(missing_location_ids_set))

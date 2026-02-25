@@ -55,3 +55,27 @@ mod_cfr_all <- lm(logit_dengue_cfr ~ log_gdppc_mean + as_id + A0_af,
 model_names <- c("mod_inc_base", "mod_cfr_all")
 
 save(list = model_names, file = glue("{MODELING_DATA_PATH}/2025_06_29_dengue_models.RData"))
+
+
+
+
+
+
+
+base_dengue_df$urban_1km_threshold_300 = invlogit(base_dengue_df$logit_urban_1km_threshold_300)
+
+
+mod_inc_base1 <- scam(base_log_dengue_inc_rate ~  s(logit_dengue_suitability, k = 6, bs = 'mpi') + 
+                       s(logit_urban_1km_threshold_300, k = 6, bs = 'mpi') + A0_af,
+                     data = base_dengue_df,
+                     optimizer = "efs",
+                     control = list(maxit = 300))  # Limit iterations 
+
+mod_inc_base2 <- scam(base_log_dengue_inc_rate ~  s(dengue_suitability, k = 6, bs = 'mpi') + 
+                        s(urban_1km_threshold_300, k = 6, bs = 'mpi') + A0_af,
+                      data = base_dengue_df,
+                      optimizer = "efs",
+                      control = list(maxit = 300))  # Limit iterations 
+
+
+

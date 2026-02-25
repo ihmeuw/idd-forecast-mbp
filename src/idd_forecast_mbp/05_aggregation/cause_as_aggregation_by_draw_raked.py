@@ -107,9 +107,6 @@ for output_measure in output_measures:
                 forecast_ds_path = f"{FORECASTING_DATA_PATH}/as_{cause}_measure_{measure}_ssp_scenario_{ssp_scenario}_no_vaccinate_draw_{draw}_with_predictions_hold_{hold_variable}.nc"
                 processed_forecast_ds_path = f"{UPLOAD_DATA_PATH}/upload_folders/{run_date}/full_as_{cause}_measure_{output_measure}_ssp_scenario_{ssp_scenario}_no_vaccinate_draw_{draw}_with_predictions_hold_{hold_variable}.nc"
 
-    # Make sure f"{UPLOAD_DATA_PATH}/upload_folders/{run_date}' exists and if not, make it
-    os.makedirs(f"{UPLOAD_DATA_PATH}/upload_folders/{run_date}", exist_ok=True)
-
     # Hierarchy path
     hierarchy_df_path = f'{PROCESSED_DATA_PATH}/full_hierarchy_lsae_1209.parquet'
     hierarchy_df = read_parquet_with_integer_ids(hierarchy_df_path)

@@ -10,9 +10,11 @@ package_name = rfc.package_name
 
 
 fhs_flag = 0
-run_date = "2025_07_08"
-dah_scenarios = rfc.dah_scenarios
-dah_scenarios = ['Baseline', 'Constant']
+# run_date = "2025_07_08"
+run_date = 'GK_2025_11_02'
+# dah_scenarios = rfc.dah_scenarios
+# dah_scenarios = ['Baseline', 'Constant']
+dah_scenarios = ['GK_reference_2025_11_02', 'GK_cut20_2025_11_02']
 
 # Script directory
 SCRIPT_ROOT = rfc.REPO_ROOT / repo_name / "src" / package_name / "06_upload"
@@ -91,11 +93,11 @@ task_template = tool.get_task_template(
     op_args=[],
 )
 
-causes_to_process = rfc.cause_map
-# causes_to_process = ['dengue']
+# causes_to_process = rfc.cause_map
+causes_to_process = ['malaria']
 # Add tasks
 tasks = []
-for fhs_flag in [0]:#, 1]:
+for fhs_flag in [2]:#, 1]:
     if fhs_flag == 1:
         for cause in causes_to_process:
             for ssp_scenario in rfc.ssp_scenarios:
@@ -125,6 +127,23 @@ for fhs_flag in [0]:#, 1]:
                             run_date=run_date
                         )
                         tasks.append(task)
+    elif fhs_flag == 2:
+        for cause in causes_to_process:
+            for ssp_scenario in rfc.ssp_scenarios:
+                for measure in rfc.measure_map:
+                    if cause == "malaria":
+                        for dah_scenario in dah_scenarios:
+                            # Create the primary task
+                            task = task_template.create_task(
+                                cause=cause,
+                                ssp_scenario=ssp_scenario,
+                                dah_scenario=dah_scenario,
+                                measure=measure,
+                                metric='rate',
+                                fhs_flag=fhs_flag,
+                                run_date=run_date
+                            )
+                            tasks.append(task)
     else:
         for cause in rfc.cause_map:
             for ssp_scenario in rfc.ssp_scenarios:

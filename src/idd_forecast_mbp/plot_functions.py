@@ -7,6 +7,7 @@ import matplotlib.pyplot as plt # type: ignore
 from matplotlib.lines import Line2D # type: ignore
 import matplotlib.gridspec as gridspec # type: ignore
 from matplotlib.patches import Patch
+from matplotlib.colors import ListedColormap
 
 from idd_forecast_mbp import constants as rfc
 from idd_forecast_mbp.color_functions import *
@@ -23,7 +24,9 @@ def create_figure(plot_dict):
     layout_dict = plot_dict['layout_dict']
     existing_fig = plot_dict.get('existing_fig', None)
     map_plot = plot_dict.get('map_plot', None)
+    gridplot = plot_dict.get('gridplot', False)
     panel_letter = plot_dict.get('panel_letter', None)
+
     if existing_fig is not None:
         # Reuse existing figure - clear it completely
         existing_fig.clear()
@@ -37,10 +40,20 @@ def create_figure(plot_dict):
         fig.text(0.02, 0.98, panel_letter, fontsize=24, va='top', ha='left', transform=fig.transFigure)
     if map_plot is not None:
         ax_map = fig.add_axes(layout_dict['map']['coords'], projection=ccrs.PlateCarree())
+        ax_map.set_position(layout_dict['map']['coords'])
+        ax_map.set_aspect('auto')
         ax_legend = fig.add_axes(layout_dict['legend']['coords']) if plot_dict['have_legend_panel'] else None
         turn_off_axes([ax_map, ax_legend])
-        plt.subplots_adjust(left=0, right=1, top=1, bottom=0, wspace=0, hspace=0)
         return fig, ax_map, ax_legend
+    elif gridplot:
+        axes = []
+        ax_keys = [key for key in layout_dict.keys() if key.startswith('ax')]
+        ax_keys.sort()  # Ensure consistent order (ax1, ax2, ax3, etc.)
+        for ax_key in ax_keys:
+            ax = fig.add_axes(layout_dict[ax_key]['coords'])
+            axes.append(ax)
+        plt.subplots_adjust(left=0, right=1, top=1, bottom=0, wspace=0, hspace=0)
+        return fig, *axes
     else:
         ax = fig.add_axes(layout_dict['ax']['coords'])
         plt.subplots_adjust(left=0, right=1, top=1, bottom=0, wspace=0, hspace=0)
@@ -173,6 +186,7 @@ def plot_global_weighted_covariate_single_panel(
     y_grid_gap = 50,
     xlabel='Year',
     panel_letter=None,
+    save_pdf=True,save_png=False,
     path = None
     ):
 
@@ -296,13 +310,138 @@ def plot_global_weighted_covariate_single_panel(
     ax.tick_params(axis='both', labelsize=14)
 
     if path is not None:
-        save_figure_as_pdf(fig, path, dpi=720, bbox_inches=None)
+        if save_pdf:
+            save_figure_as_pdf(fig, path, dpi=720, bbox_inches=None)
+        if save_png:
+            save_figure_as_png(fig, path, dpi=360, bbox_inches=None)
         plt.close(fig)
     else:
         plt.show()
 
 
+def plot_covariate_single_panel(
+    summary_df,
+    cause,
+    covariate,
+    covariate_map,
+    figsize=(12, 12*6/10),
+    title=None,
+    vars = ['Baseline', 'Constant'],
+    names = ['Reference', 'Constant'],
+    colors = ['blue', 'orange'],
+    coords = [0.1, 0.1, 0.8, 0.8],
+    min_ylim = True,
+    max_ylim = False,
+    y_grid_gap = 50,
+    xlabel='Year',
+    panel_letter=None,
+    save_pdf=True,save_png=False,
+    path = None
+    ):
 
+    ylabel = covariate_map[covariate]['ylabel']
+
+    plot_dict={
+        'layout_dict':{
+            'figsize': figsize,
+            'ax': {
+                'coords': coords
+            }
+        },
+        'panel_letter': panel_letter,
+    }
+
+    fig, ax = create_figure(plot_dict)
+    all_handels = []
+    rcp_labels = []
+    line_styles = ['-', '--', ':']
+    multiplier = 1
+    if covariate == 'urbanization':
+        multiplier = 100
+
+    obs_min = 1e10
+    obs_max = -1e10
+    # First, find the max absolute value for scaling
+    for ix, var in enumerate(vars):
+        var_df = summary_df[summary_df['var'] == var]
+        y = var_df['val'] * multiplier
+        obs_min = min(obs_min, np.nanmin(y))
+        obs_max = max(obs_max, np.nanmax(y))
+    max_abs = max(abs(obs_min), abs(obs_max))
+    multiplier_auto, multiplier_text = get_multiplier(max_abs)
+
+    # Now plot, scaling by both multipliers
+    for ix, var in enumerate(vars):
+        var_df = summary_df[summary_df['var'] == var]
+        name = names[ix]
+        y = var_df['val'] * multiplier * multiplier_auto
+        ax.plot(
+            var_df['year_id'],
+            y,
+            color=colors[ix],
+            linewidth=2,
+            linestyle=line_styles[ix],
+            label=name,
+            zorder=len(vars) - ix
+        )
+    # --- Add legend if at least 2 vars ---
+    if len(vars) >= 2:
+        ax.legend(fontsize=14, loc='best')
+
+    # Update ylabel to include units
+    ylabel = covariate_map[covariate]['ylabel'] + multiplier_text
+    ax.set_ylabel(ylabel, fontsize=18)
+
+    ax.set_xlabel(xlabel, fontsize=18)
+    ax.grid(True)
+
+    if title is not None:
+        ax.set_title(title, fontsize=22)
+    else:
+        capitalized_cause = cause.capitalize()
+        if covariate == 'suitability':
+            covariate_title = f'{capitalized_cause} Temperature Suitability'
+        else:
+            covariate_title = covariate_map[covariate]["title"]
+        ax.set_title(f'{capitalized_cause} {covariate_title}', fontsize=22)
+
+    if min_ylim:
+        ax.set_ylim(bottom=0)
+    if max_ylim:
+        ax.set_ylim(top=365)
+
+    # Only set plain tick labels if not log scale
+    if covariate != 'gdppc_mean':
+        ax.ticklabel_format(style='plain', axis='y')
+
+    ax.set_xlim(left=2000, right=2100)
+    import matplotlib.ticker as mticker
+    if covariate == 'suitability':
+        ax.yaxis.set_major_locator(mticker.MultipleLocator(y_grid_gap))
+    if covariate == 'urbanization':
+        ax.yaxis.set_major_locator(mticker.MultipleLocator(25))
+        ax.set_ylim(top=100)
+    if covariate == 'gdppc_mean':
+        # Set y axis to log scale
+        ax.set_yscale('log')
+        custom_ticks = np.array([1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000, 10000, 20000, 50000, 100000])
+        ticks_in_range = custom_ticks[(custom_ticks <= obs_max) & (custom_ticks >= obs_min)]
+        lower_tick = custom_ticks[custom_ticks <= obs_min].max() if np.any(custom_ticks <= obs_min) else custom_ticks[0]
+        upper_tick = custom_ticks[custom_ticks >= obs_max].min() if np.any(custom_ticks >= obs_max) else custom_ticks[-1]
+        final_ticks = np.unique(np.concatenate(([lower_tick], ticks_in_range, [upper_tick])))
+        ax.set_yticks(final_ticks)
+        ax.get_yaxis().set_major_formatter(plt.ScalarFormatter())
+
+    ax.tick_params(axis='both', labelsize=14)
+
+    if path is not None:
+        if save_pdf:
+            save_figure_as_pdf(fig, path, dpi=720, bbox_inches=None)
+        if save_png:
+            save_figure_as_png(fig, path, dpi=360, bbox_inches=None)
+        plt.close(fig)
+    else:
+        plt.show()
 
 def create_nested_grid_figure(plot_df, plot_info, aa_past_df = None,
                                 # Spacing parameters:
@@ -551,13 +690,31 @@ def plot_data_raster(ax_map, map_plot_dict):
     """Plot the data raster on the map."""
     map_dict = map_plot_dict['map_dict']
     bin_dict = map_plot_dict['bin_dict']
+    bins = bin_dict['bins']
+    cmap = bin_dict['cmap']
+    norm = bin_dict['norm']
     raster_extent = map_dict.get('raster_extent', map_dict.get('map_extent', [-180, 180, -90, 90]))
     
+    # Sample colors at bin centers (same as admin2 plotting)
+    bin_centers = [(bins[i] + bins[i+1]) / 2 for i in range(len(bins)-1)]
+    actual_bin_colors = []
+    
+    for center in bin_centers:
+        normalized_center = norm(center)
+        color = cmap(normalized_center)
+        actual_bin_colors.append(color)
+    bin_dict['bin_colors'] = actual_bin_colors
+    
+    # Create colormap with exact colors used
+    display_cmap = ListedColormap(actual_bin_colors)
+    
     ax_map.imshow(bin_dict['categorical_data'], 
-                  cmap=bin_dict['cmap'], vmin=0, 
-                  vmax=bin_dict['n_bins']-1,
+                  cmap=display_cmap, 
+                  vmin=0, 
+                  vmax=len(actual_bin_colors)-1,
                   transform=ccrs.PlateCarree(), 
                   extent=raster_extent, zorder=2)
+    
     if map_dict['plot_admin0s']:
         map_dict['admin0_polygons'].boundary.plot(ax=ax_map, color='darkgrey', linewidth=0.25, 
                                  transform=ccrs.PlateCarree())
@@ -565,11 +722,18 @@ def plot_data_raster(ax_map, map_plot_dict):
 def setup_map_plot(ax_map, map_plot_dict):
     map_dict = map_plot_dict['map_dict']
     figure_dict = map_plot_dict['figure_dict']
+    layout_dict = map_plot_dict['layout_dict']
     add_coasts = map_dict.get('add_coasts', False)
     add_borders = map_dict.get('add_borders', False)
     add_border = False
     map_extent = map_dict.get('map_extent', [-180, 180, -90, 90])
     ax_map.set_extent(map_extent, crs=ccrs.PlateCarree())
+
+    intended_position = layout_dict['map']['coords']
+    ax_map.set_extent(map_extent, crs=ccrs.PlateCarree())
+    ax_map.set_position(intended_position)
+    ax_map.set_aspect('auto')  # Prevent further adjustments
+
     # Add geographic features
     ax_map.add_feature(cfeature.OCEAN, facecolor=figure_dict['water_color'], alpha=figure_dict['water_alpha'], zorder=0)
     if add_coasts:

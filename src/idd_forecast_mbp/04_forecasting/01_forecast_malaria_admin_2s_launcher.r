@@ -17,7 +17,8 @@ script <- glue("{repo_dir}/src/idd_forecast_mbp/04_forecasting/forecast_malaria_
 draws <- sprintf("%03d", 0:99)
 ssp_scenarios <- c("ssp126", "ssp245", "ssp585")
 # dah_scenario_names <- c("Baseline", "Constant")#, "Decreasing", "Increasing")
-dah_scenario_names <- c('reference', 'better', 'worse')
+# dah_scenario_names <- c('reference', 'better', 'worse')
+dah_scenario_names <- c('GK_reference_2025_11_02', 'GK_cut20_2025_11_02')
 
 param_map_filepath <- glue("/mnt/team/idd/pub/forecast-mbp/04-forecasting_data/malaria_param_map.csv")
 param_map <- data.table(expand.grid(draw_num = 0:99,
