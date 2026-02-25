@@ -8,24 +8,19 @@ from idd_forecast_mbp import constants as rfc
 repo_name = rfc.repo_name
 package_name = rfc.package_name
 
-hold_variables = {
-    'malaria': ['DAH', 'flood', 'gdppc', 'suitability'],
-    'dengue': ['gdppc', 'suitability', 'urban'],
-}
-run_hold_variables = False
-
 template_name = f'{repo_name}_06_03_create_and_combine'
 
 run_date = "2025_07_24"
 run_date = '2025_08_04'
 run_date = '2025_08_28'
+run_date = 'GK_2025_11_02'
 dah_scenarios = rfc.dah_scenarios
 dah_scenarios = ['Baseline', 'Constant']
-dah_scenarios = ['Baseline']
+dah_scenarios = ['GK_reference_2025_11_02', 'GK_cut20_2025_11_02']
 # dah_scenarios = ['reference', 'better', 'worse']
 
 causes = rfc.cause_map
-# causes = ['dengue']
+causes = ['malaria']
 ssp_scenarios = rfc.ssp_scenarios
 # ssp_scenarios = ['ssp245']
 
@@ -90,15 +85,15 @@ task_template = tool.get_task_template(
         "stderr": str(stderr_dir),
     },
     command_template=(
-        "python {script_root}/create_and_combine_as_draws.py "
+        "python {script_root}/create_and_combine_as_and_aa_draws.py "
         "--cause {{cause}} "
         "--ssp_scenario {{ssp_scenario}} "
         "--dah_scenario {{dah_scenario}} "
         "--measure {{measure}} "
-        "--hold_variable {{hold_variable}} "
+        "--metric {{metric}} "
         "--run_date {{run_date}}"
     ).format(script_root=SCRIPT_ROOT),
-    node_args=["cause", "ssp_scenario", "dah_scenario", "measure", "hold_variable", "run_date"],
+    node_args=["cause", "ssp_scenario", "dah_scenario", "measure", 'metric', "run_date"],
     task_args=[],
     op_args=[],
 )
@@ -109,57 +104,30 @@ tasks = []
 for cause in causes:
     for ssp_scenario in ssp_scenarios:
         for measure in ['mortality', 'incidence']:
-            if cause == "malaria":
-                for dah_scenario in dah_scenarios:
-                    # Create the primary task
-                    task = task_template.create_task(
-                        cause=cause,
-                        ssp_scenario=ssp_scenario,
-                        dah_scenario=dah_scenario,
-                        measure=measure,
-                        hold_variable='None',
-                        run_date=run_date,
-                    )
-                    tasks.append(task)
-            else:
-                # Create the primary task
-                task = task_template.create_task(
-                    cause=cause,
-                    ssp_scenario=ssp_scenario,
-                    dah_scenario='None',
-                    measure=measure,
-                    hold_variable='None',
-                    run_date=run_date,
-                )
-                tasks.append(task)
-if run_hold_variables:
-    for cause in causes:
-        for hold_variable in hold_variables[cause]:
-            for ssp_scenario in rfc.ssp_scenarios:
-                for measure in ['mortality', 'incidence']:
-                    if cause == "malaria":
-                        for dah_scenario in dah_scenarios:
-                            # Create the primary task
-                            task = task_template.create_task(
-                                cause=cause,
-                                ssp_scenario=ssp_scenario,
-                                dah_scenario=dah_scenario,
-                                measure=measure,
-                                hold_variable=hold_variable,
-                                run_date=run_date
-                            )
-                            tasks.append(task)
-                    else:
+            for metric in ['count', 'rate']:
+                if cause == "malaria":
+                    for dah_scenario in dah_scenarios:
                         # Create the primary task
                         task = task_template.create_task(
                             cause=cause,
                             ssp_scenario=ssp_scenario,
-                            dah_scenario=None,
+                            dah_scenario=dah_scenario,
                             measure=measure,
-                            hold_variable=hold_variable,
-                            run_date=run_date
+                            metric=metric,
+                            run_date=run_date,
                         )
                         tasks.append(task)
+                else:
+                    # Create the primary task
+                    task = task_template.create_task(
+                        cause=cause,
+                        ssp_scenario=ssp_scenario,
+                        dah_scenario='None',
+                        measure=measure,
+                        metric=metric,
+                        run_date=run_date,
+                    )
+                    tasks.append(task)
 
 print(f"Number of tasks: {len(tasks)}")
 

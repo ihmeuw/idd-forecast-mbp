@@ -117,6 +117,15 @@ def get_bin_info(map_plot_dict, plot_data):
     else:
         create_change_colormap(map_plot_dict)
 
+    bin_dict = map_plot_dict['bin_dict']
+    bins = bin_dict['bins']
+    n_bins = bin_dict['n_bins']
+    
+    print(f"Bins: {bins}")
+    print(f"n_bins from bin_dict: {n_bins}")
+    print(f"len(bins): {len(bins)}")
+    print(f"Correct n_bins should be: {len(bins) - 1}")
+
     map_plot_dict['bin_dict']['bin_labels'] = pretty_bin_labels(map_plot_dict)
     bin_dict = map_plot_dict['bin_dict']
     bins = bin_dict['bins']
@@ -150,10 +159,9 @@ def pretty_bin_labels(map_plot_dict):
     prefix_units = map_plot_dict['bin_dict']['prefix_units']
     suffix_units = map_plot_dict['bin_dict']['suffix_units']
     abbreviate_labels = map_plot_dict['bin_dict']['abbreviate_labels']
-    # bins: array-like of bin edges
-    # fmt: format for numbers (default: 2 significant digits)
 
-    bins = bins.copy()
+    bins = bins.copy()  # Keep original numeric values
+    
     if min(bins) < 0:
         gap = ' to '
     else:
@@ -161,32 +169,41 @@ def pretty_bin_labels(map_plot_dict):
 
     if zero_bin:
         zero_ix = np.where(np.atleast_1d(bins) == 0)[0]
+        if len(zero_ix) == 0:
+            raise ValueError("zero_bin is True but no zero found in bins")
+        else:
+            if zero_ix == 0:
+                le = False
 
     if prefix_units is not None:
         abbreviate_labels = True
 
+    if suffix_units == '%':
+        abbreviate_labels = False
+
+    # Format bins into strings (only do this ONCE)
+    formatted_bins = []
     if abbreviate_labels:
-        for ix, bin in enumerate(bins):
+        for bin in bins:
             if abs(bin) >= 1_000_000:
-                bins[ix] = f'{prefix_units}{smart_format(bin/1000000)}M'
+                formatted_bins.append(f'{prefix_units}{smart_format(bin/1000000)}M')
             elif abs(bin) >= 1_000:
-
-                bins[ix] = f'{prefix_units}{smart_format(bin/1000)}K'
+                formatted_bins.append(f'{prefix_units}{smart_format(bin/1000)}K')
             else:
-                bins[ix] = f'{prefix_units}{smart_format(bin)}'
+                formatted_bins.append(f'{prefix_units}{smart_format(bin)}')
     elif suffix_units is not None:
-        for ix, bin in enumerate(bins):
-            bins[ix] = f'{smart_format(bin)}{suffix_units}'
+        for bin in bins:
+            formatted_bins.append(f'{smart_format(bin)}{suffix_units}')
     else:
-        for ix, bin in enumerate(bins):
-            bins[ix] = smart_format(bin)
+        for bin in bins:
+            formatted_bins.append(smart_format(bin))
 
+    # Now create labels using the formatted bins
     labels = []
-    for i in range(len(bins) - 1):
-        left = bins[i]
-        right = bins[i+1]
+    for i in range(len(formatted_bins) - 1):
+        left = formatted_bins[i]
+        right = formatted_bins[i+1]
         if zero_bin:
-            # Only check zero_ix if zero_bin is truthy
             if i == zero_ix:
                 labels.append(f'0')
             elif i == zero_ix + 1:
@@ -200,10 +217,11 @@ def pretty_bin_labels(map_plot_dict):
                 labels.append(left)
             else:
                 labels.append(f"{left}{gap}{right}")
+    
     if le:
-        labels[0] = f"< {bins[1]}"
+        labels[0] = f"< {formatted_bins[1]}"
     if ge:
-        labels[-1] = f"> {bins[-2]}"
+        labels[-1] = f"> {formatted_bins[-2]}"
 
     if prefix_units == '$':
         labels = [rf"{label.replace('$', r'\$')}" for label in labels]

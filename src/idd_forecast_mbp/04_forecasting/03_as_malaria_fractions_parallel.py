@@ -12,11 +12,12 @@ package_name = rfc.package_name
 SCRIPT_ROOT = rfc.REPO_ROOT / repo_name / "src" / package_name / "04_forecasting"
 
 malaria_hold_variables = ['DAH', 'flood', 'gdppc', 'suitability']
-run_hold_variables = True
+run_hold_variables = False
 
 ssp_scenarios = rfc.ssp_scenarios
 dah_scenarios = rfc.dah_scenarios
 dah_scenarios = ["Baseline", "Constant"]
+dah_scenarios = ['GK_reference_2025_11_02', 'GK_cut20_2025_11_02']
 # dah_scenarios = ['reference', 'better', 'worse']
 modeling_measure_map = rfc.modeling_measure_map
 draws = rfc.draws

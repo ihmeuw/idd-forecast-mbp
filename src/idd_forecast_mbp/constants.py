@@ -14,6 +14,7 @@ FIGURES_PATH = MODEL_ROOT / "07-figures"
 GBD_DATA_PATH = f"{RAW_DATA_PATH}/gbd"
 LSAE_INPUT_PATH = PROCESSED_DATA_PATH / "lsae_1209"
 MANUSCRIPT_PATH = MODEL_ROOT / "08-manuscript_material"
+PRESENTATION_PATH = MODEL_ROOT / "10-presentation_material"
 
 FHS_RESULTS_PATH = '/mnt/share/forecasting/data/9/future'
 

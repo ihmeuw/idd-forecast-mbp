@@ -26,7 +26,8 @@ from idd_forecast_mbp.data_functions import (load_population_data,
                                              get_admin2_data,
                                              update_loc_ids,
                                              get_outcome_df,
-                                             get_plot_data)
+                                             get_plot_data,
+                                             reproject_cov_slice)
 
 from idd_forecast_mbp.plot_functions import (plot_data_raster, 
                                              setup_map_plot, 
@@ -52,7 +53,10 @@ with open(bins_dictionary_path, 'rb') as f:
     bins_dictionary = pickle.load(f)
 admin0_polygons, admin1_polygons, admin2_polygons, disputed_polygons = read_polygons()
 
-def create_map_plot_dict(cause, measure, period_1, ssp_scenarios = ['ssp245'], period_2=None,
+def create_map_plot_dict(cause, measure, period_1, ssp_scenarios = ['ssp245'], 
+                         dah_scenarios = ['Baseline'] * 2,
+                        hold_variables = [None] * 2,
+                        period_2=None,
                     metric = None, 
                     # Core parameters
                     resolution='0.1', 
@@ -60,6 +64,7 @@ def create_map_plot_dict(cause, measure, period_1, ssp_scenarios = ['ssp245'], p
                     map_type='change',
                     per_capita=False,
                     data_type='raster',
+                    extent='zoom',
                     location_type='endemic', # 'endemic' or 'all'
                     have_legend_panel=True,
                     base_path=None,
@@ -70,6 +75,7 @@ def create_map_plot_dict(cause, measure, period_1, ssp_scenarios = ['ssp245'], p
                     display_figure=True,
                     thumbnail=0,
                     existing_fig=None,
+                    save_pdf=True,save_png=False,
                     # Map types:
                     # change: period 1 != period 2; scenario 1 == scenario 2
                     # scenario_comparison: period 1 == period 2; scenario 1 != scenario 2
@@ -152,17 +158,17 @@ def create_map_plot_dict(cause, measure, period_1, ssp_scenarios = ['ssp245'], p
                 base_cmap = 'RdBu_r'
                 
     # Use generated subtitle if none provided
-    if data_type == 'admin2':
-        map_extent = [lon_min, lon_max, lat_zoom_min, lat_zoom_max]
-    else:
+    if extent == 'global':
         map_extent = [lon_min, lon_max, lat_min, lat_max]
-
+    else:
+        map_extent = [lon_min, lon_max, lat_zoom_min, lat_zoom_max]
 
     if map_type == 'percent_change':
         prefix_units = ''
         suffix_units = '%'
-        le = True
-    elif measure == 'gdppc_mean':
+        if measure != 'dah_pc':
+            le = True
+    elif measure == 'gdppc_mean' or measure == 'dah_pc':
         le = True
         prefix_units = '$'
         suffix_units = ''
@@ -182,6 +188,8 @@ def create_map_plot_dict(cause, measure, period_1, ssp_scenarios = ['ssp245'], p
         'data_type': data_type,
         'location_type': location_type,
         'periods': periods,
+        'dah_scenarios':dah_scenarios,
+        'hold_variables': hold_variables,
         'ssp_scenarios': ssp_scenarios,
         'resolution': resolution,
         'statistic': statistic,
@@ -195,6 +203,8 @@ def create_map_plot_dict(cause, measure, period_1, ssp_scenarios = ['ssp245'], p
         'base_path': base_path,
         'file_name': file_name,
         'save_figure': save_figure,
+        'save_pdf': save_pdf,
+        'save_png': save_png,
         'display_figure':display_figure,
         'remake_figure': remake_figure,
         'return_figure': return_figure,
@@ -312,6 +322,7 @@ def plot_map(plot_dict):
 
     plot_dict['map_plot'] = True
     fig, ax_map, ax_legend = create_figure(plot_dict)
+
     ax_map = setup_map_plot(ax_map, plot_dict)
 
     if plot_dict['data_type'] == 'raster':
@@ -320,11 +331,42 @@ def plot_map(plot_dict):
         plot_base_admins(ax_map, plot_dict)
         plot_data_admins(ax_map, plot_dict)
     
-    disputed_polygons.boundary.plot(ax=ax_map, color='darkgrey', linewidth=0.25,linestyle='--', 
-                                 transform=ccrs.PlateCarree())
+    print(f"Figure size: {fig.get_size_inches()}")
+    print(f"ax_map position: {ax_map.get_position().bounds}")
+    if ax_legend is not None:
+        print(f"ax_legend position: {ax_legend.get_position().bounds}")
+
+    from shapely.geometry import box
+
+    # Create a bounding box from your map extent
+    map_extent = plot_dict['map_dict']['map_extent']
+    bbox = box(map_extent[0], map_extent[2], map_extent[1], map_extent[3])
+    disputed_clipped = disputed_polygons.clip(bbox)
+    disputed_clipped.boundary.plot(
+        ax=ax_map, 
+        color='darkgrey', 
+        linewidth=0.25,
+        linestyle='--', 
+        transform=ccrs.PlateCarree(),
+        aspect='auto'  # This might help
+    )
+    print(f"ax_map xlim: {ax_map.get_xlim()}")
+    print(f"ax_map ylim: {ax_map.get_ylim()}")
+    print(f"Map extent setting: {map_extent}")
+
+    print(f"Figure size: {fig.get_size_inches()}")
+    print(f"ax_map position: {ax_map.get_position().bounds}")
+    if ax_legend is not None:
+        print(f"ax_legend position: {ax_legend.get_position().bounds}")
 
     figure_dict = plot_dict['figure_dict']
     layout_dict = plot_dict['layout_dict']
+    ax_map.set_position(layout_dict['map']['coords'])
+    ax_map.set_aspect('auto')
+
+    map_extent = plot_dict['map_dict']['map_extent']
+    ax_map.set_xlim(map_extent[0], map_extent[1])
+    ax_map.set_ylim(map_extent[2], map_extent[3])
 
     # Set title and labels
     fig.text(0.5, layout_dict['title']['text_y'], figure_dict['title'], ha='center', va='center',
@@ -332,6 +374,10 @@ def plot_map(plot_dict):
     #  ax_map.set_title(figure_dict['title'], fontsize=plot_dict['fontsizes']['title_fontsize'])
     # ax_map.set_xlabel("Longitude", fontsize=figure_dict['lat_lon_font_size'])
     # ax_map.set_ylabel("Latitude", fontsize=figure_dict['lat_lon_font_size'])
+    print(f"Figure size: {fig.get_size_inches()}")
+    print(f"ax_map position: {ax_map.get_position().bounds}")
+    if ax_legend is not None:
+        print(f"ax_legend position: {ax_legend.get_position().bounds}")
     
     # Add colorbar and legend
     if plot_dict['have_legend_panel']:
@@ -344,6 +390,10 @@ def plot_map(plot_dict):
     if figure_dict['inset_label'] is not None:
         add_inset(ax_map, figure_dict)
 
+    print(f"Figure size: {fig.get_size_inches()}")
+    print(f"ax_map position: {ax_map.get_position().bounds}")
+    if ax_legend is not None:
+        print(f"ax_legend position: {ax_legend.get_position().bounds}")
 
     print(f'Final figure size: {plot_dict['layout_dict']['figsize']}')
     print(f'Map layout coordinates are: {layout_dict['map']['coords']}')
@@ -351,8 +401,10 @@ def plot_map(plot_dict):
         print(f'Legend coordinates are: {layout_dict['legend']['coords']}')
     if plot_dict['save_figure']:    
         if plot_dict['save_path'] is not None:
-            save_figure_as_pdf(fig, plot_dict['save_path'], thumbnail=plot_dict['thumbnail'])
-            # save_figure_as_pdf_and_png(fig, plot_dict['save_path'])
+            if plot_dict['save_pdf']:
+                save_figure_as_pdf(fig, plot_dict['save_path'], thumbnail=plot_dict['thumbnail'])
+            if plot_dict['save_png']:
+                save_figure_as_png(fig, plot_dict['save_path'])
         else:
             print("No save path provided or generated, figure not saved.")
     
@@ -414,11 +466,17 @@ def get_layout_dict(map_plot_dict):
     heights = [legend_title_height, legend_panel_height, map_panel_height, sub_title_height, title_height]
     height_fractions = [h / fig_height for h in heights]
     for ix, panel in enumerate(panel_names):
+        if panel == 'title':
+            weight_y = 0.4
+        elif panel == 'legend_title':
+            weight_y = 0.7
+        else:
+            weight_y = 0.5
         panel_dict = {
             'height': heights[ix],
             'height_fraction': height_fractions[ix],
             'bottom': sum(height_fractions[:ix]),
-            'text_y': sum(height_fractions[:ix]) + height_fractions[ix] / 2,
+            'text_y': sum(height_fractions[:ix]) + height_fractions[ix] * weight_y,
             'coords': [0, sum(height_fractions[:ix]), 1, height_fractions[ix]]
         }
         layout_dict[panel] = panel_dict
@@ -434,6 +492,8 @@ def get_period_info(map_plot_dict):
     map_type = map_plot_dict['map_type']
     ssp_scenarios = map_plot_dict['ssp_scenarios']
     periods = map_plot_dict['periods']
+    dah_scenarios = map_plot_dict.get('dah_scenarios', ['Baseline'] * len(periods))
+    hold_variables = map_plot_dict.get('hold_variables', [None] * len(periods))
     def periods_are_different(period):
         if len(period) == 1:
             return False
@@ -457,7 +517,7 @@ def get_period_info(map_plot_dict):
             raise ValueError("Invalid temporal comparison. Need exactly two periods, 0 or 2 period labels and one SSP scenario.")
         else:
             # Create period configurations for temporal comparison
-            for ix, period_years in enumerate(periods):
+            for ix, (period_years, dah_scenario, hold_variable) in enumerate(zip(periods, dah_scenarios, hold_variables)):
                 if len(period_years) == 1:
                     start_year = end_year = period_years[0]
                 else:
@@ -465,7 +525,9 @@ def get_period_info(map_plot_dict):
                 map_plot_dict[f'period_{ix+1}'] = {
                     'start_year': start_year,
                     'end_year': end_year,
-                    'ssp_scenario': ssp_scenarios[0]
+                    'ssp_scenario': ssp_scenarios[0],
+                    'dah_scenario': dah_scenario,
+                    'hold_variable': hold_variable
                 }
     elif map_type == 'scenario_comparison':
         if len(ssp_scenarios) != 2 or periods_are_different(periods):
@@ -477,12 +539,14 @@ def get_period_info(map_plot_dict):
                 start_year = end_year = period_years[0]
             else:
                 start_year, end_year = period_years
-            
-            for ix, ssp_scenario in enumerate(ssp_scenarios):
+
+            for ix, (ssp_scenario, dah_scenario, hold_variable) in enumerate(zip(ssp_scenarios, dah_scenarios, hold_variables)):
                 map_plot_dict[f'period_{ix+1}'] = {
                     'start_year': start_year,
                     'end_year': end_year,
-                    'ssp_scenario': ssp_scenario
+                    'ssp_scenario': ssp_scenario,
+                    'dah_scenario': dah_scenario,
+                    'hold_variable': hold_variable
                 }            
     elif map_type == 'outcome':
         if len(periods) != 1 or len(ssp_scenarios) != 1:
@@ -506,7 +570,7 @@ def get_period_info(map_plot_dict):
             raise ValueError("For arbitrary comparison, need exactly two periods and two SSP scenarios.")
         else:
             # Create period configurations for arbitrary comparison
-            for ix, (period, ssp_scenario) in enumerate(zip(periods, ssp_scenarios)):
+            for ix, (period, ssp_scenario, dah_scenario, hold_variable) in enumerate(zip(periods, ssp_scenarios, dah_scenarios, hold_variables)):
                 if len(period) == 1:
                     start_year = end_year = period[0]
                 else:
@@ -514,7 +578,9 @@ def get_period_info(map_plot_dict):
                 map_plot_dict[f'period_{ix+1}'] = {
                     'start_year': start_year,
                     'end_year': end_year,
-                    'ssp_scenario': ssp_scenario
+                    'ssp_scenario': ssp_scenario,
+                    'dah_scenario': dah_scenario,
+                    'hold_variable': hold_variable
                 }
             
     else:

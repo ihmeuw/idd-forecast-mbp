@@ -70,7 +70,7 @@ def save_thumbnail_figure_as_png_2(fig, thumbnail, filename_base, dpi=360, bbox_
     save_figure_as_png(fig, f"{filename_base}_thumbnail", dpi=dpi, bbox_inches=bbox_inches)
     # Optionally restore original size/font if needed
 
-def save_figure_as_pdf(fig, filename_base, dpi='figure', bbox_inches=None, thumbnail=0.0):
+def save_figure_as_pdf(fig, filename_base, dpi='figure', bbox_inches=None, pad_inches=0, thumbnail=0.0):
     """
     Save a Matplotlib figure as a PDF file.
     Adds '.pdf' to the filename automatically.
@@ -81,7 +81,7 @@ def save_figure_as_pdf(fig, filename_base, dpi='figure', bbox_inches=None, thumb
     folder = os.path.dirname(filename)
     if folder and not os.path.exists(folder):
         os.makedirs(folder, exist_ok=True)
-    fig.savefig(filename, format='pdf', dpi=dpi, bbox_inches=bbox_inches)
+    fig.savefig(filename, format='pdf', dpi=dpi, bbox_inches=bbox_inches, pad_inches=pad_inches)
     os.chmod(filename, 0o775)
     print(f"Figure saved as {filename} (chmod 775)")
     #
@@ -90,7 +90,7 @@ def save_figure_as_pdf(fig, filename_base, dpi='figure', bbox_inches=None, thumb
         save_thumbnail_figure_as_png_1(fig, thumbnail, filename_base, dpi=dpi, bbox_inches=bbox_inches)
         # save_thumbnail_figure_as_png_2(fig, thumbnail, filename_base, dpi=dpi, bbox_inches=bbox_inches)
 
-def save_figure_as_png(fig, filename_base, dpi=720, bbox_inches=None, thumbnail=0.0):
+def save_figure_as_png(fig, filename_base, dpi=720, bbox_inches=None, pad_inches=0, thumbnail=0.0):
     """
     Save a Matplotlib figure as a PNG file.
     Adds '.png' to the filename automatically.
@@ -100,19 +100,19 @@ def save_figure_as_png(fig, filename_base, dpi=720, bbox_inches=None, thumbnail=
     folder = os.path.dirname(filename)
     if folder and not os.path.exists(folder):
         os.makedirs(folder, exist_ok=True)
-    fig.savefig(filename, format='png', dpi=dpi, bbox_inches=bbox_inches)
+    fig.savefig(filename, format='png', dpi=dpi, bbox_inches=bbox_inches, pad_inches=pad_inches)
     os.chmod(filename, 0o775)
     print(f"Figure saved as {filename} (chmod 775)")
     #
     if thumbnail > 0.0:
         save_thumbnail_figure_as_png(fig, thumbnail, filename_base, dpi=dpi, bbox_inches=bbox_inches)
 
-def save_figure_as_pdf_and_png(fig, filename_base, pdf_dpi=720, png_dpi=720, bbox_inches=None, thumbnail=0.0):
+def save_figure_as_pdf_and_png(fig, filename_base, pdf_dpi=720, png_dpi=720, bbox_inches=None, pad_inches=0, thumbnail=0.0):
     """
     Save a Matplotlib figure as both PDF and PNG files.
     Adds appropriate extensions automatically.
     Ensures the directory exists and sets file permissions to 775.
     """
-    save_figure_as_pdf(fig, filename_base, dpi=pdf_dpi, bbox_inches=bbox_inches, thumbnail=thumbnail)
-    save_figure_as_png(fig, filename_base, dpi=png_dpi, bbox_inches=bbox_inches, thumbnail=thumbnail)
+    save_figure_as_pdf(fig, filename_base, dpi=pdf_dpi, bbox_inches=bbox_inches, pad_inches=pad_inches, thumbnail=thumbnail)
+    save_figure_as_png(fig, filename_base, dpi=png_dpi, bbox_inches=bbox_inches, pad_inches=pad_inches, thumbnail=thumbnail)
 

@@ -90,7 +90,7 @@ def create_change_colormap(plot_dict, clip_neg = False, clip_pos = False):
         mid_index = (n_bins + 2) // 2
         if force_white:
             # there are an odd number of colors. We want to set the middle one to white and delete the colors above and below it
-            bin_colors = bin_colors[:(mid_index - 1)] + ["#ffffff"] + bin_colors[(mid_index+1):]
+            bin_colors = bin_colors[:(mid_index - 1)] + ["#ffffff"] + bin_colors[(mid_index+2):]
             # print("Colors after edit:", bin_colors)
         else:
             bin_colors = bin_colors[:(mid_index - 1)] + bin_colors[mid_index+1:]

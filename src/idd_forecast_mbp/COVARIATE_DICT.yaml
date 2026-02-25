@@ -8,6 +8,26 @@
 
 
 COVARIATE_DICT:
+  malaria_anti:
+    covariate_name: "malaria_anti"
+    covariate_resolution_numerator: 5
+    covariate_resolution_denominator: 120
+    year_start: 2000
+    year_end: 2020
+    synoptic: false
+    cc_sensitive: false
+    summary_statistic: "mean"
+    path: "/mnt/team/rapidresponse/pub/malaria-denv/data/02-processed-data/malaria-anti/202106_Global_Antimalarial_Effective_Treatment_{year}.tif"
+  malaria_itn:
+    covariate_name: "malaria_itn"
+    covariate_resolution_numerator: 5
+    covariate_resolution_denominator: 120
+    year_start: 2000
+    year_end: 2020
+    synoptic: false
+    cc_sensitive: false
+    summary_statistic: "mean"
+    path: "/mnt/team/rapidresponse/pub/malaria-denv/data/02-processed-data/malaria-itn/202106_Africa_Insecticide_Treated_Net_Use_{year}.tiff"
   malaria_pfpr:
     covariate_name: "malaria_pfpr"
     covariate_resolution_numerator: 5

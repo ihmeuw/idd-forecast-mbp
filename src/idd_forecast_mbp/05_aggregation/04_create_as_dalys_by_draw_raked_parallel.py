@@ -11,8 +11,8 @@ package_name = rfc.package_name
 # Script directory
 SCRIPT_ROOT = rfc.REPO_ROOT / repo_name / "src" / package_name / "05_aggregation"
 
-run_date = '2025_08_28'
-
+# run_date = '2025_08_28'
+run_date = 'GK_2025_11_02'
 ssp_scenarios = rfc.ssp_scenarios
 dah_scenarios = rfc.dah_scenarios
 draws = rfc.draws
@@ -22,14 +22,15 @@ hold_variables = {
     'dengue': ['gdppc', 'suitability', 'urban'],
 }
 
-run_hold_variables = True
+run_hold_variables = False
 
-dah_scenarios = rfc.dah_scenarios
-dah_scenarios = ['Baseline','Constant']
+# dah_scenarios = rfc.dah_scenarios
+# dah_scenarios = ['Baseline','Constant']
+dah_scenarios = ['GK_reference_2025_11_02', 'GK_cut20_2025_11_02']
 # dah_scenarios = ['reference','better', 'worse']
 
 causes = rfc.cause_map
-causes = ['malaria', 'dengue']
+causes = ['malaria']
 
 
 # Jobmon setup
@@ -48,7 +49,7 @@ project = "proj_rapidresponse"  # Adjust this to your project name if needed
 queue = 'long.q'
 
 wf_uuid = uuid.uuid4()
-tool_name = f"{package_name}_draw_level_cause_aggregation_{wf_uuid}"
+tool_name = f"{package_name}_draw_level_daly_creation_{wf_uuid}"
 tool = Tool(name=tool_name)
 
 # Create a workflow
@@ -73,7 +74,7 @@ workflow.set_default_compute_resources_from_dict(
 
 # Define the task template for processing each year batch
 task_template = tool.get_task_template(
-    template_name="as_cause_draw_aggregation",
+    template_name="as_cause_draw_daly_creation",
     default_cluster_name="slurm",
     default_compute_resources={
         "memory": "40G",

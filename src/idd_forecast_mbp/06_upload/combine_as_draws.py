@@ -11,7 +11,7 @@ from rra_tools.shell_tools import mkdir # type: ignore
 from idd_forecast_mbp import constants as rfc
 from idd_forecast_mbp.hd5_functions import write_hdf
 from idd_forecast_mbp.parquet_functions import read_parquet_with_integer_ids
-from idd_forecast_mbp.xarray_functions import convert_with_preset, write_netcdf
+from idd_forecast_mbp.xarray_functions import convert_with_preset, write_netcdf, read_netcdf_with_integer_ids
 import argparse
 import os
 
@@ -20,12 +20,12 @@ parser = argparse.ArgumentParser(description="Add DAH Sceanrios and create draw 
 # Define arguments
 parser.add_argument("--cause", type=str, required=False, default="malaria", help="Cause (e.g., 'malaria', 'dengue')")
 parser.add_argument("--ssp_scenario", type=str, required=True, help="SSP scenario (e.g., 'ssp126', 'ssp245', 'ssp585')")
-parser.add_argument("--dah_scenario", type=str, required=False, default="Baseline", help="DAH scenario (e.g., 'Baseline')")
+parser.add_argument("--dah_scenario", type=str, required=True, default="Baseline", help="DAH scenario (e.g., 'Baseline')")
 parser.add_argument("--measure", type=str, required=False, default="mortality", help="measure (e.g., 'mortality', 'incidence')")
 parser.add_argument("--metric", type=str, required=False, default="rate", help="metric (e.g., 'rate', 'count')")
 parser.add_argument("--fhs_flag", type=int, required=False, default=0, help="Flag to indicate if output will follow FHS format")
 parser.add_argument("--run_date", type=str, required=True, default=2025_06_25, help="Run date in format YYYY_MM_DD (e.g., '2025_06_25')")
-parser.add_argument("--delete_existing", type=str, required=False, default=True, help="Flag to indicate if existing upload folder should be deleted")
+parser.add_argument("--delete_existing", type=str, required=False, default=False, help="Flag to indicate if existing upload folder should be deleted")
 
 
 # Parse arguments
@@ -62,17 +62,20 @@ measure_id = measure_map[measure]["measure_id"]
 metric_id = metric_map[metric]["metric_id"]
 
 if cause == "malaria":
-    processed_forecast_df_path_template = "{UPLOAD_DATA_PATH}/full_as_malaria_measure_{measure}_ssp_scenario_{ssp_scenario}_dah_scenario_{dah_scenario}_draw_{draw}_with_predictions.parquet"
+    processed_forecast_ds_path_template = "{UPLOAD_DATA_PATH}/upload_folders/{run_date}/full_as_malaria_measure_{measure}_ssp_scenario_{ssp_scenario}_dah_scenario_{dah_scenario}_draw_{draw}_with_predictions.nc"
     if fhs_flag == 1:
-        upload_folder_path = f"{UPLOAD_DATA_PATH}/fhs_upload_folders/cause_id_{cause_id}_measure_id_{measure_id}_scenario_{scenario}_{run_date}"
+        upload_folder_path = f"{UPLOAD_DATA_PATH}/fhs_upload_folders/{run_date}/cause_id_{cause_id}_measure_id_{measure_id}_scenario_{scenario}_{run_date}"
+        upload_file_path = f"{upload_folder_path}/draws.h5"
+    elif fhs_flag == 2: # Goalkeepers runs
+        upload_folder_path = f"{UPLOAD_DATA_PATH}/GK_upload_folders/{run_date}/cause_id_{cause_id}_measure_id_{measure_id}_scenario_{scenario}_dah_scenario_{dah_scenario}_{run_date}"
         upload_file_path = f"{upload_folder_path}/draws.h5"
     else:
         upload_folder_path = f"{UPLOAD_DATA_PATH}/upload_folders/{run_date}/as_cause_{cause}_measure_{measure}_metric_{metric}_ssp_scenario_{ssp_scenario}_dah_scenario_{dah_scenario}"
         upload_file_path = f"{upload_folder_path}/draws.nc"
 else:
-    processed_forecast_df_path_template = "{UPLOAD_DATA_PATH}/full_as_dengue_measure_{measure}_ssp_scenario_{ssp_scenario}_draw_{draw}_with_predictions.parquet"
+    processed_forecast_ds_path_template = "{UPLOAD_DATA_PATH}/upload_folders/{run_date}/full_as_dengue_measure_{measure}_ssp_scenario_{ssp_scenario}_draw_{draw}_with_predictions.nc"
     if fhs_flag == 1:
-        upload_folder_path = f"{UPLOAD_DATA_PATH}/fhs_upload_folders/cause_id_{cause_id}_measure_id_{measure_id}_scenario_{scenario}_{run_date}"
+        upload_folder_path = f"{UPLOAD_DATA_PATH}/fhs_upload_folders/{run_date}/cause_id_{cause_id}_measure_id_{measure_id}_scenario_{scenario}_{run_date}"
         upload_file_path = f"{upload_folder_path}/draws.h5"
     else:
         upload_folder_path = f"{UPLOAD_DATA_PATH}/upload_folders/{run_date}/as_cause_{cause}_measure_{measure}_metric_{metric}_ssp_scenario_{ssp_scenario}"
@@ -96,7 +99,8 @@ age_metadata_path = f"{FHS_DATA_PATH}/age_metadata.parquet"
 hierarchy_df_path = f'{PROCESSED_DATA_PATH}/full_hierarchy_lsae_1209.parquet'
 hierarchy_df = read_parquet_with_integer_ids(hierarchy_df_path)
 
-as_full_population_df_path = f"{PROCESSED_DATA_PATH}/as_2023_full_population.parquet"
+as_full_population_ds_path = f"{PROCESSED_DATA_PATH}/as_2023_full_population_ds.nc"
+aa_full_population_ds_path = f"{PROCESSED_DATA_PATH}/aa_2023_full_population_ds.nc"
 as_merge_variables = rfc.as_merge_variables
 aa_merge_variables = rfc.aa_merge_variables
 fhs_hierarchy_df = hierarchy_df[hierarchy_df["in_fhs_hierarchy"] == True].copy()
@@ -112,46 +116,84 @@ fhs_location_filter = ('location_id', 'in', fhs_location_ids)
 all_location_filter = ('location_id', 'in', all_location_ids)
 
 location_filter = fhs_location_filter
-
-
 year_filter = ('year_id', 'in', year_ids)
+
+# Define the coordinates for the final merged Dataset
+coords_to_merge = ['location_id', 'year_id', 'age_group_id', 'sex_id']
 
 print(f"Processing SSP scenario: {ssp_scenario}")
 scenario = ssp_scenarios[ssp_scenario]["dhs_scenario"]
 print(f"Scenario: {scenario}")
 
+# Create the full list of draw paths
+draw_paths = []
+for ssp_draw in ssp_draws: # Loop through ALL draws from 000 onwards
+    if cause == "malaria":
+        path = processed_forecast_ds_path_template.format(
+            UPLOAD_DATA_PATH=UPLOAD_DATA_PATH,
+            run_date=run_date,
+            measure=measure,
+            ssp_scenario=ssp_scenario,
+            dah_scenario=dah_scenario,
+            draw=ssp_draw
+        )
+    else:
+        path = processed_forecast_ds_path_template.format(
+            UPLOAD_DATA_PATH=UPLOAD_DATA_PATH,
+            run_date=run_date,
+            measure=measure,
+            ssp_scenario=ssp_scenario,
+            draw=ssp_draw
+        )
+    draw_paths.append(path)
+
+upload_da = xr.concat(list_of_dataarrays, dim='draw', join='inner') 
+upload_ds = upload_da.to_dataset(name=draw_var_name)
+
+
+
+
+
+
+
+
+
+
+
 # Make the template with the first draw
 if cause == "malaria":
-    processed_forecast_df_path = processed_forecast_df_path_template.format(
+    processed_forecast_ds_path = processed_forecast_ds_path_template.format(
         UPLOAD_DATA_PATH=UPLOAD_DATA_PATH,
+        run_date=run_date,
         measure=measure,
         ssp_scenario=ssp_scenario,
         dah_scenario=dah_scenario,
         draw="000"
     )
 else:
-    processed_forecast_df_path = processed_forecast_df_path_template.format(
+    processed_forecast_ds_path = processed_forecast_ds_path_template.format(
         UPLOAD_DATA_PATH=UPLOAD_DATA_PATH,
+        run_date=run_date,
         measure=measure,
         ssp_scenario=ssp_scenario,
         draw="000"
     )
 
-upload_df = read_parquet_with_integer_ids(processed_forecast_df_path,
+upload_ds = read_netcdf_with_integer_ids(processed_forecast_ds_path,
         filters=[[location_filter, year_filter]]  # Combining with AND logic
     )
 
 fhs_draw_name = "draw_0"
-upload_df[fhs_draw_name] = upload_df["count_pred"]
-upload_df = upload_df.drop(columns=["count_pred", "level"])
-upload_df = upload_df.reset_index(drop=True)
-upload_df = upload_df[as_merge_variables + [fhs_draw_name]]
+upload_ds[fhs_draw_name] = upload_ds["count_pred"]
+upload_ds = upload_ds.drop(columns=["count_pred", "level"])
+upload_ds = upload_ds.reset_index(drop=True)
+upload_ds = upload_ds[as_merge_variables + [fhs_draw_name]]
 
 # Pre-compute paths
 draw_paths = []
 for ssp_draw in ssp_draws[1:]:
     if cause == "malaria":
-        path = processed_forecast_df_path_template.format(
+        path = processed_forecast_ds_path_template.format(
             UPLOAD_DATA_PATH=UPLOAD_DATA_PATH,
             measure=measure,
             ssp_scenario=ssp_scenario,
@@ -159,7 +201,7 @@ for ssp_draw in ssp_draws[1:]:
             draw=ssp_draw
         )
     else:
-        path = processed_forecast_df_path_template.format(
+        path = processed_forecast_ds_path_template.format(
             UPLOAD_DATA_PATH=UPLOAD_DATA_PATH,
             measure=measure,
             ssp_scenario=ssp_scenario,
@@ -294,6 +336,15 @@ if fhs_flag == 1:
     upload_df["metric_id"] = metric_id
     upload_df["cause_id"] = cause_id
     columns_to_select = ["measure_id", "metric_id", "cause_id", "location_id", "year_id", "age_group_id", "sex_id", "release_id", "scenario"] + draw_cols
+    upload_df = upload_df[columns_to_select]
+    write_hdf(upload_df, upload_file_path, 
+        data_columns= as_merge_variables)
+elif fhs_flag == 2:
+    upload_df['scenario'] = scenario
+    upload_df["measure_id"] = measure_id
+    upload_df["metric_id"] = metric_id
+    upload_df["cause_id"] = cause_id
+    columns_to_select = ["measure_id", "metric_id", "cause_id", "location_id", "year_id", "age_group_id", "sex_id", "scenario", "dah_scenario"] + draw_cols
     upload_df = upload_df[columns_to_select]
     write_hdf(upload_df, upload_file_path, 
         data_columns= as_merge_variables)

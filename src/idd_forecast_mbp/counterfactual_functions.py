@@ -63,7 +63,7 @@ FINAL_UPLOAD_DATA_PATH = '/mnt/team/idd/pub/forecast-mbp/05-upload_data'
 as_upload_folder_path_template = "{FINAL_UPLOAD_DATA_PATH}/upload_folders/{run_date}/as_cause_{cause}_measure_{measure}_metric_{metric}_ssp_scenario_{ssp_scenario}{dah_text}{hold_text}"
 aa_upload_folder_path_template = "{FINAL_UPLOAD_DATA_PATH}/upload_folders/{run_date}/aa_cause_{cause}_measure_{measure}_metric_{metric}_ssp_scenario_{ssp_scenario}{dah_text}{hold_text}"
 
-def get_aa_path(cause, measure, metric, ssp_scenario, dah_scenario = 'dah_2023', hold_variable = 'None', run_date = '2025_08_28'):
+def get_aa_path(cause, measure, metric, ssp_scenario, dah_scenario = 'Baseline', hold_variable = 'None', run_date = '2025_08_28'):
     if hold_variable is None:
         hold_text = ''
     else:
@@ -71,7 +71,10 @@ def get_aa_path(cause, measure, metric, ssp_scenario, dah_scenario = 'dah_2023',
     if cause == 'dengue':
         dah_text = ''
     else:
-        dah_text = f'_dah_scenario_{dah_scenario}'
+        if dah_scenario is None:
+            dah_text = '_dah_scenario_Baseline'
+        else:
+            dah_text = f'_dah_scenario_{dah_scenario}'
     as_upload_folder_path = as_upload_folder_path_template.format(FINAL_UPLOAD_DATA_PATH=FINAL_UPLOAD_DATA_PATH, run_date=run_date, 
                                                                            cause=cause, measure=measure, metric=metric, ssp_scenario=ssp_scenario, dah_text=dah_text, hold_text=hold_text)
     aa_upload_folder_path = aa_upload_folder_path_template.format(FINAL_UPLOAD_DATA_PATH=FINAL_UPLOAD_DATA_PATH, run_date=run_date, 
