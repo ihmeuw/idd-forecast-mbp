@@ -19,6 +19,7 @@ dependencies = [
     "scipy (>=1.15.2,<2.0.0)",
     "netcdf4 (>=1.7.2,<2.0.0)",
     "rasterra (>=0.6.2,<0.7.0)",
+    "climate-data @ file:///ihme/homes/bcreiner/repos/climate-data",
 ]
 
 [project.urls]
@@ -41,6 +42,7 @@ python = ">=3.12, <4.0"
 # We keep the dev dependencies here instead of in the project optional dependencies
 # so they're still installed by default with `poetry install`.
 # They won't be installed or shipped with the package. 
+climate-data = {develop = true}
 [tool.poetry.group.dev.dependencies]
 # Things we want to put a lower bound on
 mypy = "^1.15.0"

@@ -16,7 +16,8 @@ LSAE_INPUT_PATH = PROCESSED_DATA_PATH / "lsae_1209"
 MANUSCRIPT_PATH = MODEL_ROOT / "08-manuscript_material"
 PRESENTATION_PATH = MODEL_ROOT / "10-presentation_material"
 
-FHS_RESULTS_PATH = '/mnt/share/forecasting/data/9/future'
+FHS_RESULTS_PATH = Path('/mnt/share/forecasting/data/9/future')
+RR_PATH = Path('/mnt/team/rapidresponse/pub/malaria-denv')
 
 repo_name = "idd-forecast-mbp"
 package_name = "idd_forecast_mbp"
