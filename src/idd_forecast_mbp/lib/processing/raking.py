@@ -201,7 +201,12 @@ def rake_aa_count_lsae_to_gbd(
 ) -> pd.DataFrame | None:
     """Rake LSAE all-age counts to match GBD all-age counts at levels 4 and 5.
 
-    Orchestrates rake_level() iteratively from level 5 down to level 3.
+    GBD numbers are internally inconsistent across levels, so the strategy is:
+      1. Replace LSAE values with GBD values wherever GBD has data (set_by_gbd=True).
+         These rows are left unchanged by rake_level.
+      2. Rake level 4 to GBD level 3 totals (level 4 children must sum to GBD level 3 parents).
+      3. Rake level 5 to the already-raked level 4 (shoehorning LSAE to be consistent
+         with what level 4 now reports after step 2).
 
     Parameters
     ----------
@@ -210,9 +215,10 @@ def rake_aa_count_lsae_to_gbd(
     hierarchy_df:
         Full hierarchy DataFrame.
     aa_gbd_count_df:
-        GBD all-age counts (target totals at GBD levels).
+        GBD all-age counts (levels 0–4). Used both as replacement values and as
+        level-3 raking targets.
     aa_lsae_count_df:
-        LSAE all-age counts (inputs to rake).
+        LSAE all-age counts (levels 4–5, inputs to rake).
     problematic_rules:
         Passed through to rake_level(); controls fallback to population raking.
     aa_full_count_df_path:
@@ -226,22 +232,40 @@ def rake_aa_count_lsae_to_gbd(
     aa_gbd_count_0_to_3_df = aa_gbd_count_df[aa_gbd_count_df['level'] <= 3].copy()
     aa_lsae_count_df = prep_df(aa_lsae_count_df, hierarchy_df)
 
-    level_5_df = aa_lsae_count_df[aa_lsae_count_df['level'] == 5].copy()
-    level_5_hierarchy_df = hierarchy_df[hierarchy_df['level'] == 5].copy()
-    level_5_df = make_aa_df_square(count_variable, level_5_df, level_5_hierarchy_df, 5, 5)
+    # Ensure all level-3/4/5 location-year combinations exist in LSAE (fill with 0)
+    aa_lsae_count_df = make_aa_df_square(
+        count_variable, aa_lsae_count_df, hierarchy_df, level_start=3, level_end=5
+    )
 
-    level_4_df = aa_lsae_count_df[aa_lsae_count_df['level'] == 4].copy()
-    level_4_hierarchy_df = hierarchy_df[hierarchy_df['level'] == 4].copy()
-    level_4_df = make_aa_df_square(count_variable, level_4_df, level_4_hierarchy_df, 4, 4)
+    # Replace LSAE values with GBD values at GBD-defined locations and mark them
+    aa_gbd_count_df[f'{count_variable}_gbd'] = aa_gbd_count_df[count_variable]
+    aa_gbd_count_df['set_by_gbd'] = True
+    aa_lsae_count_df = aa_lsae_count_df.merge(
+        aa_gbd_count_df[['location_id', 'year_id', f'{count_variable}_gbd', 'set_by_gbd']],
+        on=['location_id', 'year_id'],
+        how='left',
+    )
+    mask = aa_lsae_count_df['set_by_gbd'].isna()
+    aa_lsae_count_df.loc[mask, 'set_by_gbd'] = False
+    aa_lsae_count_df['set_by_gbd'] = aa_lsae_count_df['set_by_gbd'].astype('boolean')
+    aa_lsae_count_df[count_variable] = aa_lsae_count_df[f'{count_variable}_gbd'].fillna(
+        aa_lsae_count_df[count_variable]
+    )
+    aa_lsae_count_df = aa_lsae_count_df.drop(columns=[f'{count_variable}_gbd'])
 
-    aa_gbd_level_4_df = aa_gbd_count_df[aa_gbd_count_df['level'] == 4].copy()
+    # Rake level 4 to GBD level 3 (parent-level targets)
     aa_gbd_level_3_df = aa_gbd_count_0_to_3_df[aa_gbd_count_0_to_3_df['level'] == 3].copy()
+    level_4_df = aa_lsae_count_df[aa_lsae_count_df['level'] == 4].copy()
+    level_4_df = make_aa_df_square(count_variable, level_4_df, hierarchy_df, 4, 4)
+    level_4_df = rake_level(
+        count_variable, level_4_df, aa_gbd_level_3_df, problematic_rules, hierarchy_df, level=4
+    )
 
+    # Rake level 5 to the raked level 4 (not original LSAE level 4)
+    level_5_df = aa_lsae_count_df[aa_lsae_count_df['level'] == 5].copy()
+    level_5_df = make_aa_df_square(count_variable, level_5_df, hierarchy_df, 5, 5)
     level_5_df = rake_level(
         count_variable, level_5_df, level_4_df, problematic_rules, hierarchy_df, level=5
-    )
-    level_4_df = rake_level(
-        count_variable, level_4_df, aa_gbd_level_4_df, problematic_rules, hierarchy_df, level=4
     )
 
     aa_full_count_df = pd.concat([

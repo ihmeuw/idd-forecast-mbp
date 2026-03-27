@@ -53,19 +53,21 @@ def problematic_rules():
     }
 
 
-def make_level_df(hierarchy_df, level, count_val, pop_val=1000.0):
+def make_level_df(hierarchy_df, level, count_val, pop_val=1000.0, include_set_by_gbd=True):
     """Build a simple level DataFrame from hierarchy."""
     locs = hierarchy_df[hierarchy_df['level'] == level]['location_id'].tolist()
     rows = []
     for loc in locs:
         for year in [2020, 2021]:
-            rows.append({
+            row = {
                 'location_id': loc,
                 'year_id': year,
                 'count': count_val,
                 'population': pop_val,
-                'set_by_gbd': False,
-            })
+            }
+            if include_set_by_gbd:
+                row['set_by_gbd'] = False
+            rows.append(row)
     return pd.DataFrame(rows)
 
 
@@ -141,39 +143,54 @@ def test_rake_level_sums_match_parent(simple_hierarchy, problematic_rules):
 # rake_aa_count_lsae_to_gbd
 # ---------------------------------------------------------------------------
 
-def test_rake_aa_count_returns_none_by_default(simple_hierarchy, problematic_rules):
-    lsae_df = make_level_df(simple_hierarchy, 5, count_val=3.0)
-    # Also need level 4 in lsae
-    lsae_4 = make_level_df(simple_hierarchy, 4, count_val=6.0)
-    lsae_all = pd.concat([lsae_df, lsae_4], ignore_index=True)
+@pytest.fixture
+def rake_aa_inputs(simple_hierarchy):
+    """LSAE and GBD inputs for rake_aa_count_lsae_to_gbd tests.
+
+    LSAE has levels 4 and 5 (no set_by_gbd — the function sets that up internally).
+    GBD has levels 0–4, used both as replacement values and as level-3 raking targets.
+    """
+    lsae_all = pd.concat([
+        make_level_df(simple_hierarchy, 4, count_val=6.0, include_set_by_gbd=False),
+        make_level_df(simple_hierarchy, 5, count_val=3.0, include_set_by_gbd=False),
+    ], ignore_index=True)
 
     gbd_df = pd.concat([
-        make_level_df(simple_hierarchy, l, count_val=20.0)
+        make_level_df(simple_hierarchy, l, count_val=20.0, include_set_by_gbd=False)
         for l in [0, 1, 2, 3, 4]
     ], ignore_index=True)
 
+    return lsae_all, gbd_df
+
+
+def test_rake_aa_count_returns_none_by_default(simple_hierarchy, problematic_rules, rake_aa_inputs):
+    lsae_all, gbd_df = rake_aa_inputs
     result = rake_aa_count_lsae_to_gbd(
         'count', simple_hierarchy, gbd_df, lsae_all, problematic_rules
     )
     assert result is None
 
 
-def test_rake_aa_count_return_full_df(simple_hierarchy, problematic_rules):
-    lsae_df = make_level_df(simple_hierarchy, 5, count_val=3.0)
-    lsae_4 = make_level_df(simple_hierarchy, 4, count_val=6.0)
-    lsae_all = pd.concat([lsae_df, lsae_4], ignore_index=True)
-
-    gbd_df = pd.concat([
-        make_level_df(simple_hierarchy, l, count_val=20.0)
-        for l in [0, 1, 2, 3, 4]
-    ], ignore_index=True)
-
+def test_rake_aa_count_return_full_df(simple_hierarchy, problematic_rules, rake_aa_inputs):
+    lsae_all, gbd_df = rake_aa_inputs
     result = rake_aa_count_lsae_to_gbd(
         'count', simple_hierarchy, gbd_df, lsae_all, problematic_rules,
         return_full_df=True,
     )
     assert isinstance(result, pd.DataFrame)
     assert 'count' in result.columns
+
+
+def test_rake_aa_count_gbd_locations_unchanged(simple_hierarchy, problematic_rules, rake_aa_inputs):
+    """Locations present in GBD at level 3 should have their GBD values in the output."""
+    lsae_all, gbd_df = rake_aa_inputs
+    result = rake_aa_count_lsae_to_gbd(
+        'count', simple_hierarchy, gbd_df, lsae_all, problematic_rules,
+        return_full_df=True,
+    )
+    level3_ids = simple_hierarchy[simple_hierarchy['level'] == 3]['location_id'].tolist()
+    level3_result = result[result['location_id'].isin(level3_ids)]
+    assert (level3_result['count'] == 20.0).all()
 
 
 # ---------------------------------------------------------------------------
