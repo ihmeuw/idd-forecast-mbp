@@ -9,8 +9,9 @@ from typing import Literal, NamedTuple
 import itertools
 from rra_tools.shell_tools import mkdir # type: ignore
 from idd_forecast_mbp import constants as rfc
-from idd_forecast_mbp.parquet_functions import read_parquet_with_integer_ids, write_parquet
-from idd_forecast_mbp.xarray_functions import read_netcdf_with_integer_ids, write_netcdf, convert_with_preset
+from idd_forecast_mbp.lib.io.parquet import read_parquet_with_integer_ids, write_parquet
+from idd_forecast_mbp.lib.io.netcdf import read_netcdf_with_integer_ids, write_netcdf, convert_with_preset
+from idd_forecast_mbp.lib.processing.aggregation import aggregate_to_parent
 import argparse
 
 parser = argparse.ArgumentParser(description="Add DAH Sceanrios and create draw level dataframes for forecating malaria")
@@ -104,23 +105,12 @@ def process_forecast_data(forecast_ds_path, measure, hierarchy_df):
 
     child_df = df.copy()
 
-    for level in reversed(range(1,6)):
-        
+    for level in reversed(range(1, 6)):
         print(f"Processing level {level}...")
-        child_df = child_df.merge(hierarchy_df[["location_id", "parent_id"]], on="location_id", how="left")
         print(child_df["level"][0])
-        parent_df = child_df.groupby(
-            ["parent_id", "year_id", "age_group_id", "sex_id"]).agg({
-            "count_pred": "sum"
-        }).reset_index()
-
-        parent_df = parent_df.rename(columns={
-            "parent_id": "location_id"
-        })
-
+        parent_df = aggregate_to_parent(child_df, hierarchy_df, 'count_pred', preserve_age_sex=True)
         parent_df = parent_df.merge(hierarchy_df[["location_id", "level"]], on="location_id", how="left")
         df = pd.concat([df, parent_df], ignore_index=True)
-
         child_df = parent_df.copy()
 
     return df
