@@ -16,6 +16,11 @@ eggs/
 .eggs/
 lib/
 lib64/
+# Un-ignore the shared library within the package (added for refactor)
+!src/idd_forecast_mbp/lib/
+!src/idd_forecast_mbp/lib/**
+!tests/lib/
+!tests/lib/**
 parts/
 sdist/
 var/
