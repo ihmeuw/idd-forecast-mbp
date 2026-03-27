@@ -165,7 +165,7 @@ def aggregate_aa_rate_lsae_to_gbd(
     aa_full_count_df = aggregate_aa_count_lsae_to_gbd(
         tmp_count_variable, hierarchy_df, tmp_df, return_full_df=True
     )
-    aa_full_rate_df = _make_rate_from_count(
+    aa_full_rate_df = make_rate_from_count(
         rate_variable, tmp_count_variable,
         aa_full_count_df, aa_full_population_df,
         aa_full_rate_df_path=aa_full_rate_df_path,
@@ -180,7 +180,7 @@ def aggregate_aa_rate_lsae_to_gbd(
     return None
 
 
-def _make_rate_from_count(
+def make_rate_from_count(
     rate_variable: str,
     count_variable: str,
     aa_full_count_df: pd.DataFrame,
@@ -188,9 +188,25 @@ def _make_rate_from_count(
     aa_full_rate_df_path: str | Path | None = None,
     return_full_df: bool = False,
 ) -> pd.DataFrame | None:
-    """Divide count by population to produce a rate variable. Internal helper.
+    """Divide count by population to produce a rate variable.
 
     Sets rate = 0 where population = 0 to avoid division by zero.
+    Drops count_variable and level column from the result.
+
+    Parameters
+    ----------
+    rate_variable:
+        Name for the output rate column.
+    count_variable:
+        Name of the input count column (dropped from result).
+    aa_full_count_df:
+        Full-hierarchy count DataFrame.
+    aa_full_population_df:
+        Population DataFrame (location_id, year_id, population).
+    aa_full_rate_df_path:
+        If provided, write the result to this path.
+    return_full_df:
+        If True, return the rate DataFrame.
 
     # Extracted from: rake_and_aggregate_functions.py:325
     """

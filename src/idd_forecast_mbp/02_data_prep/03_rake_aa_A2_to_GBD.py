@@ -6,10 +6,12 @@ from datetime import datetime
 from rra_tools.shell_tools import mkdir  # type: ignore
 from idd_forecast_mbp import constants as rfc
 from idd_forecast_mbp.helper_functions import check_column_for_problematic_values
-from idd_forecast_mbp.parquet_functions import read_parquet_with_integer_ids, write_parquet
+from idd_forecast_mbp.lib.io.parquet import read_parquet_with_integer_ids, write_parquet
+from idd_forecast_mbp.lib.io.netcdf import convert_to_xarray, write_netcdf
+from idd_forecast_mbp.lib.processing.raking import rake_aa_count_lsae_to_gbd
+from idd_forecast_mbp.lib.processing.aggregation import aggregate_aa_rate_lsae_to_gbd, make_rate_from_count
+from idd_forecast_mbp.lib.utils.diagnostics import check_concordance
 from idd_forecast_mbp.cause_processing_functions import format_aa_gbd_df, process_lsae_df
-from idd_forecast_mbp.rake_and_aggregate_functions import rake_aa_count_lsae_to_gbd, make_aa_full_rate_df_from_aa_count_df, check_concordance, aggregate_aa_rate_lsae_to_gbd
-from idd_forecast_mbp.xarray_functions import convert_to_xarray, write_netcdf
 
 PROCESSED_DATA_PATH = rfc.PROCESSED_DATA_PATH
 
@@ -84,7 +86,7 @@ aa_full_malaria_inc_count_df = rake_aa_count_lsae_to_gbd(count_variable = count_
 
 check_column_for_problematic_values(count_variable, aa_full_malaria_inc_count_df)
 
-aa_full_malaria_inc_rate_df = make_aa_full_rate_df_from_aa_count_df(rate_variable = rate_variable, 
+aa_full_malaria_inc_rate_df = make_rate_from_count(rate_variable = rate_variable, 
                                                             count_variable = count_variable, 
                                                             aa_full_count_df = aa_full_malaria_inc_count_df, 
                                                             aa_full_population_df = aa_full_population_df, 
@@ -140,7 +142,7 @@ aa_full_malaria_mort_count_df = rake_aa_count_lsae_to_gbd(count_variable = count
 
 check_column_for_problematic_values(count_variable, aa_full_malaria_mort_count_df)
 
-aa_full_malaria_mort_rate_df = make_aa_full_rate_df_from_aa_count_df(rate_variable = rate_variable, 
+aa_full_malaria_mort_rate_df = make_rate_from_count(rate_variable = rate_variable, 
                                                             count_variable = count_variable, 
                                                             aa_full_count_df = aa_full_malaria_mort_count_df, 
                                                             aa_full_population_df = aa_full_population_df, 
@@ -241,7 +243,7 @@ aa_full_dengue_inc_count_df = rake_aa_count_lsae_to_gbd(count_variable = count_v
 
 check_column_for_problematic_values(count_variable, aa_full_dengue_inc_count_df)
 
-aa_full_dengue_inc_rate_df = make_aa_full_rate_df_from_aa_count_df(rate_variable = rate_variable, 
+aa_full_dengue_inc_rate_df = make_rate_from_count(rate_variable = rate_variable, 
                                                             count_variable = count_variable, 
                                                             aa_full_count_df = aa_full_dengue_inc_count_df, 
                                                             aa_full_population_df = aa_full_population_df, 
@@ -299,7 +301,7 @@ aa_full_dengue_mort_count_df = rake_aa_count_lsae_to_gbd(count_variable = count_
 
 check_column_for_problematic_values(count_variable, aa_full_dengue_mort_count_df)
 
-aa_full_dengue_mort_rate_df = make_aa_full_rate_df_from_aa_count_df(rate_variable = rate_variable, 
+aa_full_dengue_mort_rate_df = make_rate_from_count(rate_variable = rate_variable, 
                                                             count_variable = count_variable, 
                                                             aa_full_count_df = aa_full_dengue_mort_count_df, 
                                                             aa_full_population_df = aa_full_population_df, 
@@ -346,7 +348,7 @@ aa_full_dengue_inc_count_df = rake_aa_count_lsae_to_gbd(count_variable = "dengue
 
 check_column_for_problematic_values('dengue_inc_count', aa_full_dengue_inc_count_df)
 
-aa_full_dengue_inc_rate_df = make_aa_full_rate_df_from_aa_count_df(rate_variable = "dengue_inc_rate", 
+aa_full_dengue_inc_rate_df = make_rate_from_count(rate_variable = "dengue_inc_rate", 
                                                             count_variable = "dengue_inc_count", 
                                                             aa_full_count_df = aa_full_dengue_inc_count_df, 
                                                             aa_full_population_df = aa_full_population_df, 

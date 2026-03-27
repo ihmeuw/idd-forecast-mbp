@@ -1,6 +1,6 @@
 from idd_forecast_mbp import constants as rfc
-from idd_forecast_mbp.helper_functions import read_parquet_with_integer_ids
-from idd_forecast_mbp.rake_and_aggregate_functions import make_aa_df_square
+from idd_forecast_mbp.lib.io.parquet import read_parquet_with_integer_ids
+from idd_forecast_mbp.lib.processing.helpers import make_aa_df_square
 
 measure_map = rfc.measure_map
 malaria_variables = rfc.malaria_variables
