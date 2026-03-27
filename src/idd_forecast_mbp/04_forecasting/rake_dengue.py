@@ -13,8 +13,9 @@ import os
 import sys
 import itertools
 from idd_forecast_mbp import constants as rfc
-from idd_forecast_mbp.parquet_functions import read_parquet_with_integer_ids, write_parquet
-from idd_forecast_mbp.xarray_functions import read_netcdf_with_integer_ids, write_netcdf, convert_with_preset
+from idd_forecast_mbp.lib.io.parquet import read_parquet_with_integer_ids, write_parquet
+from idd_forecast_mbp.lib.io.netcdf import read_netcdf_with_integer_ids, write_netcdf, convert_with_preset
+from idd_forecast_mbp.lib.utils.transforms import logit
 import glob
 
 import argparse
@@ -161,9 +162,8 @@ as_md_dengue_modeling_df["dengue_cfr"] = as_md_dengue_modeling_df["dengue_mort_r
 
 covariates_to_logit_transform = ['dengue_cfr']
 for col in covariates_to_logit_transform:
-    clipped_values = as_md_dengue_modeling_df[col].clip(upper=0.99)
     print(f"Range of {col}: {as_md_dengue_modeling_df[col].min()} to {as_md_dengue_modeling_df[col].max()}")
-    as_md_dengue_modeling_df[f"logit_{col}"] = np.log(clipped_values / (1 - clipped_values))
+    as_md_dengue_modeling_df[f"logit_{col}"] = logit(as_md_dengue_modeling_df[col])
 
 cfr_rake_df = as_md_dengue_modeling_df[as_merge_variables + ['logit_dengue_cfr']].copy()
 
