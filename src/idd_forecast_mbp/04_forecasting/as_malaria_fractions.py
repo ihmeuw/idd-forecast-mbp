@@ -25,8 +25,9 @@ import gc
 import sys
 import itertools
 from idd_forecast_mbp import constants as rfc
-from idd_forecast_mbp.parquet_functions import read_parquet_with_integer_ids, write_parquet
-from idd_forecast_mbp.xarray_functions import convert_with_preset, write_netcdf, read_netcdf_with_integer_ids
+from idd_forecast_mbp.lib.io.parquet import read_parquet_with_integer_ids, write_parquet
+from idd_forecast_mbp.lib.io.netcdf import convert_with_preset, write_netcdf, read_netcdf_with_integer_ids
+from idd_forecast_mbp.lib.processing.disaggregation import disaggregate_age_sex_malaria
 import glob
 
 # Memory and time tracking function
@@ -233,33 +234,8 @@ del as_md_gbd_malaria_df
 gc.collect()
 
 
-forecast_df['rr_inc_as_pop'] = forecast_df['rr_inc_as'] * forecast_df['population']
-forecast_df['rr_mort_as_pop'] = forecast_df['rr_mort_as'] * forecast_df['population']
-
-
-forecast_df['sum_rr_inc_as_pop'] = forecast_df.groupby(['location_id', 'year_id'])['rr_inc_as_pop'].transform('sum')
-forecast_df['sum_rr_mort_as_pop'] = forecast_df.groupby(['location_id', 'year_id'])['rr_mort_as_pop'].transform('sum')
-
-
-forecast_df['inc_fraction'] = forecast_df['rr_inc_as_pop'] / forecast_df['sum_rr_inc_as_pop']
-forecast_df['mort_fraction'] = forecast_df['rr_mort_as_pop'] / forecast_df['sum_rr_mort_as_pop']
-
-
-forecast_df.drop(columns=['rr_inc_as_pop', 'rr_mort_as_pop', 'sum_rr_inc_as_pop', 'sum_rr_mort_as_pop', 'rr_inc_as', 'rr_mort_as','population'], inplace=True)
-
-
-forecast_df['malaria_inc_count_pred'] = forecast_df['inc_fraction'] * forecast_df['aa_malaria_inc_count']
-forecast_df['malaria_mort_count_pred'] = forecast_df['mort_fraction'] * forecast_df['aa_malaria_mort_count']
-# Set any row with age_group_id 2 to zero for incidence and mortality counts
-forecast_df.loc[forecast_df['age_group_id'] == 2, 'malaria_inc_count_pred'] = 0
-forecast_df.loc[forecast_df['age_group_id'] == 2, 'malaria_mort_count_pred'] = 0
-
-
-
-# Drop fraction columns as they are no longer needed
-
-forecast_df.drop(columns=['inc_fraction', 'mort_fraction'], inplace=True)
-#
+forecast_df = disaggregate_age_sex_malaria(forecast_df)
+forecast_df = forecast_df.drop(columns=['rr_inc_as', 'rr_mort_as', 'population'])
 
 non_measure_columns = [col for col in forecast_df.columns if 'inc' not in col and 'mort' not in col]
 incidence_columns = [col for col in forecast_df.columns if 'inc' in col]
