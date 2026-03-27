@@ -3,11 +3,47 @@ Shared processing helpers used across lib/processing/ and by pipeline scripts.
 
 make_aa_df_square: fills missing location/year rows with zeros.
 prep_df:           adds hierarchy level column, drops parent_id.
+level_filter:      builds a parquet location_id filter for given level range.
 """
 
 from __future__ import annotations
 
 import pandas as pd
+
+
+def level_filter(
+    hierarchy_df: pd.DataFrame,
+    start_level: int,
+    end_level: int | None = None,
+    return_ids: bool = False,
+) -> tuple | tuple[tuple, list]:
+    """Build a parquet location_id filter for hierarchy levels [start_level, end_level].
+
+    Parameters
+    ----------
+    hierarchy_df:
+        Full hierarchy DataFrame with 'location_id' and 'level' columns.
+    start_level:
+        Lowest level to include (inclusive).
+    end_level:
+        Highest level to include (inclusive). Defaults to start_level.
+    return_ids:
+        If True, return (filter_tuple, location_ids_list).
+        If False (default), return filter_tuple only.
+
+    # Extracted from: helper_functions.py:92
+    """
+    if end_level is None:
+        end_level = start_level
+    levels_to_filter_on = list(range(start_level, end_level + 1))
+    location_ids = (
+        hierarchy_df[hierarchy_df['level'].isin(levels_to_filter_on)]
+        ['location_id'].unique().tolist()
+    )
+    location_filter = ('location_id', 'in', location_ids)
+    if return_ids:
+        return location_filter, location_ids
+    return location_filter
 
 
 def prep_df(df: pd.DataFrame, hierarchy_df: pd.DataFrame) -> pd.DataFrame:

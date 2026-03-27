@@ -8,8 +8,9 @@ from typing import Literal, NamedTuple
 import itertools
 from rra_tools.shell_tools import mkdir # type: ignore
 from idd_forecast_mbp import constants as rfc
-from idd_forecast_mbp.helper_functions import merge_dataframes, read_income_paths, read_urban_paths, level_filter
-from idd_forecast_mbp.parquet_functions import read_parquet_with_integer_ids, write_parquet
+from idd_forecast_mbp.lib.io.parquet import read_parquet_with_integer_ids, write_parquet
+from idd_forecast_mbp.lib.processing.helpers import level_filter
+from idd_forecast_mbp.lib.processing.scenarios import generate_dah_scenarios
 
 import argparse
 parser = argparse.ArgumentParser(description="Add DAH Sceanrios and create draw level dataframes for forecating malaria")
@@ -70,152 +71,6 @@ cc_sensitive_paths = {
     "relative_humidity":        "{CLIMATE_DATA_PATH}/relative_humidity_{ssp_scenario}.parquet",
     "malaria_suitability":      "{CLIMATE_DATA_PATH}/malaria_suitability_{ssp_scenario}.parquet",
 }
-
-####################################
-
-def generate_dah_scenarios(
-    baseline_df,
-    ssp_scenario,
-    year_start = 2000,
-    reference_year=2023,
-    modification_start_year=2026,
-    dah_scenario_names=None
-):
-    """
-    Generate DAH funding scenarios for malaria forecasting.
-    
-    This function creates four scenarios:
-    1. Baseline: Original DAH projections
-    2. Constant: Holds DAH at reference_year levels for future years
-    3. Increasing: Progressively increases DAH (1.2, 1.4, 1.6, 1.8, 2.0)
-    4. Decreasing: Progressively decreases DAH (0.8, 0.6, 0.4, 0.2, 0.0)
-    
-    Parameters
-    ----------
-    ssp_scenarios : list
-        List of SSP climate scenario names
-    draw : str
-        Draw identifier
-    forecasting_data_path : str
-        Path to forecasting data
-    malaria_forecasting_df_path : str
-        Template for malaria forecasting data path with format parameters
-    hierarchy_df : pandas.DataFrame
-        Hierarchy data with location and super region information
-    year_start : int
-        Starting year for filtering data
-    reference_year : int, optional
-        Year to use as reference for constant scenario, default 2023
-    modification_start_year : int, optional
-        Year to start the increasing/decreasing changes, default 2026
-    scenario_names : list, optional
-        Custom names for the scenarios, default ['Baseline', 'Constant', 'Increasing', 'Decreasing']
-    
-    Returns
-    -------
-    tuple
-        (dah_scenarios, dah_scenario_names) - List of scenario DataFrame lists and scenario names
-    """
-    # Set default scenario names if not provided
-    if dah_scenario_names is None:
-        dah_scenario_names = ['Baseline', 'Constant', 'Increasing', 'Decreasing']
-    
-    # Define modification schedules
-    increasing_factors = {
-        modification_start_year: 1.2,
-        modification_start_year + 1: 1.4,
-        modification_start_year + 2: 1.6,
-        modification_start_year + 3: 1.8,
-        modification_start_year + 4: 2.0
-    }
-    
-    decreasing_factors = {
-        modification_start_year: 0.8,
-        modification_start_year + 1: 0.6,
-        modification_start_year + 2: 0.4,
-        modification_start_year + 3: 0.2,
-        modification_start_year + 4: 0.0
-    }
-
-    # Process baseline data
-    baseline_df = baseline_df.copy() 
-    baseline_df = baseline_df[baseline_df['year_id'] >= year_start]
-    baseline_df["A0_location_id"] = baseline_df["A0_location_id"].astype(int)
-    baseline_df['A0_af'] = 'A0_' + baseline_df['A0_location_id'].astype(str)
-      
-    baseline_df['ssp_scenario'] = ssp_scenario
-    baseline_df['dah_scenario'] = 'Baseline'
-    
-    # Create Scenario 1: Constant DAH at reference year level
-    print(f"  Scenario 1: Constant DAH")
-    scenario_1_df = baseline_df.copy()
-    scenario_1_df['mal_DAH_total'] = scenario_1_df['mal_DAH_total_per_capita'] * scenario_1_df['aa_population']
-    
-    # Get reference year values and merge
-    values_ref_year = scenario_1_df[scenario_1_df['year_id'] == reference_year][['location_id', 'mal_DAH_total']]
-    scenario_1_df = scenario_1_df.merge(values_ref_year, on='location_id', suffixes=('', f'_{reference_year}'))
-    
-    # Replace future values with reference year values
-    mask = scenario_1_df['year_id'] >= reference_year + 1
-    scenario_1_df.loc[mask, 'mal_DAH_total'] = scenario_1_df.loc[mask, f'mal_DAH_total_{reference_year}']
-    
-    # Drop temporary column
-    scenario_1_df = scenario_1_df.drop(columns=f'mal_DAH_total_{reference_year}')
-    
-    # Recalculate per-capita values
-    scenario_1_df['mal_DAH_total_per_capita'] = scenario_1_df['mal_DAH_total'] / scenario_1_df['aa_population']
-
-    scenario_1_df['log_mal_DAH_total_per_capita'] = np.log(scenario_1_df['mal_DAH_total_per_capita'] + 1e-6)
-    scenario_1_df['ssp_scenario'] = ssp_scenario
-    scenario_1_df['dah_scenario'] = 'Constant'
-    
-    # Create Scenario 2: Increasing DAH
-    print(f"  Scenario 2: Increasing DAH")
-    scenario_2_df = baseline_df.copy()
-    
-    # Apply increasing factors to specific years
-    for year, factor in increasing_factors.items():
-        mask = scenario_2_df['year_id'] == year
-        scenario_2_df.loc[mask, 'mal_DAH_total_per_capita'] *= factor
-        scenario_2_df.loc[mask, 'mal_DAH_total'] *= factor
-    
-    # Apply maximum factor to all later years
-    max_factor = max(increasing_factors.values())
-    max_year = max(increasing_factors.keys())
-    mask = scenario_2_df['year_id'] > max_year
-    scenario_2_df.loc[mask, 'mal_DAH_total_per_capita'] *= max_factor
-    scenario_2_df.loc[mask, 'mal_DAH_total'] = scenario_2_df.loc[mask, 'mal_DAH_total_per_capita'] * scenario_2_df.loc[mask, 'aa_population']
-    
-    # Recalculate derived values
-    scenario_2_df['log_mal_DAH_total_per_capita'] = np.log(scenario_2_df['mal_DAH_total_per_capita'] + 1e-6)
-    scenario_2_df['ssp_scenario'] = ssp_scenario
-    scenario_2_df['dah_scenario'] = 'Increasing'
-    
-    # Create Scenario 3: Decreasing DAH
-    print(f"  Scenario 3: Decreasing DAH")
-    scenario_3_df = baseline_df.copy()
-    
-    # Apply decreasing factors to specific years
-    for year, factor in decreasing_factors.items():
-        mask = scenario_3_df['year_id'] == year
-        scenario_3_df.loc[mask, 'mal_DAH_total_per_capita'] *= factor
-        scenario_3_df.loc[mask, 'mal_DAH_total'] *= factor
-    
-    # Apply minimum factor to all later years
-    min_factor = min(decreasing_factors.values())
-    max_year = max(decreasing_factors.keys())
-    mask = scenario_3_df['year_id'] > max_year
-    scenario_3_df.loc[mask, 'mal_DAH_total_per_capita'] = min_factor  # Use 0 or min_factor
-    scenario_3_df.loc[mask, 'mal_DAH_total'] = min_factor * scenario_3_df.loc[mask, 'aa_population']
-    
-    # Recalculate derived values
-    scenario_3_df['log_mal_DAH_total_per_capita'] = np.log(scenario_3_df['mal_DAH_total_per_capita'] + 1e-6)
-    scenario_3_df['ssp_scenario'] = ssp_scenario
-    scenario_3_df['dah_scenario'] = 'Decreasing'
-    
-    # Group all scenarios
-    dah_scenarios = [baseline_df, scenario_1_df, scenario_2_df, scenario_3_df]    
-    return dah_scenarios, dah_scenario_names
 
 aa_malaria_df = read_parquet_with_integer_ids(aa_full_cause_df_path_template,
     filters=[level_filter(hierarchy_df, start_level = 3, end_level = 5)])
