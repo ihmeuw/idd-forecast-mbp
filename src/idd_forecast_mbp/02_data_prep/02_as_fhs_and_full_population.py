@@ -14,8 +14,8 @@ import os
 import sys
 import xarray as xr
 from idd_forecast_mbp import constants as rfc
-from idd_forecast_mbp.parquet_functions import read_parquet_with_integer_ids, write_parquet
-from idd_forecast_mbp.xarray_functions import read_netcdf_with_integer_ids, write_netcdf, convert_with_preset
+from idd_forecast_mbp.lib.io.parquet import read_parquet_with_integer_ids, write_parquet
+from idd_forecast_mbp.lib.io.netcdf import read_netcdf_with_integer_ids, write_netcdf, convert_with_preset
 
 age_type_map = {
     "all_age": {
