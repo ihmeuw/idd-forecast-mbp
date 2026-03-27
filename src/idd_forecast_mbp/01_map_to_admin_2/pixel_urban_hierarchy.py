@@ -6,7 +6,7 @@ from rra_tools.shell_tools import mkdir # type: ignore
 import numpy as np # type: ignore
 import argparse
 from idd_forecast_mbp import constants as rfc
-from idd_forecast_mbp.helper_functions import parse_yaml_dictionary
+from idd_forecast_mbp.lib.io.yaml import parse_yaml_dictionary
 import yaml
 
 parser = argparse.ArgumentParser(description="Run urban aggregation for climate data.")
