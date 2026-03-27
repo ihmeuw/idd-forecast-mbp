@@ -20,8 +20,9 @@ import os
 import sys
 import itertools
 from idd_forecast_mbp import constants as rfc
-from idd_forecast_mbp.parquet_functions import read_parquet_with_integer_ids, write_parquet
-from idd_forecast_mbp.xarray_functions import convert_with_preset, write_netcdf, read_netcdf_with_integer_ids
+from idd_forecast_mbp.lib.io.parquet import read_parquet_with_integer_ids, write_parquet
+from idd_forecast_mbp.lib.io.netcdf import convert_with_preset, write_netcdf, read_netcdf_with_integer_ids
+from idd_forecast_mbp.lib.processing.disaggregation import disaggregate_age_sex_dengue
 import glob
 
 import argparse
@@ -199,8 +200,7 @@ forecast_df = forecast_df.merge(as_md_gbd_dengue_df, on=['gbd_location_id', 'age
 forecast_df['base_log_dengue_inc_rate_pred'] = forecast_df['base_log_dengue_inc_rate_pred'].fillna(0)
 forecast_df['dengue_cfr_pred'] = forecast_df['dengue_cfr_pred'].fillna(0)
 
-forecast_df['dengue_inc_count_pred'] = forecast_df['population'] * np.exp(forecast_df['base_log_dengue_inc_rate_pred']) * forecast_df['rr_inc_as']
-forecast_df['dengue_mort_count_pred'] = forecast_df['dengue_inc_count_pred'] * forecast_df['dengue_cfr_pred']
+forecast_df = disaggregate_age_sex_dengue(forecast_df)
 
 keep_columns = as_merge_variables + ['population', 'dengue_inc_count_pred', 'dengue_mort_count_pred']
 forecast_df = forecast_df[keep_columns]
