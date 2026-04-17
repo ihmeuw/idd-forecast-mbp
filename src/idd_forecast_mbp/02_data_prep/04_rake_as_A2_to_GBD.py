@@ -17,7 +17,10 @@ def main(
     mal_raked_as_write_path: Path = mbpc.MAL_RAKED_AS_WRITE_PATH,
     den_raked_as_write_path: Path = mbpc.DEN_RAKED_AS_WRITE_PATH,
     gbd_data_path: Path = mbpc.GBD_DATA_PATH,
+    causes: list[str] = None,
 ) -> None:
+    if causes is None:
+        causes = ['malaria', 'dengue']
     gbd_data_path = Path(gbd_data_path)
     mal_raked_aa_read_path = Path(mal_raked_aa_read_path)
     den_raked_aa_read_path = Path(den_raked_aa_read_path)
@@ -80,7 +83,7 @@ def main(
     }
 
     metric = "count"
-    for cause in cause_map:
+    for cause in causes:
         print(f"Starting {cause} {metric}")
         as_full_dfs = []
         as_gbd_cause_df_path = as_gbd_cause_df_path_template.format(GBD_DATA_PATH=gbd_data_path, cause=cause)
