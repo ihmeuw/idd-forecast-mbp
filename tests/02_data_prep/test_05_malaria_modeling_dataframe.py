@@ -1,287 +1,168 @@
-################################################################
-### MALARIA MODELING DATA PREPARATION
-################################################################
+"""Regression tests for 05_malaria_modeling_dataframe.py.
 
-###----------------------------------------------------------###
-### 1. Setup and Configuration
-### Sets up the environment with necessary libraries, constants, and path definitions.
-### Establishes thresholds and directory structures for the modeling pipeline.
-###----------------------------------------------------------###
-import pytest
-import pandas as pd
-import numpy as np
-import os
-import sys
+Strategy: call main() with lsae_1209 golden inputs, write to tmp_path, compare
+all 5 output parquets against golden files.
+
+Small files (<2M rows): full exact comparison.
+Large files (as_md, rest_md ~13M rows): 5% location sample, exact cell-by-cell.
+
+Run with: pytest -m slow --no-cov tests/02_data_prep/test_05_malaria_modeling_dataframe.py
+"""
+import importlib.util
 from pathlib import Path
+
+import numpy as np
+import pandas as pd
+import pytest
+
 from idd_forecast_mbp import constants as mbpc
-from idd_forecast_mbp.lib.io.parquet import read_parquet_with_integer_ids, write_parquet
-from idd_forecast_mbp.lib.io.covariate_readers import merge_dataframes, read_income_paths, read_urban_paths
-from idd_forecast_mbp.lib.processing.helpers import level_filter
-import glob
 
-TEST_DIR = Path("/mnt/team/idd/pub/forecast-mbp/test_output/03-modeling_data")
+# ── Constants ─────────────────────────────────────────────────────────────────
 
-malaria_mortality_threshold = 1
+GOLDEN_HIERARCHY_ROOT = Path(
+    "/mnt/team/idd/pub/forecast-mbp/02-processed_data/hierarchy/lsae_1209/current"
+)
+GOLDEN_POPULATION_ROOT = Path(
+    "/mnt/team/idd/pub/forecast-mbp/02-processed_data/population/lsae_1209/current"
+)
+GOLDEN_MAL_AA_ROOT = Path(
+    "/mnt/team/idd/pub/forecast-mbp/02-processed_data/malaria/raked_aa/lsae_1209/current"
+)
+GOLDEN_MAL_AS_ROOT = Path(
+    "/mnt/team/idd/pub/forecast-mbp/02-processed_data/malaria/raked_as/lsae_1209/current"
+)
+GOLDEN_MODELING_ROOT = Path(
+    "/mnt/team/idd/pub/forecast-mbp/03-modeling_data/malaria/modeling_dfs/lsae_1209/current"
+)
+LSAE_INPUT_PATH = Path(
+    "/mnt/team/idd/pub/forecast-mbp/02-processed_data/lsae_1209"
+)
+DAH_READ_PATH = Path(
+    "/mnt/team/idd/pub/forecast-mbp/02-processed_data/covariates/dah/current"
+)
 
-# Hierarchy
-hierarchy = mbpc.LSAE_HIERARCHY
+SCRIPT_PATH = (
+    Path(__file__).parent.parent.parent
+    / "src/idd_forecast_mbp/02_data_prep/05_malaria_modeling_dataframe.py"
+)
 
-cause_map = mbpc.cause_map
-cause = 'malaria'
-reference_age_group_id = cause_map[cause]['reference_age_group_id']
-reference_sex_id = cause_map[cause]['reference_sex_id']
+# ── Helpers ───────────────────────────────────────────────────────────────────
 
-###----------------------------------------------------------###
-### 2. Path Configuration and Data Sources
-### Defines all file paths for input data including hierarchy, climate variables,
-### economic indicators, and health assistance data needed for modeling.
-###----------------------------------------------------------###
-aa_ge3_malaria_stage_1_modeling_df_path = TEST_DIR / f"aa_ge3_{cause}_stage_1_modeling_df.parquet"
-aa_md_malaria_pfpr_modeling_df_path = TEST_DIR / f"aa_md_{cause}_pfpr_modeling_df.parquet"
-as_md_modeling_df_path = TEST_DIR / f"as_md_{cause}_modeling_df.parquet"
-base_md_modeling_df_path = TEST_DIR / f"base_md_{cause}_modeling_df.parquet"
-rest_md_modeling_df_path = TEST_DIR / f"rest_md_{cause}_modeling_df.parquet"
+def _load_main():
+    spec = importlib.util.spec_from_file_location("05_malaria_modeling_dataframe", SCRIPT_PATH)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module.main
 
-aa_full_cause_df_path_template = mbpc.MAL_RAKED_AA_READ_PATH / f"aa_full_{cause}_df.parquet"
-as_full_cause_df_path_template = mbpc.MAL_RAKED_AS_READ_PATH / f"as_full_{cause}_df.parquet"
 
-full_2023_hierarchy_path = mbpc.HIERARCHY_READ_PATH / f"full_hierarchy_2023_{hierarchy}.parquet"
-age_sex_df_path = mbpc.POPULATION_READ_PATH / "age_sex_df.parquet"
-if not (mbpc.POPULATION_READ_PATH / "age_sex_df.parquet").exists():
-    pytest.skip(
-        "lsae_1285 population data not yet generated — run stages 01 and 02a/02b first.",
-        allow_module_level=True,
+def _sample_locs(golden_df, seed=42, frac=0.05):
+    rng = np.random.default_rng(seed=seed)
+    all_locs = golden_df["location_id"].unique()
+    return rng.choice(all_locs, size=max(1, int(len(all_locs) * frac)), replace=False)
+
+
+# ── Fixtures ──────────────────────────────────────────────────────────────────
+
+@pytest.fixture(scope="module")
+def modeling_output(tmp_path_factory):
+    """Run script 05 once; return the output directory."""
+    out_dir = tmp_path_factory.mktemp("05_malaria_modeling")
+    main = _load_main()
+    main(
+        lsae_hierarchy="lsae_1209",
+        hierarchy_read_path=GOLDEN_HIERARCHY_ROOT,
+        population_read_path=GOLDEN_POPULATION_ROOT,
+        mal_raked_aa_read_path=GOLDEN_MAL_AA_ROOT,
+        mal_raked_as_read_path=GOLDEN_MAL_AS_ROOT,
+        mal_modeling_write_path=out_dir,
+        dah_read_path=DAH_READ_PATH,
+        lsae_input_path=LSAE_INPUT_PATH,
+    )
+    return out_dir
+
+
+# ── Helper: schema + row count + values for one file ─────────────────────────
+
+def _check_file(out_dir, filename, sort_cols, value_cols, golden_root, sample=False):
+    result = pd.read_parquet(out_dir / filename)
+    golden = pd.read_parquet(golden_root / filename)
+
+    assert set(result.columns) == set(golden.columns), (
+        f"{filename} column mismatch.\n  Got: {sorted(result.columns)}\n"
+        f"  Expected: {sorted(golden.columns)}"
+    )
+    assert len(result) == len(golden), (
+        f"{filename} row count mismatch. Got {len(result)}, expected {len(golden)}"
     )
 
-hierarchy_df = read_parquet_with_integer_ids(full_2023_hierarchy_path)
-age_sex_df = read_parquet_with_integer_ids(age_sex_df_path)
+    if sample:
+        locs = _sample_locs(golden)
+        result = result[result["location_id"].isin(locs)]
+        golden = golden[golden["location_id"].isin(locs)]
 
-# LSAE variable path
-VARIABLE_DATA_PATH = str(mbpc.LSAE_INPUT_PATH)
-# Climate variable path
-CLIMATE_DATA_PATH = f"/mnt/team/rapidresponse/pub/climate-aggregates/2025_03_20/results/{hierarchy}"
+    result = result.sort_values(sort_cols).reset_index(drop=True)
+    golden = golden.sort_values(sort_cols).reset_index(drop=True)
 
-# ppp
-income_paths = {
-    "gdppc":                   "{VARIABLE_DATA_PATH}/gdppc_mean.parquet",
-    "ldipc":                   "{VARIABLE_DATA_PATH}/ldipc_mean.parquet"
-}
-# DAH
-dah_df_path = f"{VARIABLE_DATA_PATH}/dah_df.parquet"
-# Population
-population_path = "{VARIABLE_DATA_PATH}/population.parquet"
-# Urban paths
-urban_paths = {
-    "urban_threshold_300":      "{VARIABLE_DATA_PATH}/urban_threshold_300.0_simple_mean.parquet",
-    "urban_threshold_1500":     "{VARIABLE_DATA_PATH}/urban_threshold_1500.0_simple_mean.parquet",
-}
-# Climate variables
-cc_sensitive_paths = {
-    "total_precipitation":      "{CLIMATE_DATA_PATH}/total_precipitation_{ssp_scenario}.parquet",
-    "precipitation_days":       "{CLIMATE_DATA_PATH}/precipitation_days_{ssp_scenario}.parquet",
-    "relative_humidity":        "{CLIMATE_DATA_PATH}/relative_humidity_{ssp_scenario}.parquet",
-    "wind_speed":               "{CLIMATE_DATA_PATH}/wind_speed_{ssp_scenario}.parquet",
-    "mean_temperature":         "{CLIMATE_DATA_PATH}/mean_temperature_{ssp_scenario}.parquet",
-    "mean_low_temperature":     "{CLIMATE_DATA_PATH}/mean_low_temperature_{ssp_scenario}.parquet",
-    "mean_high_temperature":    "{CLIMATE_DATA_PATH}/mean_high_temperature_{ssp_scenario}.parquet",
-    "malaria_suitability":      "{CLIMATE_DATA_PATH}/malaria_suitability_{ssp_scenario}.parquet",
-    "flooding":                 "/mnt/team/rapidresponse/pub/flooding/results/output/lsae_1209/fldfrc_shifted0.1_sum_{ssp_scenario}_mean_r1i1p1f1.parquet"
-}
-
-## Past data
-ssp_scenarios =  mbpc.ssp_scenarios
-ssp_scenario = list(ssp_scenarios.keys())[0]
-rcp_scenario = ssp_scenarios[ssp_scenario]["rcp_scenario"]
+    for col in value_cols:
+        np.testing.assert_allclose(
+            result[col].values, golden[col].values,
+            rtol=1e-10, atol=1e-12, equal_nan=True,
+            err_msg=f"{filename}: value mismatch in '{col}'",
+        )
 
 
-years = list(range(2000, 2023))
-year_filter = ('year_id', 'in', years)
-sex_ids = [1, 2]
-sex_filter = ('sex_id', 'in', sex_ids)
+# ── Tests ─────────────────────────────────────────────────────────────────────
 
-age_group_ids = age_sex_df['age_group_id'].unique().tolist()
-age_filter = ('age_group_id', 'in', age_group_ids)
-
-aa_merge_variables = mbpc.aa_merge_variables
-as_merge_variables = mbpc.as_merge_variables
-
-###----------------------------------------------------------###
-### 4. Data Loading and Integration
-### Loads the base malaria dataset and integrates various predictor variables
-### including development assistance, urbanization metrics, income data,
-### and climate variables from different sources.
-###----------------------------------------------------------###
+@pytest.mark.slow
+def test_aa_ge3_stage1(modeling_output):
+    _check_file(
+        modeling_output, "aa_ge3_malaria_stage_1_modeling_df.parquet",
+        sort_cols=["location_id", "year_id"],
+        value_cols=["malaria_inc_count", "malaria_mort_count", "malaria_pfpr", "mean_temperature", "malaria_suitability"],
+        golden_root=GOLDEN_MODELING_ROOT,
+        sample=False,
+    )
 
 
-# Load core malaria data
-malaria_df = read_parquet_with_integer_ids(aa_full_cause_df_path_template,
-filters=[year_filter, level_filter(hierarchy_df, start_level = 3, end_level = 5)])
-# Read and merge development assistance data
-dah_df = read_parquet_with_integer_ids(dah_df_path)
-malaria_df = pd.merge(malaria_df,
-                      dah_df[aa_merge_variables + ['mal_DAH_total','mal_DAH_total_per_capita']],
-                      on = aa_merge_variables, how="left")
+@pytest.mark.slow
+def test_aa_md_pfpr(modeling_output):
+    _check_file(
+        modeling_output, "aa_md_malaria_pfpr_modeling_df.parquet",
+        sort_cols=["location_id", "year_id"],
+        value_cols=["malaria_inc_count", "malaria_mort_count", "malaria_pfpr", "logit_malaria_pfpr", "A0_malaria_pfpr"],
+        golden_root=GOLDEN_MODELING_ROOT,
+        sample=False,
+    )
 
-# Load and merge urbanization metrics
-urban_dfs = read_urban_paths(urban_paths, VARIABLE_DATA_PATH)
-malaria_df = merge_dataframes(malaria_df, urban_dfs)
-# Set the max value of any urban threshold to 1
-for col in [c for c in malaria_df.columns if "urban" in c]:
-    malaria_df[col] = malaria_df[col].clip(upper=1)
 
-# Load and merge income metrics
-income_dfs = read_income_paths(income_paths, rcp_scenario, VARIABLE_DATA_PATH)
-malaria_df = merge_dataframes(malaria_df, income_dfs)
+@pytest.mark.slow
+def test_as_md(modeling_output):
+    _check_file(
+        modeling_output, "as_md_malaria_modeling_df.parquet",
+        sort_cols=["location_id", "year_id", "age_group_id", "sex_id"],
+        value_cols=["malaria_mort_rate", "malaria_inc_rate", "log_malaria_mort_rate", "malaria_pfpr"],
+        golden_root=GOLDEN_MODELING_ROOT,
+        sample=True,
+    )
 
-# Load and merge climate variables
-for key, path_template in cc_sensitive_paths.items():
-    # Replace {ssp_scenario} in the path with the current ssp_scenario
-    path = path_template.format(CLIMATE_DATA_PATH=CLIMATE_DATA_PATH, ssp_scenario=ssp_scenario)
-    print(f"Reading {key} data from {path}")
-    # Read the parquet file
-    if key == "flooding":
-        df = read_parquet_with_integer_ids(path, filters=[[level_filter(hierarchy_df, start_level = 3, end_level = 5), year_filter]])
-        df = df.drop(columns=["model", "scenario", "variant", "population"], errors='ignore')
-    else:
-        # Select only the relevant columns
-        columns_to_read = ["location_id", "year_id", "000"]
-        df = read_parquet_with_integer_ids(path, columns=columns_to_read, filters=[[level_filter(hierarchy_df, start_level = 3, end_level = 5), year_filter]])
-        # Rename the 000 column to the key
-        df = df.rename(columns={"000": key})
-    # Merge the file with malaria_df
-    malaria_df = pd.merge(malaria_df, df, on=["location_id", "year_id"], how="left")
 
-###----------------------------------------------------------###
-### 5. Stage 1 Modeling Data
-### Completes the comprehensive data integration and saves the full dataset
-### for initial modeling before further refinement.
-###----------------------------------------------------------###
-# Save stage 1 malaria_df to a parquet file
-write_parquet(malaria_df, aa_ge3_malaria_stage_1_modeling_df_path)
+@pytest.mark.slow
+def test_base_md(modeling_output):
+    _check_file(
+        modeling_output, "base_md_malaria_modeling_df.parquet",
+        sort_cols=["location_id", "year_id", "age_group_id", "sex_id"],
+        value_cols=["base_malaria_mort_rate", "base_malaria_inc_rate", "base_malaria_pfpr", "base_logit_malaria_pfpr"],
+        golden_root=GOLDEN_MODELING_ROOT,
+        sample=False,
+    )
 
-###----------------------------------------------------------###
-### 6. Stage 2 Data Filtering and Selection
-### Filters the dataset to focus on high-burden malaria areas and
-### the most detailed geographic units with sufficient data for
-### meaningful analysis and prediction.
-###----------------------------------------------------------###
-malaria_stage_2_df = malaria_df.copy()
-malaria_stage_2_df = malaria_stage_2_df.merge(hierarchy_df[["location_id", "level", "A0_location_id", "most_detailed_lsae"]], on=["location_id"], how="left")
 
-# Remove rows with missing mortality data
-malaria_stage_2_df = malaria_stage_2_df[malaria_stage_2_df["malaria_mort_count"].notna()]
-
-# Filter out zero-value or invalid data points
-malaria_stage_2_df = malaria_stage_2_df[
-    (malaria_stage_2_df["malaria_pfpr"] > 0) &
-    (malaria_stage_2_df["malaria_mort_count"] > 0) &
-    (malaria_stage_2_df["malaria_inc_count"] >= 0)
-]
-malaria_stage_2_df = malaria_stage_2_df.copy()
-
-# Select countries with significant malaria burden (mortality > threshold)
-A0_malaria_stage_2_df = malaria_stage_2_df[(malaria_stage_2_df["location_id"] == malaria_stage_2_df["A0_location_id"]) & (malaria_stage_2_df["year_id"] == 2022)].copy()
-A0_malaria_stage_2_df = A0_malaria_stage_2_df.rename(columns={
-    "malaria_pfpr": "A0_malaria_pfpr",
-    "malaria_mort_count": "A0_malaria_mort_count",
-    "malaria_inc_count": "A0_malaria_inc_count"})
-
-A0_malaria_stage_2_df = A0_malaria_stage_2_df[A0_malaria_stage_2_df["A0_malaria_mort_count"] >= malaria_mortality_threshold]
-phase_2_A0_location_ids = A0_malaria_stage_2_df["A0_location_id"].unique()
-
-# Subset to high-burden countries and most detailed geographic units
-malaria_stage_2_df = malaria_stage_2_df[malaria_stage_2_df["A0_location_id"].isin(phase_2_A0_location_ids)]
-malaria_stage_2_df = malaria_stage_2_df.merge(A0_malaria_stage_2_df[["A0_location_id", "A0_malaria_pfpr", "A0_malaria_mort_count", "A0_malaria_inc_count"]], on=["A0_location_id"], how="left")
-
-###----------------------------------------------------------###
-### 7. Feature Engineering and Transformations
-### Applies appropriate transformations to variables to improve model fit
-### and statistical properties, creating derived features needed for modeling.
-###----------------------------------------------------------###
-# Create country-level factor variable for fixed effects modeling
-malaria_stage_2_df["A0_location_id"] = malaria_stage_2_df["A0_location_id"].astype(int)
-malaria_stage_2_df['A0_af'] = 'A0_' + malaria_stage_2_df['A0_location_id'].astype(str)
-malaria_stage_2_df['A0_af'] = malaria_stage_2_df['A0_af'].astype('category')
-# Remove rows with missing economic data
-malaria_stage_2_df = malaria_stage_2_df[malaria_stage_2_df["gdppc_mean"].notna()]
-malaria_stage_2_df = malaria_stage_2_df[malaria_stage_2_df["most_detailed_lsae"] == 1]
-# Define variables that need log transformation
-covariates_to_log_transform = [
-    "mal_DAH_total_per_capita",
-    "gdppc_mean",
-    "ldipc_mean",
-]
-
-# Apply log transformations
-for col in covariates_to_log_transform:
-    malaria_stage_2_df[f"log_{col}"] = np.log(malaria_stage_2_df[col] + 1e-6)
-
-# Find urban variables for logit transformation
-covariates_to_logit_transform = [col for col in malaria_stage_2_df.columns if "urban" in col]
-
-# Apply logit transformations to urbanization variables
-for col in covariates_to_logit_transform:
-    clipped_values = malaria_stage_2_df[col].clip(lower=0.001, upper=0.999)
-    malaria_stage_2_df[f"logit_{col}"] = np.log(clipped_values / (1 - clipped_values))
-
-# Apply logit transform to malaria prevalence (PfPR)
-malaria_stage_2_df[f"logit_malaria_pfpr"] = np.log(0.999 * malaria_stage_2_df["malaria_pfpr"] / (1 - 0.999 * malaria_stage_2_df["malaria_pfpr"]))
-# Save stage 1 malaria_df to a parquet file
-write_parquet(malaria_stage_2_df, aa_md_malaria_pfpr_modeling_df_path)
-###----------------------------------------------------------###
-### 8. Final Modeling Dataset Preparation
-### Prepares the final dataset for modeling by selecting relevant columns,
-### merging to the age-sex-location-year level, and saving the final dataset.
-###----------------------------------------------------------###
-aa_md_malaria_pfpr_modeling_df_path = TEST_DIR / "aa_md_malaria_pfpr_modeling_df.parquet"
-
-stage_2_df_columns_to_keep = ['location_id', 'year_id', 'malaria_pfpr',
-    'mal_DAH_total', 'mal_DAH_total_per_capita', 'urban_1km_threshold_300',
-    'urban_100m_threshold_300', 'urban_1km_threshold_1500', 'urban_100m_threshold_1500', 'gdppc_mean',
-    'total_precipitation', 'relative_humidity', 'mean_temperature',
-    'mean_high_temperature', 'malaria_suitability', 'people_flood_days_per_capita', 'A0_location_id',
-    "A0_malaria_pfpr", "A0_malaria_mort_count", "A0_malaria_inc_count",
-    'A0_af', 'log_mal_DAH_total_per_capita', 'log_gdppc_mean', 'logit_urban_1km_threshold_300',
-    'logit_urban_100m_threshold_300', 'logit_urban_1km_threshold_1500', 'logit_urban_100m_threshold_1500', 'logit_malaria_pfpr']
-malaria_stage_3_df = malaria_stage_2_df[stage_2_df_columns_to_keep].copy()
-
-md_location_ids = malaria_stage_3_df["location_id"].unique().tolist()
-md_location_filter = ('location_id', 'in', md_location_ids)
-
-as_md_df = read_parquet_with_integer_ids(as_full_cause_df_path_template,
-columns=as_merge_variables + ["malaria_mort_rate","malaria_inc_rate"],
-filters=[year_filter, md_location_filter, age_filter, sex_filter])
-
-covariates_to_log_transform = [
-    "malaria_mort_rate",
-    "malaria_inc_rate"
-]
-# Apply log transformations
-for col in covariates_to_log_transform:
-    as_md_df[f"log_{col}"] = np.log(as_md_df[col])
-
-as_md_modeling_df = as_md_df.merge(malaria_stage_3_df, on=["location_id", "year_id"], how="left")
-as_md_modeling_df = as_md_modeling_df[~as_md_modeling_df["A0_af"].isna()]
-
-as_md_modeling_df = as_md_modeling_df[~(as_md_modeling_df["age_group_id"] == 2)]
-as_md_modeling_df["as_id"] = "a" + as_md_modeling_df["age_group_id"].astype(str) + "_s" + as_md_modeling_df["sex_id"].astype(str)
-
-write_parquet(as_md_modeling_df, as_md_modeling_df_path)
-
-cause_columns = list([col for col in as_md_modeling_df.columns if cause in col and "suit" not in col])
-base_md_modeling_df = as_md_modeling_df[(as_md_modeling_df['age_group_id'] == reference_age_group_id) & (as_md_modeling_df['sex_id'] == reference_sex_id)].copy()
-# Add 'base_' prefix to every cause_column in base_md_modeling_df
-base_column_mapping = {col: f'base_{col}' for col in cause_columns}
-base_md_modeling_df = base_md_modeling_df.rename(columns=base_column_mapping)
-
-rest_md_modeling_df = as_md_modeling_df[~((as_md_modeling_df['age_group_id'] == reference_age_group_id) & (as_md_modeling_df['sex_id'] == reference_sex_id))].copy()
-# Merge rest_md_modeling_df with the base data
-rest_md_modeling_df = rest_md_modeling_df.merge(base_md_modeling_df[aa_merge_variables + [f'base_{col}' for col in cause_columns]],
-on=aa_merge_variables,
-how='left')
-
-rest_md_modeling_df["as_id"] = "a" + rest_md_modeling_df["age_group_id"].astype(str) + "_s" + rest_md_modeling_df["sex_id"].astype(str)
-rest_md_modeling_df['as_id'] = rest_md_modeling_df['as_id'].astype('category')
-
-write_parquet(base_md_modeling_df, base_md_modeling_df_path)
-write_parquet(rest_md_modeling_df, rest_md_modeling_df_path)
+@pytest.mark.slow
+def test_rest_md(modeling_output):
+    _check_file(
+        modeling_output, "rest_md_malaria_modeling_df.parquet",
+        sort_cols=["location_id", "year_id", "age_group_id", "sex_id"],
+        value_cols=["malaria_mort_rate", "malaria_inc_rate", "log_malaria_mort_rate", "base_malaria_pfpr"],
+        golden_root=GOLDEN_MODELING_ROOT,
+        sample=True,
+    )

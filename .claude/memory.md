@@ -1,30 +1,32 @@
 # Session memory
-Updated: 2026-04-17 11:30
+Updated: 2026-04-17 16:45
 
 ## Current task
-Regression tests for stage 02 scripts — in progress after archiving dead script.
+All stage 02 regression tests complete and passing. Ready for stage 04 triage/restructuring.
 
 ## Context / why
-Scripts had all logic at module level; adding main() functions so regression tests can call them with lsae_1209 golden inputs and compare against golden files.
+Branch `feature/refactor-shared-lib` refactored all stage 02 scripts to use `lib/` imports. We verified the refactor didn't break anything by comparing outputs against versioned golden files.
 
 ## Where we are
-- Script 03 (make_covariate_means) was found to be dead — nothing downstream reads covariate_means.nc — and archived to archive/02_data_prep/
-- Scripts renumbered: old 04–10 → new 03–09; tests renumbered to match
-- constants.py and versioning.py cleaned of COV_MEANS / _A03_COV_MEANS references
-- test_03_make_covariate_means.py archived (was written but never passed)
-- New numbering: 03=rake_aa, 04=rake_as, 05=malaria_modeling_df, 06=dengue_modeling_df, 07=forecasted_non_draw, 08=forecasted_malaria_parallel, 09=forecasted_dengue_parallel
+Tests written and passing:
+- test_03_rake_aa_A2_to_GBD.py — 6 passed
+- test_04_rake_as_A2_to_GBD.py — 6 passed
+- test_05_malaria_modeling_dataframe.py — 5 passed
+- test_06_dengue_modeling_dataframe.py — SKIP: golden (`pre_restructure`) used `yn==1` logic changed in commit 9aef0f2 before the refactor. Values identical for shared locations. Science decision deferred to lsae_1285 run.
+- test_07_forecasted_dataframes_non_draw_part.py — 6 passed
+- test_08_forecasted_malaria_draw_dataframes.py — 5 passed (base draw + 4 DAH scenarios)
+- test_09_forecasted_dengue_draw_dataframes.py — 1 passed
 
-## Next steps (ordered)
-1. Commit current changes (archive + renumber + notebook)
-2. Write test_03_rake_aa_A2_to_GBD.py (was test_04)
-3. Write test_04_rake_as_A2_to_GBD.py
-4. Continue through 05, 06, 07
-5. After all tests pass: run scripts with lsae_1285 to generate versioned outputs
-6. Scripts 08–09 deferred until stage 04 restructuring
+Scripts 08/09 (`forecasted_draw_specific_malaria/dengue_dataframes.py`) had `main()` added and argparse moved to `if __name__ == "__main__":` block.
+
+Stage 04 (`/mnt/team/idd/pub/forecast-mbp/04-forecasting_data`) is a flat unversioned directory with >4TB. Needs versioning restructure (like stages 01-03) before efficiency redesign.
+
+## Next steps
+1. Update DECISIONS.md with test_06 finding (pre-refactor logic change, not the refactor)
+2. Commit all test + script changes on this branch
+3. Stage 04 triage: categorize all files in `04-forecasting_data/` into version buckets
+4. Stage 04 restructuring: create versioned directories, move files, create symlinks
+5. Stage 04 efficiency redesign (deferred — "not a today task")
 
 ## Resume prompt
-Refactor branch feature/refactor-shared-lib. Stage 02 data prep regression tests in progress.
-Script 03 (make_covariate_means) was archived as dead code — nothing reads its output.
-Scripts renumbered 04–10 → 03–09. Next: write test_03_rake_aa_A2_to_GBD.py using the same
-pattern as the archived test_03 (importlib loads main(), fixture calls with lsae_1209 golden inputs,
-compare output against golden in /mnt/team/idd/pub/forecast-mbp/02-processed_data/raked_aa/).
+On branch `feature/refactor-shared-lib`. All stage 02 regression tests written and passing (03, 04, 05, 07, 08, 09). Test 06 (dengue modeling) skipped — golden mismatch due to pre-refactor logic change in commit 9aef0f2, not the refactor itself. Scripts 08/09 had `main()` added with parameterized read/write paths; argparse moved to `__main__` block. Uncommitted changes include: new test files 08 and 09, refactored scripts 08/09. DECISIONS.md needs update about test_06. Then stage 04 triage: the flat unversioned `04-forecasting_data/` needs versioning like stages 01-03. Bobby said "we must do 1 [versioning] first, then 2 and 3 [efficiency]."

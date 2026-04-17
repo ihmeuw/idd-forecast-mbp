@@ -1,11 +1,11 @@
-"""Regression tests for 07_forecasted_dataframes_non_draw_part.py.
+"""Regression tests for forecasted_draw_specific_malaria_dataframes.py.
 
-Strategy: call main() with lsae_1209 golden inputs, write to tmp_path, compare
-all 6 output parquets (3 SSP scenarios × 2 causes) against golden files.
+Strategy: call main() with lsae_1209 golden inputs, ssp245, draw 000.
+Compare main draw file + 4 DAH scenario files against golden parquets.
 
-~4.8M rows per file: full exact comparison.
+~1.7M rows per file: 5% location sample.
 
-Run with: pytest -m slow --no-cov tests/02_data_prep/test_07_forecasted_dataframes_non_draw_part.py
+Run with: pytest -m slow --no-cov tests/02_data_prep/test_08_forecasted_malaria_draw_dataframes.py
 """
 import importlib.util
 from pathlib import Path
@@ -21,48 +21,58 @@ from idd_forecast_mbp import constants as mbpc
 GOLDEN_HIERARCHY_ROOT = Path(
     "/mnt/team/idd/pub/forecast-mbp/02-processed_data/hierarchy/lsae_1209/current"
 )
-GOLDEN_POPULATION_ROOT = Path(
-    "/mnt/team/idd/pub/forecast-mbp/02-processed_data/population/lsae_1209/current"
+GOLDEN_MAL_AA_ROOT = Path(
+    "/mnt/team/idd/pub/forecast-mbp/02-processed_data/malaria/raked_aa/lsae_1209/current"
 )
-LSAE_INPUT_PATH = Path(
-    "/mnt/team/idd/pub/forecast-mbp/02-processed_data/lsae_1209"
-)
-DAH_READ_PATH = Path(
-    "/mnt/team/idd/pub/forecast-mbp/02-processed_data/covariates/dah/current"
+GOLDEN_MAL_AS_ROOT = Path(
+    "/mnt/team/idd/pub/forecast-mbp/02-processed_data/malaria/raked_as/lsae_1209/current"
 )
 GOLDEN_FORECASTING_ROOT = Path(
     "/mnt/team/idd/pub/forecast-mbp/04-forecasting_data"
 )
 
+SSP_SCENARIO = "ssp245"
+DRAW = "000"
+
+DAH_SCENARIOS = ["Baseline", "Constant", "Increasing", "Decreasing"]
+
 SCRIPT_PATH = (
     Path(__file__).parent.parent.parent
-    / "src/idd_forecast_mbp/02_data_prep/07_forecasted_dataframes_non_draw_part.py"
+    / "src/idd_forecast_mbp/02_data_prep/forecasted_draw_specific_malaria_dataframes.py"
 )
-
-SSP_SCENARIOS = ["ssp126", "ssp245", "ssp585"]
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 def _load_main():
-    spec = importlib.util.spec_from_file_location("07_forecasted_dataframes_non_draw_part", SCRIPT_PATH)
+    spec = importlib.util.spec_from_file_location(
+        "forecasted_draw_specific_malaria_dataframes", SCRIPT_PATH
+    )
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module.main
 
 
+def _sample_locs(golden_df, seed=42, frac=0.05):
+    rng = np.random.default_rng(seed=seed)
+    all_locs = golden_df["location_id"].unique()
+    return rng.choice(all_locs, size=max(1, int(len(all_locs) * frac)), replace=False)
+
+
 # ── Fixtures ──────────────────────────────────────────────────────────────────
 
 @pytest.fixture(scope="module")
-def forecasting_output(tmp_path_factory):
-    """Run script 07 once; return the output directory."""
-    out_dir = tmp_path_factory.mktemp("07_forecasting_non_draw")
+def malaria_draw_output(tmp_path_factory):
+    """Run the malaria draw script once; return the output directory."""
+    out_dir = tmp_path_factory.mktemp("08_malaria_draw")
     main = _load_main()
     main(
+        ssp_scenario=SSP_SCENARIO,
+        draw=DRAW,
         lsae_hierarchy="lsae_1209",
         hierarchy_read_path=GOLDEN_HIERARCHY_ROOT,
-        population_read_path=GOLDEN_POPULATION_ROOT,
-        lsae_input_path=LSAE_INPUT_PATH,
-        dah_read_path=DAH_READ_PATH,
+        mal_raked_aa_read_path=GOLDEN_MAL_AA_ROOT,
+        mal_raked_as_read_path=GOLDEN_MAL_AS_ROOT,
+        forecasting_data_read_path=GOLDEN_FORECASTING_ROOT,
         forecasting_data_write_path=out_dir,
     )
     return out_dir
@@ -82,8 +92,9 @@ def _check_file(out_dir, filename, sort_cols, value_cols, golden_root):
         f"{filename} row count mismatch. Got {len(result)}, expected {len(golden)}"
     )
 
-    result = result.sort_values(sort_cols).reset_index(drop=True)
-    golden = golden.sort_values(sort_cols).reset_index(drop=True)
+    locs = _sample_locs(golden)
+    result = result[result["location_id"].isin(locs)].sort_values(sort_cols).reset_index(drop=True)
+    golden = golden[golden["location_id"].isin(locs)].sort_values(sort_cols).reset_index(drop=True)
 
     for col in value_cols:
         np.testing.assert_allclose(
@@ -96,24 +107,25 @@ def _check_file(out_dir, filename, sort_cols, value_cols, golden_root):
 # ── Tests ─────────────────────────────────────────────────────────────────────
 
 @pytest.mark.slow
-@pytest.mark.parametrize("ssp_scenario", SSP_SCENARIOS)
-def test_dengue_non_draw(forecasting_output, ssp_scenario):
-    filename = f"dengue_forecast_scenario_{ssp_scenario}_non_draw_part.parquet"
+def test_malaria_draw_base(malaria_draw_output):
+    filename = f"malaria_forecast_ssp_scenario_{SSP_SCENARIO}_draw_{DRAW}.parquet"
     _check_file(
-        forecasting_output, filename,
+        malaria_draw_output, filename,
         sort_cols=["location_id", "year_id"],
-        value_cols=["people_flood_days", "logit_urban_1km_threshold_300", "gdppc_mean", "population"],
+        value_cols=["logit_malaria_pfpr", "log_gdppc_mean", "log_mal_DAH_total_per_capita",
+                    "malaria_suitability", "year_to_rake_to"],
         golden_root=GOLDEN_FORECASTING_ROOT,
     )
 
 
 @pytest.mark.slow
-@pytest.mark.parametrize("ssp_scenario", SSP_SCENARIOS)
-def test_malaria_non_draw(forecasting_output, ssp_scenario):
-    filename = f"malaria_forecast_scenario_{ssp_scenario}_non_draw_part.parquet"
+@pytest.mark.parametrize("dah_scenario", DAH_SCENARIOS)
+def test_malaria_dah_scenario(malaria_draw_output, dah_scenario):
+    filename = f"malaria_forecast_ssp_scenario_{SSP_SCENARIO}_dah_scenario_{dah_scenario}_draw_{DRAW}.parquet"
     _check_file(
-        forecasting_output, filename,
+        malaria_draw_output, filename,
         sort_cols=["location_id", "year_id"],
-        value_cols=["people_flood_days", "logit_urban_1km_threshold_300", "gdppc_mean", "mal_DAH_total"],
+        value_cols=["logit_malaria_pfpr", "log_gdppc_mean", "mal_DAH_total_per_capita",
+                    "malaria_suitability"],
         golden_root=GOLDEN_FORECASTING_ROOT,
     )
