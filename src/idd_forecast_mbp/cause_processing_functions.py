@@ -34,8 +34,21 @@ def format_aa_gbd_df(cause, measure, metric, df, year_start = 2000, year_end = N
 
     return df
 
-def process_lsae_df(cause, measure, aa_full_population_df, hierarchy_df):
-    df_path = globals()[f'{cause}_variables'][measure]
+def process_lsae_df(cause, measure, aa_full_population_df, hierarchy_df, lsae_input_path=None):
+    if lsae_input_path is not None:
+        path_map = {
+            'malaria': {
+                'pfpr':       f"{lsae_input_path}/malaria_pfpr_mean_cc_insensitive.parquet",
+                'incidence':  f"{lsae_input_path}/malaria_pf_inc_rate_mean_cc_insensitive.parquet",
+                'mortality':  f"{lsae_input_path}/malaria_pf_mort_rate_mean_cc_insensitive.parquet",
+            },
+            'dengue': {
+                'dengue_suitability': f"{lsae_input_path}/dengue_suitability_mean_cc_insensitive.parquet",
+            },
+        }
+        df_path = path_map[cause][measure]
+    else:
+        df_path = globals()[f'{cause}_variables'][measure]
     df = read_parquet_with_integer_ids(df_path)
     per_capita_col = [col for col in df.columns if "per_capita" in col][0]
     df = df[["location_id", "year_id", per_capita_col]]

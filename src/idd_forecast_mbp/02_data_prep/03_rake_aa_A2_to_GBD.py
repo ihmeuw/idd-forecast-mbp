@@ -21,6 +21,7 @@ def main(
     mal_raked_aa_write_path: Path = mbpc.MAL_RAKED_AA_WRITE_PATH,
     den_raked_aa_write_path: Path = mbpc.DEN_RAKED_AA_WRITE_PATH,
     gbd_data_path: Path = mbpc.GBD_DATA_PATH,
+    lsae_input_path: Path = mbpc.LSAE_INPUT_PATH,
 ) -> None:
     gbd_data_path = Path(gbd_data_path)
     mal_raked_aa_write_path = Path(mal_raked_aa_write_path)
@@ -61,7 +62,7 @@ def main(
     ###----------------------------------------------------------###
 
     # Load PfPR (parasite prevalence) and GBD reference data
-    aa_lsae_malaria_pfpr_df = process_lsae_df("malaria", "pfpr", aa_full_population_df, hierarchy_df)
+    aa_lsae_malaria_pfpr_df = process_lsae_df("malaria", "pfpr", aa_full_population_df, hierarchy_df, lsae_input_path=lsae_input_path)
     aa_full_malaria_pfpr_df = aggregate_aa_rate_lsae_to_gbd(rate_variable = "malaria_pfpr", hierarchy_df = hierarchy_df, aa_lsae_rate_df = aa_lsae_malaria_pfpr_df, aa_full_population_df=aa_full_population_df, return_full_df = True)
 
     # Load GBD reference data for raking
@@ -87,7 +88,7 @@ def main(
         aa_full_population_df,
         on=["location_id", "year_id"],
         how="left")
-    aa_lsae_count_df = process_lsae_df(cause, measure, aa_full_population_df, hierarchy_df)
+    aa_lsae_count_df = process_lsae_df(cause, measure, aa_full_population_df, hierarchy_df, lsae_input_path=lsae_input_path)
 
     aa_full_malaria_inc_count_df = rake_aa_count_lsae_to_gbd(count_variable = count_variable,
                                                      hierarchy_df =hierarchy_df,
@@ -143,7 +144,7 @@ def main(
         aa_full_population_df,
         on=["location_id", "year_id"],
         how="left")
-    aa_lsae_count_df = process_lsae_df(cause, measure, aa_full_population_df, hierarchy_df)
+    aa_lsae_count_df = process_lsae_df(cause, measure, aa_full_population_df, hierarchy_df, lsae_input_path=lsae_input_path)
 
     aa_full_malaria_mort_count_df = rake_aa_count_lsae_to_gbd(count_variable = count_variable,
                                                      hierarchy_df =hierarchy_df,
@@ -218,7 +219,7 @@ def main(
     ### dengue transmission based on climate and other factors.
     ###----------------------------------------------------------###
     # Load the dengue suitability data
-    aa_lsae_dengue_suit_df = process_lsae_df("dengue", "dengue_suitability", aa_full_population_df, hierarchy_df)
+    aa_lsae_dengue_suit_df = process_lsae_df("dengue", "dengue_suitability", aa_full_population_df, hierarchy_df, lsae_input_path=lsae_input_path)
     # Load GBD reference data for raking
     aa_gbd_dengue_df = pd.read_csv(aa_gbd_dengue_df_path, low_memory=False)
 
