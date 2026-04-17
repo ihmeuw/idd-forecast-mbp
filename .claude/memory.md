@@ -1,30 +1,30 @@
 # Session memory
-Updated: 2026-03-27
+Updated: 2026-04-17 11:30
 
 ## Current task
-Phase 3 in progress. Tasks 3.1 and 3.2 complete (lib/ structure + lib/io/). Ready for Task 3.3 (lib/data/).
+Regression tests for stage 02 scripts — in progress after archiving dead script.
 
 ## Context / why
-Refactoring shared infrastructure for malaria and dengue pipelines. Phase 3 creates lib/ with shared functions, keeping originals intact.
+Scripts had all logic at module level; adding main() functions so regression tests can call them with lsae_1209 golden inputs and compare against golden files.
 
 ## Where we are
-- Branch: `feature/refactor-shared-lib`
-- Commit 6ddd448: Phase 3 Tasks 3.1 + 3.2 committed
-- lib/io/parquet.py — 48 tests passing
-- lib/io/netcdf.py  — 48 tests passing (combined run)
-- lib/io/hdf5.py    — 48 tests passing (combined run)
-- Original source files untouched
+- Script 03 (make_covariate_means) was found to be dead — nothing downstream reads covariate_means.nc — and archived to archive/02_data_prep/
+- Scripts renumbered: old 04–10 → new 03–09; tests renumbered to match
+- constants.py and versioning.py cleaned of COV_MEANS / _A03_COV_MEANS references
+- test_03_make_covariate_means.py archived (was written but never passed)
+- New numbering: 03=rake_aa, 04=rake_as, 05=malaria_modeling_df, 06=dengue_modeling_df, 07=forecasted_non_draw, 08=forecasted_malaria_parallel, 09=forecasted_dengue_parallel
 
-## Key implementation notes
-- write_parquet: use_atomic=True default; 'full'/'sample' validation dropped (OOM at scale)
-- write_netcdf: mkdir=True added; validation reads file back but only metadata (not data)
-- .gitignore: added negation rules for src/.../lib/ and tests/lib/ (bare `lib/` was gitignored)
-
-## Next steps (Phase 3 remaining)
-1. Task 3.3: lib/data/hierarchy.py + lib/data/covariates.py + tests
-2. Task 3.4: lib/processing/ (raking, aggregation, disaggregation, scenarios) + tests
-3. lib/utils/transforms.py (logit/expit) + tests
-4. STOP after 3.3 for review before 3.4
+## Next steps (ordered)
+1. Commit current changes (archive + renumber + notebook)
+2. Write test_03_rake_aa_A2_to_GBD.py (was test_04)
+3. Write test_04_rake_as_A2_to_GBD.py
+4. Continue through 05, 06, 07
+5. After all tests pass: run scripts with lsae_1285 to generate versioned outputs
+6. Scripts 08–09 deferred until stage 04 restructuring
 
 ## Resume prompt
-Phase 3 Tasks 3.1 and 3.2 complete (lib/ directories + all 3 io modules with 48 passing tests). Next: Task 3.3 — implement lib/data/hierarchy.py (load_hierarchy, level_filter, get_location_ids, make_location_filter) and lib/data/covariates.py (load_covariates_for_draw with UNIVERSAL_COVARIATE_CLIP_RULES, read_income_paths, read_urban_paths, merge_dataframes). Write tests for each. Stop after 3.3 for review.
+Refactor branch feature/refactor-shared-lib. Stage 02 data prep regression tests in progress.
+Script 03 (make_covariate_means) was archived as dead code — nothing reads its output.
+Scripts renumbered 04–10 → 03–09. Next: write test_03_rake_aa_A2_to_GBD.py using the same
+pattern as the archived test_03 (importlib loads main(), fixture calls with lsae_1209 golden inputs,
+compare output against golden in /mnt/team/idd/pub/forecast-mbp/02-processed_data/raked_aa/).

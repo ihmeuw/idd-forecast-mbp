@@ -7,13 +7,16 @@
 ### Sets up the environment with necessary libraries, constants, and path definitions.
 ### Establishes thresholds and directory structures for the modeling pipeline.
 ###----------------------------------------------------------###
+import pytest
 import pandas as pd
 import numpy as np
+from pathlib import Path
 
 from idd_forecast_mbp import constants as mbpc
 from idd_forecast_mbp.lib.io.parquet import read_parquet_with_integer_ids, write_parquet, ensure_id_columns_are_integers, sort_id_columns
 from idd_forecast_mbp.lib.io.covariate_readers import read_income_paths, merge_dataframes, read_urban_paths
 
+TEST_DIR = Path("/mnt/team/idd/pub/forecast-mbp/test_output/04-forecasting_data")
 
 hierarchy = mbpc.LSAE_HIERARCHY
 ssp_scenarios = mbpc.ssp_scenarios
@@ -21,13 +24,17 @@ draws = mbpc.draws
 years = mbpc.model_years
 year_filter = ('year_id', 'in', years)
 
-FORECASTING_DATA_PATH = mbpc.FORECASTING_DATA_PATH
-FORECASTING_DATA_PATH.mkdir(parents=True, exist_ok=True)
+FORECASTING_DATA_PATH = mbpc.MODEL_ROOT / "04-forecasting_data"
 VARIABLE_DATA_PATH = str(mbpc.LSAE_INPUT_PATH)
 CLIMATE_DATA_PATH = f"/mnt/team/rapidresponse/pub/climate-aggregates/2025_03_20/results/{hierarchy}"
 
 # Hierarchy
 hierarchy_df_path = mbpc.HIERARCHY_READ_PATH / f"full_hierarchy_2023_{hierarchy}.parquet"
+if not hierarchy_df_path.exists():
+    pytest.skip(
+        "lsae_1285 pipeline data not yet generated — run stages 01 and 02 first.",
+        allow_module_level=True,
+    )
 hierarchy_df = read_parquet_with_integer_ids(hierarchy_df_path)
 
 md_location_ids = hierarchy_df[hierarchy_df['level'] == 5]['location_id'].unique().tolist()
@@ -97,7 +104,7 @@ for ssp_scenario in ssp_scenarios:
 
     # Drop rows where A0_location_id is NaN
     forecast_df = forecast_df.dropna(subset=["A0_location_id"])
-    
+
     forecast_df = ensure_id_columns_are_integers(forecast_df)
 
     print("Reading income paths...")
@@ -106,7 +113,7 @@ for ssp_scenario in ssp_scenarios:
 
     print("Writing dengue forecast non-draw part...")
     cause = "dengue"
-    write_parquet(forecast_df, f"{FORECASTING_DATA_PATH}/{cause}_forecast_scenario_{ssp_scenario}_non_draw_part.parquet")
+    write_parquet(forecast_df, TEST_DIR / f"{cause}_forecast_scenario_{ssp_scenario}_non_draw_part.parquet")
 
     print("Reading DAH data...")
     dah_df = read_parquet_with_integer_ids(dah_df_path)
@@ -120,4 +127,4 @@ for ssp_scenario in ssp_scenarios:
 
     print("Writing malaria forecast non-draw part...")
     cause = "malaria"
-    write_parquet(forecast_df, f"{FORECASTING_DATA_PATH}/{cause}_forecast_scenario_{ssp_scenario}_non_draw_part.parquet")
+    write_parquet(forecast_df, TEST_DIR / f"{cause}_forecast_scenario_{ssp_scenario}_non_draw_part.parquet")
