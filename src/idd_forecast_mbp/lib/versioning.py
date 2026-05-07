@@ -20,6 +20,46 @@ from pathlib import Path
 from idd_forecast_mbp import constants as mbpc
 
 
+def assert_artifact_ready(artifact_root: Path) -> Path:
+    """Check that an artifact has readable output and return the resolved path.
+
+    Prefers current/ symlink. Falls back to the most recent dated subdirectory
+    if current/ is missing, with a warning. Raises FileNotFoundError if nothing
+    exists at all.
+
+    Call at the top of main() for each artifact the script reads from — not at
+    module level. Fires only for the artifacts this script actually needs.
+
+    Returns the resolved read path so callers can use it directly if needed.
+
+    Example:
+        assert_artifact_ready(mbpc._A02_POPULATION)
+        assert_artifact_ready(mbpc._A02_MAL_RAKED_AA)
+    """
+    import warnings
+    current = artifact_root / "current"
+    if current.exists():
+        return current
+    if artifact_root.exists():
+        dated = sorted(
+            [p for p in artifact_root.iterdir()
+             if p.is_dir() and not p.is_symlink() and p.name[:8].isdigit()],
+            reverse=True,
+        )
+        if dated:
+            warnings.warn(
+                f"No current/ symlink for {artifact_root.name}. "
+                f"Falling back to {dated[0].name}. "
+                "Run finalize_artifact() after writing to suppress this.",
+                stacklevel=2,
+            )
+            return dated[0]
+    raise FileNotFoundError(
+        f"\nArtifact not ready: {artifact_root}\n"
+        "Run and finalize the upstream stage that produces this artifact first."
+    )
+
+
 def finalize_artifact(artifact_root: Path, run_date: str = mbpc.RUN_DATE) -> None:
     """Update the current/ symlink for an artifact after a successful run.
 
@@ -53,6 +93,8 @@ def finalize_all_artifacts(run_date: str = mbpc.RUN_DATE) -> None:
         mbpc._A02_DEN_RAKED_AS,
         mbpc._A03_MAL_MODELING,
         mbpc._A03_DEN_MODELING,
+        mbpc._A03_MAL_PAST_INPUTS,
+        mbpc._A03_DEN_PAST_INPUTS,
     ]
     print(f"Finalizing run {run_date}:")
     for root in artifact_roots:

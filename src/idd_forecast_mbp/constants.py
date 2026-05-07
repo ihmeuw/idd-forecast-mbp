@@ -42,6 +42,29 @@ GBD_DATA_PATH  = RAW_DATA_PATH / "gbd"
 LSAE_HIERARCHY = "lsae_1285"
 LSAE_INPUT_PATH = _PROCESSED_STAGE / LSAE_HIERARCHY
 
+CLIMATE_COVARIATE_RUN_DATE: str = "2026_01_12"
+CLIMATE_AGGREGATES_PATH = Path("/mnt/team/rapidresponse/pub/climate-aggregates") / CLIMATE_COVARIATE_RUN_DATE / "results"
+
+# Malaria suitability variants (malaria-specific, not universal across causes).
+MALARIA_SUITABILITY_METHODS = ["mordecai", "villena"]
+MALARIA_SUITABILITY_SHIFTS = ["0_0", "p0_25", "p0_5", "p1_0", "m0_25", "m0_5", "m1_0"]
+MALARIA_SUITABILITY_VARIANTS = [
+    f"{method}_{shift}"
+    for method in MALARIA_SUITABILITY_METHODS
+    for shift in MALARIA_SUITABILITY_SHIFTS
+]
+MALARIA_SUITABILITY_VARIANT: str = "mordecai_0_0"
+# When the 14-variant run lands, update this to the new run date.
+# While equal to CLIMATE_COVARIATE_RUN_DATE, falls back to the standard filename.
+MALARIA_SUITABILITY_RUN_DATE: str = CLIMATE_COVARIATE_RUN_DATE
+
+
+def get_malaria_suitability_path(variant: str, ssp_scenario: str, lsae_hierarchy: str) -> str:
+    base = Path("/mnt/team/rapidresponse/pub/climate-aggregates") / MALARIA_SUITABILITY_RUN_DATE / "results" / lsae_hierarchy
+    if MALARIA_SUITABILITY_RUN_DATE == CLIMATE_COVARIATE_RUN_DATE:
+        return str(base / f"malaria_suitability_{ssp_scenario}.parquet")
+    return str(base / f"malaria_{variant}_suitability_{ssp_scenario}.parquet")
+
 # Age-specific FHS metadata (written by get_past_as_aa_fhs_outcomes.r, read-only here).
 AGE_SPECIFIC_FHS_PATH = _PROCESSED_STAGE / "age_specific_fhs"
 
@@ -51,6 +74,9 @@ AGE_SPECIFIC_FHS_PATH = _PROCESSED_STAGE / "age_specific_fhs"
 _A02_HIERARCHY   = _PROCESSED_STAGE / "hierarchy"   / LSAE_HIERARCHY
 _A02_POPULATION  = _PROCESSED_STAGE / "population"  / LSAE_HIERARCHY
 _A02_DAH         = _PROCESSED_STAGE / "covariates"  / "dah"
+_A02_GDPPC       = _PROCESSED_STAGE / "covariates"  / "gdppc"  / LSAE_HIERARCHY
+_A02_LDIPC       = _PROCESSED_STAGE / "covariates"  / "ldipc"  / LSAE_HIERARCHY
+_A02_URBAN       = _PROCESSED_STAGE / "urban"        / LSAE_HIERARCHY
 _A02_MAL_RAKED_AA = _PROCESSED_STAGE / "malaria"    / "raked_aa" / LSAE_HIERARCHY
 _A02_MAL_RAKED_AS = _PROCESSED_STAGE / "malaria"    / "raked_as" / LSAE_HIERARCHY
 _A02_DEN_RAKED_AA = _PROCESSED_STAGE / "dengue"     / "raked_aa" / LSAE_HIERARCHY
@@ -60,6 +86,9 @@ _A02_DEN_RAKED_AS = _PROCESSED_STAGE / "dengue"     / "raked_as" / LSAE_HIERARCH
 HIERARCHY_WRITE_PATH    = _artifact_write(_A02_HIERARCHY)
 POPULATION_WRITE_PATH   = _artifact_write(_A02_POPULATION)
 DAH_WRITE_PATH          = _artifact_write(_A02_DAH)
+GDPPC_WRITE_PATH        = _artifact_write(_A02_GDPPC)
+LDIPC_WRITE_PATH        = _artifact_write(_A02_LDIPC)
+URBAN_WRITE_PATH        = _artifact_write(_A02_URBAN)
 MAL_RAKED_AA_WRITE_PATH = _artifact_write(_A02_MAL_RAKED_AA)
 MAL_RAKED_AS_WRITE_PATH = _artifact_write(_A02_MAL_RAKED_AS)
 DEN_RAKED_AA_WRITE_PATH = _artifact_write(_A02_DEN_RAKED_AA)
@@ -69,22 +98,31 @@ DEN_RAKED_AS_WRITE_PATH = _artifact_write(_A02_DEN_RAKED_AS)
 HIERARCHY_READ_PATH    = _artifact_read(_A02_HIERARCHY)
 POPULATION_READ_PATH   = _artifact_read(_A02_POPULATION)
 DAH_READ_PATH          = _artifact_read(_A02_DAH)
+GDPPC_READ_PATH        = _artifact_read(_A02_GDPPC)
+LDIPC_READ_PATH        = _artifact_read(_A02_LDIPC)
+URBAN_READ_PATH        = _artifact_read(_A02_URBAN)
 MAL_RAKED_AA_READ_PATH = _artifact_read(_A02_MAL_RAKED_AA)
 MAL_RAKED_AS_READ_PATH = _artifact_read(_A02_MAL_RAKED_AS)
 DEN_RAKED_AA_READ_PATH = _artifact_read(_A02_DEN_RAKED_AA)
 DEN_RAKED_AS_READ_PATH = _artifact_read(_A02_DEN_RAKED_AS)
 
 # ── 03-modeling_data artifact roots ──────────────────────────────────────────
-_A03_MAL_MODELING  = _MODELING_STAGE / "malaria"    / "modeling_dfs" / LSAE_HIERARCHY
-_A03_DEN_MODELING  = _MODELING_STAGE / "dengue"     / "modeling_dfs" / LSAE_HIERARCHY
+_A03_MAL_MODELING    = _MODELING_STAGE / "malaria" / "modeling_dfs"   / LSAE_HIERARCHY
+_A03_DEN_MODELING    = _MODELING_STAGE / "dengue"  / "modeling_dfs"   / LSAE_HIERARCHY
+_A03_MAL_PAST_INPUTS = _MODELING_STAGE / "malaria" / "past_inputs_nc" / LSAE_HIERARCHY
+_A03_DEN_PAST_INPUTS = _MODELING_STAGE / "dengue"  / "past_inputs_nc" / LSAE_HIERARCHY
 
 # Write paths
-MAL_MODELING_WRITE_PATH  = _artifact_write(_A03_MAL_MODELING)
-DEN_MODELING_WRITE_PATH  = _artifact_write(_A03_DEN_MODELING)
+MAL_MODELING_WRITE_PATH    = _artifact_write(_A03_MAL_MODELING)
+DEN_MODELING_WRITE_PATH    = _artifact_write(_A03_DEN_MODELING)
+MAL_PAST_INPUTS_WRITE_PATH = _artifact_write(_A03_MAL_PAST_INPUTS)
+DEN_PAST_INPUTS_WRITE_PATH = _artifact_write(_A03_DEN_PAST_INPUTS)
 
 # Read paths
-MAL_MODELING_READ_PATH   = _artifact_read(_A03_MAL_MODELING)
-DEN_MODELING_READ_PATH   = _artifact_read(_A03_DEN_MODELING)
+MAL_MODELING_READ_PATH     = _artifact_read(_A03_MAL_MODELING)
+DEN_MODELING_READ_PATH     = _artifact_read(_A03_DEN_MODELING)
+MAL_PAST_INPUTS_READ_PATH  = _artifact_read(_A03_MAL_PAST_INPUTS)
+DEN_PAST_INPUTS_READ_PATH  = _artifact_read(_A03_DEN_PAST_INPUTS)
 
 # ── Stage-level paths (stages 04–10, not yet artifact-structured) ─────────────
 FORECASTING_DATA_PATH = _FORECASTING_STAGE / RUN_DATE
