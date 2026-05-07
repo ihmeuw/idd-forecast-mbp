@@ -69,6 +69,7 @@ def read_shared_covariates(
     urban_read_path,
     flooding_path: str | None,
     rcp_scenario: float = 4.5,
+    med_consumppc_read_path=None,
 ) -> dict:
     """Read non-draw scalar covariates shared by malaria and dengue past inputs.
 
@@ -108,7 +109,7 @@ def read_shared_covariates(
     }
     for key, path in urban_files.items():
         udf = read_parquet_with_integer_ids(str(path), filters=[loc_filter, year_filter])
-        for col in [c for c in udf.columns if c not in ('location_id', 'year_id')]:
+        for col in [c for c in udf.columns if c not in ('location_id', 'year_id', 'population')]:
             arrays[col] = scalar_to_array(udf, col, location_ids, years)
 
     # Flooding
@@ -122,6 +123,16 @@ def read_shared_covariates(
             arrays[col] = scalar_to_array(fdf, col, location_ids, years)
     else:
         warnings.warn(f"Flooding data not found at {flooding_path}; omitted from past inputs.")
+
+    # Median consumption per capita
+    if med_consumppc_read_path is not None:
+        mcp_df = read_parquet_with_integer_ids(
+            str(Path(med_consumppc_read_path) / "med_consumppc_mean.parquet"),
+            filters=[loc_filter, year_filter, ('scenario', '==', rcp_scenario)],
+        )
+        mcp_df = mcp_df.drop(columns=['scenario'], errors='ignore')
+        for col in [c for c in mcp_df.columns if c not in ('location_id', 'year_id')]:
+            arrays[col] = scalar_to_array(mcp_df, col, location_ids, years)
 
     return arrays
 

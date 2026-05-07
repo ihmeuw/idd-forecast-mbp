@@ -1,0 +1,211 @@
+---
+title: "Fit malaria models"
+format: html
+execute:
+  echo: true
+  message: false
+  warning: false
+editor: source
+---
+
+## Setup
+
+```{r setup}
+rm(list = ls())
+
+library(languageserver)
+library(httpgd)
+library(rlang)
+
+require(glue)
+require(mgcv)
+require(scam)
+require(arrow)
+require(data.table)
+
+"%ni%"    <- Negate("%in%")
+"%nlike%" <- Negate("%like%")
+```
+
+## Paths and parameters
+
+```{r params}
+parquet_path <- "/mnt/team/idd/pub/forecast-mbp/03-modeling_data/malaria/past_inputs_nc/lsae_1285/current/malaria_past_inputs.parquet"
+
+suit_variant_pick <- "mordecai_0_0"
+```
+
+## Load past data
+
+```{r load}
+past_data <- as.data.frame(read_parquet(parquet_path))
+past_data$A0_af <- as.factor(past_data$A0_location_id)
+```
+
+## Cleaning
+
+```{r}
+nan_toss <- function(df, var){
+    to_toss <- which(is.na(df[var]))
+    if (length(to_toss)){
+        message(glue('Tossing: {length(to_toss)} rows'))
+        return(df[-to_toss,])
+    } else{
+        message(glue('No NaN rows for {var}'))
+        return(df)
+    }
+}
+past_data <- nan_toss(past_data, 'malaria_pfpr')
+past_data <- nan_toss(past_data, 'gdppc_mean')
+past_data <- nan_toss(past_data, 'mal_DAH_total_per_capita')
+
+# Logit transforms
+suit_col <- paste0("malaria_suitability_", suit_variant_pick)
+past_data$malaria_suit_fraction <- past_data[[suit_col]] / 365
+past_data$malaria_suit_fraction <- pmin(pmax(past_data$malaria_suit_fraction, 0.001), 0.999)
+past_data$logit_malaria_suitability <- log(past_data$malaria_suit_fraction / (1 - past_data$malaria_suit_fraction))
+past_data$do30_fraction <- past_data$days_over_30C / 365
+past_data$do30_fraction <- pmin(pmax(past_data$do30_fraction, 0.001), 0.999)
+past_data$logit_do30 <- log(past_data$do30_fraction / (1 - past_data$do30_fraction))
+
+# Log transforms
+log_covs <- c('mal_DAH_total_per_capita', 'gdppc_mean', 'ldipc_mean', 'med_consumppc')
+for (cov in log_covs) {
+  past_data[[paste0("log_", cov)]] <- log(past_data[[cov]])
+}
+
+```
+
+## pfpr modeling
+
+```{r}
+system.time(malaria_pfpr_mod <- scam(logit_malaria_pfpr ~ logit_malaria_suitability +
+                         s(gdppc_mean, k = 6, bs = 'mpd') +
+                         s(mal_DAH_total_per_capita, k = 6, bs = 'mpd') +
+                         people_flood_days_per_capita +
+                         A0_af,
+                         data = past_data,
+                         optimizer = "efs",      # Faster optimizer
+                         control = list(maxit = 300))  # Limit iterations
+            )
+```
+
+```{r}
+# Per-variable allowed forms. "linear" + bs codes from scam.
+var_forms <- list(
+  # Group 1 (decreasing, always in)
+  "mal_DAH_total_per_capita"     = c("linear", "mpd"),
+  "log_mal_DAH_total_per_capita" = c("linear"),
+
+  # Group 2 (decreasing, always in)
+  "gdppc_mean"        = c("linear", "mpd"),
+  "log_gdppc_mean"    = c("linear"),
+  "ldipc_mean"        = c("linear", "mpd"),
+  "log_ldipc_mean"    = c("linear"),
+  "med_consumppc"     = c("linear", "mpd"),
+  "log_med_consumppc" = c("linear"),
+
+  # Group 3 (decreasing)
+  "weighted_1km_urban_threshold_300.0_simple_mean"   = c("linear", "mpd"),
+  "weighted_1km_urban_threshold_1500.0_simple_mean"  = c("linear", "mpd"),
+  "weighted_100m_urban_threshold_1500.0_simple_mean" = c("linear", "mpd"),
+
+  # Group 4 (mpi or cv)
+  "people_flood_days_per_capita" = c("linear", "mpi", "cv"),
+  "total_precipitation"          = c("linear", "mpi", "cv"),
+  "precipitation_days"           = c("linear", "mpi", "cv"),
+
+  # Group 5 (increasing)
+  "relative_humidity" = c("linear", "mpi"),
+
+  # Group 6 (mixed)
+  "mean_temperature"                 = c("linear", "cv"),
+  "mean_low_temperature"             = c("linear", "cv"),
+  "mean_high_temperature"            = c("linear", "cv"),
+  "days_over_30C"                    = c("linear", "cv"),
+  "logit_do30"                       = c("linear"),
+  "malaria_suitability_mordecai_0_0" = c("linear", "mpi"),
+  "logit_malaria_suitability"        = c("linear"),
+
+  # Group 7 (linear only, always in)
+  "A0_af" = c("linear")
+)
+
+# Group definitions: which vars belong, whether the group is always included
+groups <- list(
+  g1 = list(always_in = TRUE,  vars = c("mal_DAH_total_per_capita", "log_mal_DAH_total_per_capita")),
+  g2 = list(always_in = TRUE,  vars = c("gdppc_mean", "log_gdppc_mean", "ldipc_mean", "log_ldipc_mean", "med_consumppc", "log_med_consumppc")),
+  g3 = list(always_in = FALSE, vars = c("weighted_1km_urban_threshold_300.0_simple_mean", "weighted_1km_urban_threshold_1500.0_simple_mean", "weighted_100m_urban_threshold_1500.0_simple_mean")),
+  g4 = list(always_in = FALSE, vars = c("people_flood_days_per_capita", "total_precipitation", "precipitation_days")),
+  g5 = list(always_in = FALSE, vars = c("relative_humidity")),
+  g6 = list(always_in = FALSE, vars = c("mean_temperature", "mean_low_temperature", "mean_high_temperature", "days_over_30C", "logit_do30", "malaria_suitability_mordecai_0_0", "logit_malaria_suitability")),
+  g7 = list(always_in = TRUE,  vars = c("A0_af"))
+)
+
+# Build all (var, form) options for a group; NA represents "skip" if optional
+group_options <- function(group, var_forms) {
+  opts <- list()
+  if (!group$always_in) opts <- c(opts, list(NA))
+  for (v in group$vars) {
+    for (f in var_forms[[v]]) {
+      opts <- c(opts, list(list(var = v, form = f)))
+    }
+  }
+  opts
+}
+
+# Cartesian product across groups -> list of model specs
+expand_models <- function(groups, var_forms) {
+  per_group <- lapply(groups, group_options, var_forms = var_forms)
+  ng <- sapply(per_group, length)
+  idx <- do.call(expand.grid, lapply(ng, seq_len))
+
+  lapply(seq_len(nrow(idx)), function(i) {
+    spec <- list()
+    for (g in seq_along(groups)) {
+      opt <- per_group[[g]][[idx[i, g]]]
+      if (!identical(opt, NA)) spec[[opt$var]] <- opt$form
+    }
+    spec
+  })
+}
+
+# Build the formula for one spec
+K_DEFAULT <- 6
+build_term <- function(var, form) {
+  if (form == "linear") return(var)
+  sprintf("s(%s, k = %d, bs = '%s')", var, K_DEFAULT, form)
+}
+build_formula <- function(spec, response) {
+  rhs <- mapply(build_term, names(spec), unlist(spec), USE.NAMES = FALSE)
+  reformulate(rhs, response = response)
+}
+
+# Generate
+specs <- expand_models(groups, var_forms)
+length(specs)   # should print 73710
+That 
+```
+
+```{r}
+matches <- function(spec) {
+  identical(spec[["logit_malaria_suitability"]], "linear") &&
+  identical(spec[["gdppc_mean"]], "mpd") &&
+  identical(spec[["mal_DAH_total_per_capita"]], "mpd")
+  # A0_af is always present and always linear; no need to check
+}
+
+neighborhood_specs <- Filter(matches, specs)
+length(neighborhood_specs)   # expect 210
+
+```
+
+```{r}
+library(parallel)
+neighborhood_fits <- mclapply(neighborhood_specs, function(spec) {
+  fml <- build_formula(spec, "logit_malaria_pfpr")
+  tryCatch(scam(fml, data = past_data, optimizer = "efs",
+                control = list(maxit = 300)),
+           error = function(e) e)
+}, mc.cores = 16)
+```

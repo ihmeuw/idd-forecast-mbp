@@ -87,6 +87,7 @@ def finalize_all_artifacts(run_date: str = mbpc.RUN_DATE) -> None:
         mbpc._A02_HIERARCHY,
         mbpc._A02_POPULATION,
         mbpc._A02_DAH,
+        mbpc._A02_MED_CONSUMPPC,
         mbpc._A02_MAL_RAKED_AA,
         mbpc._A02_MAL_RAKED_AS,
         mbpc._A02_DEN_RAKED_AA,

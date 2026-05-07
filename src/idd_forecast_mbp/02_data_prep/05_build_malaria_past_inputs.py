@@ -1,35 +1,26 @@
-"""Build malaria past input NetCDF for regression modeling.
+"""Build malaria past input parquet for regression modeling.
 
-Produces one NetCDF file with all historical covariate and outcome data
-needed to fit malaria models. Variables carry only the dimensions they
-actually vary over:
-
-  location_id × year_id                            — AA outcomes, non-draw covariates
-  location_id × year_id × draw_id                  — draw-varying climate
-  location_id × year_id × draw_id × suit_variant   — malaria suitability
-
-Locations are restricted to the endemic subset used in modeling (same burden
-filters as the former 05_malaria_modeling_dataframe.py). Climate is read from
-SSP245, which for the historical period (2000-2022) is equivalent to the
-observed record.
+Produces one flat parquet with all historical covariate and outcome data
+needed to fit malaria models. One row per (location_id, year_id) — valid
+endemic observations only (malaria_pfpr > 0, mort_count > 0, inc_count >= 0).
+Climate is read from SSP245 draw 000 (past draws are identical; variance opens at 2024).
+DAH missingness in source implies $0; NaN values are filled with 0.
+Suitability variants are stored as separate columns.
 """
-import warnings
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
-import xarray as xr
 
 from idd_forecast_mbp import constants as mbpc
-from idd_forecast_mbp.lib.io.parquet import read_parquet_with_integer_ids
+from idd_forecast_mbp.lib.io.parquet import read_parquet_with_integer_ids, write_parquet
 from idd_forecast_mbp.lib.io.array_builders import (
-    wide_to_array, scalar_to_array, read_shared_covariates, read_draw_climate,
+    wide_to_array, read_shared_covariates, read_draw_climate,
 )
 from idd_forecast_mbp.lib.processing.helpers import level_filter
 from idd_forecast_mbp.lib.versioning import finalize_artifact
 
 PAST_YEARS = list(range(2000, 2023))
-DRAW_IDS = list(range(100))
 
 
 def _endemic_location_ids(
@@ -37,7 +28,7 @@ def _endemic_location_ids(
     hierarchy_df: pd.DataFrame,
     mort_threshold: float = 1.0,
 ) -> list[int]:
-    """Return sorted endemic most-detailed location IDs (same filter as script 05)."""
+    """Return sorted endemic most-detailed location IDs."""
     df = aa_df.merge(
         hierarchy_df[['location_id', 'A0_location_id', 'most_detailed_lsae']],
         on='location_id', how='left',
@@ -55,6 +46,17 @@ def _endemic_location_ids(
     return sorted(md['location_id'].unique().tolist())
 
 
+def _arrays_to_df(arrays: dict, location_ids: list[int], years: list[int]) -> pd.DataFrame:
+    """Convert dict of (n_loc, n_year) float32 arrays to a flat location×year DataFrame."""
+    idx = pd.MultiIndex.from_product(
+        [location_ids, years], names=['location_id', 'year_id']
+    )
+    return pd.DataFrame(
+        {col: arr.flatten() for col, arr in arrays.items()},
+        index=idx,
+    ).reset_index()
+
+
 def main(
     lsae_hierarchy: str = mbpc.LSAE_HIERARCHY,
     ssp_scenario: str = "ssp245",
@@ -64,14 +66,13 @@ def main(
     mal_raked_as_read_path: Path = mbpc.MAL_RAKED_AS_READ_PATH,
     gdppc_read_path: Path = mbpc.GDPPC_READ_PATH,
     ldipc_read_path: Path = mbpc.LDIPC_READ_PATH,
+    med_consumppc_read_path: Path = mbpc.MED_CONSUMPPC_READ_PATH,
     dah_read_path: Path = mbpc.DAH_READ_PATH,
     urban_read_path: Path = mbpc.URBAN_READ_PATH,
     output_path: Path = mbpc.MAL_PAST_INPUTS_WRITE_PATH,
 ) -> None:
     output_path = Path(output_path)
     output_path.mkdir(parents=True, exist_ok=True)
-
-    CLIMATE = mbpc.CLIMATE_AGGREGATES_PATH / lsae_hierarchy
 
     # ── 1. Hierarchy and endemic locations ────────────────────────────────────
     print("Loading hierarchy...")
@@ -87,24 +88,34 @@ def main(
             level_filter(hierarchy_df, start_level=3, end_level=5),
         ],
     )
-    print(f"  AA columns: {list(aa_df.columns)}")
 
     location_ids = _endemic_location_ids(aa_df, hierarchy_df)
-    n_loc, n_year, n_draw = len(location_ids), len(PAST_YEARS), len(DRAW_IDS)
-    print(f"  Endemic locations: {n_loc}, years: {n_year}, draws: {n_draw}")
+    print(f"  Endemic locations: {len(location_ids)}, years: {len(PAST_YEARS)}")
 
-    # ── 2. AA outcomes (location × year) ─────────────────────────────────────
-    print("Building AA outcome arrays...")
-    aa_sub = aa_df[aa_df['location_id'].isin(location_ids)].copy()
-    aa_outcome_cols = [
+    # ── 2. Base dataframe: valid AA rows only ─────────────────────────────────
+    print("Building base dataframe...")
+    aa_sub = aa_df[
+        aa_df['location_id'].isin(location_ids) &
+        (aa_df['malaria_pfpr'] > 0) &
+        (aa_df['malaria_mort_count'] > 0) &
+        (aa_df['malaria_inc_count'] >= 0)
+    ].copy()
+
+    outcome_cols = [
         c for c in aa_sub.columns
         if c not in ('location_id', 'year_id') and not c.endswith('_count')
     ]
-    aa_arrays = {
-        col: scalar_to_array(aa_sub, col, location_ids, PAST_YEARS)
-        for col in aa_outcome_cols
-    }
+    df = aa_sub[['location_id', 'year_id'] + outcome_cols].copy()
+    df['logit_malaria_pfpr'] = np.log(
+        0.999 * df['malaria_pfpr'] / (1 - 0.999 * df['malaria_pfpr'])
+    )
 
+    loc_to_a0 = hierarchy_df.set_index('location_id')['A0_location_id'].to_dict()
+    df['A0_location_id'] = df['location_id'].map(loc_to_a0).astype('int32')
+
+    print(f"  Valid rows: {len(df):,}")
+
+    # ── 3. Add base (reference age-sex) rates if requested ───────────────────
     if add_base:
         reference_age_group_id = mbpc.cause_map['malaria']['reference_age_group_id']
         reference_sex_id = mbpc.cause_map['malaria']['reference_sex_id']
@@ -117,38 +128,33 @@ def main(
                 ('location_id', 'in', location_ids),
             ],
         )
-        as_ref_outcome_cols = [
+        as_ref_cols = [
             c for c in as_ref_df.columns
             if c not in ('location_id', 'year_id', 'age_group_id', 'sex_id')
         ]
-        for col in as_ref_outcome_cols:
-            aa_arrays[f"base_{col}"] = scalar_to_array(as_ref_df, col, location_ids, PAST_YEARS)
+        as_ref_df = as_ref_df[['location_id', 'year_id'] + as_ref_cols].rename(
+            columns={c: f"base_{c}" for c in as_ref_cols}
+        )
+        df = df.merge(as_ref_df, on=['location_id', 'year_id'], how='left')
 
-    # A0_location_id per location (needed for country fixed effects in R)
-    loc_to_a0 = hierarchy_df.set_index('location_id')['A0_location_id'].to_dict()
-
-    # ── 3. Non-draw scalar covariates (location × year) ──────────────────────
-    print("Reading non-draw covariates...")
-
-    # DAH — at A0 level; broadcast to endemic locations via hierarchy
+    # ── 4. DAH — broadcast from A0, fill missing years with $0 ───────────────
+    print("Reading DAH...")
     dah_df = read_parquet_with_integer_ids(
         Path(dah_read_path) / "dah_df.parquet",
         filters=[('year_id', 'in', PAST_YEARS)],
     )
-    dah_df_renamed = dah_df.rename(columns={'location_id': 'A0_location_id'})
-    loc_year_df = pd.DataFrame(
-        [(loc, yr) for loc in location_ids for yr in PAST_YEARS],
-        columns=['location_id', 'year_id'],
-    )
-    loc_year_df['A0_location_id'] = loc_year_df['location_id'].map(loc_to_a0)
-    dah_cols = [c for c in dah_df_renamed.columns
+    dah_df = dah_df.rename(columns={'location_id': 'A0_location_id'})
+    dah_cols = [c for c in dah_df.columns
                 if c not in ('A0_location_id', 'year_id', 'location_name', 'iso3', 'population')]
-    dah_merged = loc_year_df.merge(
-        dah_df_renamed[['A0_location_id', 'year_id'] + dah_cols],
+    df = df.merge(
+        dah_df[['A0_location_id', 'year_id'] + dah_cols],
         on=['A0_location_id', 'year_id'], how='left',
     )
+    for col in dah_cols:
+        df[col] = df[col].fillna(0.0)
 
-    # Flooding path — try weightedmin naming first (lsae_1285), fall back to shifted
+    # ── 5. Shared scalar covariates (gdppc, ldipc, urban, flooding, med_consumppc) ──
+    print("Reading shared covariates...")
     flooding_path_str = None
     for fname in [
         f"fldfrc_weightedmin_sum_{ssp_scenario}_mean_r1i1p1f1.parquet",
@@ -168,21 +174,26 @@ def main(
         urban_read_path=urban_read_path,
         flooding_path=flooding_path_str,
         rcp_scenario=rcp_scenario,
+        med_consumppc_read_path=med_consumppc_read_path,
     )
+    shared_df = _arrays_to_df(shared_arrays, location_ids, PAST_YEARS)
+    df = df.merge(shared_df, on=['location_id', 'year_id'], how='left')
 
-    # ── 4. Draw-varying climate (location × year × draw) ──────────────────────
-    print("Reading draw-varying climate covariates...")
-    climate_arrays = read_draw_climate(
+    # ── 6. Climate draw 000 ───────────────────────────────────────────────────
+    print("Reading climate covariates (draw 000)...")
+    climate_arrays_draws = read_draw_climate(
         location_ids=location_ids,
         years=PAST_YEARS,
         ssp_scenario=ssp_scenario,
         lsae_hierarchy=lsae_hierarchy,
     )
+    climate_arrays = {k: v[:, :, 0] for k, v in climate_arrays_draws.items()}
+    climate_df = _arrays_to_df(climate_arrays, location_ids, PAST_YEARS)
+    df = df.merge(climate_df, on=['location_id', 'year_id'], how='left')
 
-    # ── 5. Malaria suitability (location × year × draw × suit_variant) ────────
+    # ── 7. Malaria suitability variants as columns ────────────────────────────
     print("Reading malaria suitability variants...")
     seen_paths: dict[str, str] = {}
-    suit_arrays: dict[str, np.ndarray] = {}
     for variant in mbpc.MALARIA_SUITABILITY_VARIANTS:
         path = mbpc.get_malaria_suitability_path(variant, ssp_scenario, lsae_hierarchy)
         if path in seen_paths:
@@ -190,69 +201,22 @@ def main(
             continue
         seen_paths[path] = variant
         print(f"  {variant}...")
-        suit_arrays[variant] = wide_to_array(path, location_ids, PAST_YEARS)
+        arr = wide_to_array(path, location_ids, PAST_YEARS)[:, :, 0]
+        suit_df = _arrays_to_df({f"malaria_suitability_{variant}": arr}, location_ids, PAST_YEARS)
+        df = df.merge(suit_df, on=['location_id', 'year_id'], how='left')
 
-    # ── 6. Assemble xarray Dataset ────────────────────────────────────────────
-    print("Building xarray Dataset...")
-    a0_ids = np.array([loc_to_a0.get(loc, -1) for loc in location_ids], dtype=np.int32)
-    coords = {
-        'location_id':    np.array(location_ids, dtype=np.int32),
-        'year_id':        np.array(PAST_YEARS,   dtype=np.int32),
-        'draw_id':        np.array(DRAW_IDS,      dtype=np.int32),
-        'A0_location_id': ('location_id', a0_ids),
-    }
-    data_vars: dict[str, xr.DataArray] = {}
-
-    # AA outcomes
-    for col, arr in aa_arrays.items():
-        data_vars[col] = xr.DataArray(arr, dims=['location_id', 'year_id'])
-
-    # DAH
-    for col in dah_cols:
-        data_vars[col] = xr.DataArray(
-            scalar_to_array(dah_merged, col, location_ids, PAST_YEARS),
-            dims=['location_id', 'year_id'],
-        )
-
-    # Shared non-draw covariates (gdppc, ldipc, urban, flooding)
-    for var_name, arr in shared_arrays.items():
-        data_vars[var_name] = xr.DataArray(arr, dims=['location_id', 'year_id'])
-
-    # Draw-varying climate
-    for var_name, arr in climate_arrays.items():
-        data_vars[var_name] = xr.DataArray(arr, dims=['location_id', 'year_id', 'draw_id'])
-
-    # Malaria suitability
-    variant_names = list(suit_arrays.keys())
-    suit_stack = np.stack(list(suit_arrays.values()), axis=-1)  # (loc, year, draw, variant)
-    coords['suit_variant'] = variant_names
-    data_vars['malaria_suitability'] = xr.DataArray(
-        suit_stack, dims=['location_id', 'year_id', 'draw_id', 'suit_variant']
-    )
-
-    ds = xr.Dataset(data_vars, coords=coords)
-    ds.attrs.update({
-        'ssp_scenario':    ssp_scenario,
-        'lsae_hierarchy':  lsae_hierarchy,
-        'created_date':    mbpc.RUN_DATE,
-        'n_locations':     n_loc,
-        'n_suit_variants': len(variant_names),
-        'suit_variants':   ','.join(variant_names),
-    })
-
-    # ── 7. Write NetCDF ───────────────────────────────────────────────────────
-    out_file = output_path / "malaria_past_inputs.nc"
-    print(f"Writing {out_file}  ({n_loc} loc × {n_year} yr × {n_draw} draw)...")
-    encoding = {v: {'zlib': True, 'complevel': 4, 'dtype': 'float32'} for v in data_vars}
-    ds.to_netcdf(out_file, encoding=encoding)
-    print(f"  Done. File size: {out_file.stat().st_size / 1e9:.2f} GB")
+    # ── 8. Write parquet ──────────────────────────────────────────────────────
+    out_file = output_path / "malaria_past_inputs.parquet"
+    print(f"Writing {out_file}  ({len(df):,} rows × {len(df.columns)} cols)...")
+    write_parquet(df, out_file)
+    print(f"  Done. File size: {out_file.stat().st_size / 1e6:.1f} MB")
 
     finalize_artifact(mbpc._A03_MAL_PAST_INPUTS)
 
 
 if __name__ == "__main__":
     import argparse
-    parser = argparse.ArgumentParser(description="Build malaria past input NetCDF")
+    parser = argparse.ArgumentParser(description="Build malaria past input parquet")
     parser.add_argument("--ssp_scenario", default="ssp245")
     parser.add_argument("--lsae_hierarchy", default=mbpc.LSAE_HIERARCHY)
     parser.add_argument("--add_base", action="store_true", default=False)
