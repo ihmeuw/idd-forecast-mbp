@@ -21,6 +21,11 @@ lib64/
 !src/idd_forecast_mbp/lib/**
 !tests/lib/
 !tests/lib/**
+# Re-ignore pycache/pyc inside those un-ignored trees
+src/idd_forecast_mbp/lib/**/__pycache__/
+src/idd_forecast_mbp/lib/**/*.pyc
+tests/lib/**/__pycache__/
+tests/lib/**/*.pyc
 parts/
 sdist/
 var/
@@ -84,3 +89,9 @@ venv.bak/
 .idea/
 notebooks/
 .Rproj.user
+
+# Claude session workspace — track only append-only history + project STATUS
+.claude/*
+!.claude/STATUS.md
+!.claude/DECISIONS.md
+!.claude/DEAD_ENDS.md
