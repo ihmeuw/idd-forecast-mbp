@@ -3,10 +3,10 @@ import uuid
 from jobmon.client.tool import Tool  # type: ignore
 from pathlib import Path
 import geopandas as gpd  # type: ignore
-from idd_forecast_mbp import constants as rfc
+from idd_forecast_mbp import constants as mbpc
 
-repo_name = rfc.repo_name
-package_name = rfc.package_name
+repo_name = mbpc.repo_name
+package_name = mbpc.package_name
 
 template_name = f'{repo_name}_06_03_create_and_combine'
 
@@ -14,21 +14,21 @@ run_date = "2025_07_24"
 run_date = '2025_08_04'
 run_date = '2025_08_28'
 run_date = 'GK_2025_11_02'
-dah_scenarios = rfc.dah_scenarios
+dah_scenarios = mbpc.dah_scenarios
 dah_scenarios = ['Baseline', 'Constant']
 dah_scenarios = ['GK_reference_2025_11_02', 'GK_cut20_2025_11_02']
 # dah_scenarios = ['reference', 'better', 'worse']
 
-causes = rfc.cause_map
+causes = mbpc.cause_map
 causes = ['malaria']
-ssp_scenarios = rfc.ssp_scenarios
+ssp_scenarios = mbpc.ssp_scenarios
 # ssp_scenarios = ['ssp245']
 
 
 # Script directory
-SCRIPT_ROOT = rfc.REPO_ROOT / repo_name / "src" / package_name / "06_upload"
+SCRIPT_ROOT = mbpc.REPO_ROOT / repo_name / "src" / package_name / "06_upload"
 
-draws = rfc.draws
+draws = mbpc.draws
 
 # Jobmon setup
 user = getpass.getuser()

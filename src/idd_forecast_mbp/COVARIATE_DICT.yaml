@@ -4,8 +4,20 @@
 # years: list of years
 # synoptic: T/F
 # cc_sensitive: T/F
+#
+# Pf raster files (malaria_pfpr, malaria_pf_inc_*, malaria_pf_mort_*) are
+# downloaded from MAP's WCS endpoint by:
+#   src/idd_forecast_mbp/00_pull_raw_data/pull_map_rasters.py
+# Bump the release subdir (e.g. 202508) in path: when a newer MAP release ships.
 
 
+
+# Restrict which covariates the parallel launchers process.
+# Remove this key (or comment it out) to run all covariates in COVARIATE_DICT.
+covariates_to_run:
+  - malaria_pfpr
+  - malaria_pf_inc_rate
+  - malaria_pf_mort_rate
 
 COVARIATE_DICT:
   malaria_anti:
@@ -33,51 +45,51 @@ COVARIATE_DICT:
     covariate_resolution_numerator: 5
     covariate_resolution_denominator: 120
     year_start: 2000
-    year_end: 2022 
+    year_end: 2024
     synoptic: false
     cc_sensitive: false
     summary_statistic: "mean"
-    path: "/mnt/team/rapidresponse/pub/malaria-denv/data/02-processed-data/malaria-pfpr/2024_GBD2023_Global_PfPR_{year}.tif"
+    path: "/mnt/team/rapidresponse/pub/malaria-denv/data/02-processed-data/malaria-pfpr/202508/202508_Global_Pf_Parasite_Rate_{year}.tif"
   malaria_pf_inc_count:
     covariate_name: "malaria_pf_inc_count"
     covariate_resolution_numerator: 5
     covariate_resolution_denominator: 120
     year_start: 2000
-    year_end: 2022
+    year_end: 2024
     synoptic: false
     cc_sensitive: false
     summary_statistic: "mean"
-    path: "/mnt/team/rapidresponse/pub/malaria-denv/data/02-processed-data/malaria-incidence-count/2024_GBD2023_Global_Pf_Incidence_Count_{year}.tif"
+    path: "/mnt/team/rapidresponse/pub/malaria-denv/data/02-processed-data/malaria-pf-incidence-count/202508/202508_Global_Pf_Incidence_Count_{year}.tif"
   malaria_pf_inc_rate:
     covariate_name: "malaria_pf_inc_rate"
     covariate_resolution_numerator: 5
     covariate_resolution_denominator: 120
     year_start: 2000
-    year_end: 2022
+    year_end: 2024
     synoptic: false
     cc_sensitive: false
     summary_statistic: "mean"
-    path: "/mnt/team/rapidresponse/pub/malaria-denv/data/02-processed-data/malaria-incidence-rate/2024_GBD2023_Global_Pf_Incidence_Rate_{year}.tif"
+    path: "/mnt/team/rapidresponse/pub/malaria-denv/data/02-processed-data/malaria-pf-incidence-rate/202508/202508_Global_Pf_Incidence_Rate_{year}.tif"
   malaria_pf_mort_count:
     covariate_name: "malaria_pf_mort_count"
     covariate_resolution_numerator: 5
     covariate_resolution_denominator: 120
     year_start: 2000
-    year_end: 2022
+    year_end: 2024
     synoptic: false
     cc_sensitive: false
     summary_statistic: "mean"
-    path: "/mnt/team/rapidresponse/pub/malaria-denv/data/02-processed-data/malaria-mortality-count/2024_GBD2023_Global_Pf_Mortality_Count_{year}.tif"
+    path: "/mnt/team/rapidresponse/pub/malaria-denv/data/02-processed-data/malaria-pf-mortality-count/202508/202508_Global_Pf_Mortality_Count_{year}.tif"
   malaria_pf_mort_rate:
     covariate_name: "malaria_pf_mort_rate"
     covariate_resolution_numerator: 5
     covariate_resolution_denominator: 120
     year_start: 2000
-    year_end: 2022
+    year_end: 2024
     synoptic: false
     cc_sensitive: false
     summary_statistic: "mean"
-    path: "/mnt/team/rapidresponse/pub/malaria-denv/data/02-processed-data/malaria-mortality-rate/2024_GBD2023_Global_Pf_Mortality_Rate_{year}.tif"
+    path: "/mnt/team/rapidresponse/pub/malaria-denv/data/02-processed-data/malaria-pf-mortality-rate/202508/202508_Global_Pf_Mortality_Rate_{year}.tif"
   dengue_suitability:
     covariate_name: "dengue_suitability"
     covariate_resolution_numerator: 5

@@ -20,6 +20,9 @@ dependencies = [
     "netcdf4 (>=1.7.2,<2.0.0)",
     "rasterra (>=0.6.2,<0.7.0)",
     "climate-data @ file:///ihme/homes/bcreiner/repos/climate-data",
+    "openpyxl (>=3.1.5,<4.0.0)",
+    "seaborn",
+    "scikit-learn",
 ]
 
 [project.urls]
@@ -114,6 +117,30 @@ addopts = """\
     --cov-report term-missing \
     --no-cov-on-fail \
 """
+markers = [
+    "slow: marks tests that load large pipeline data files (deselect with '-m not slow')",
+]
+
+[tool.coverage.run]
+omit = [
+    # Legacy *_functions.py modules — being phased out, not unit-testable
+    "src/idd_forecast_mbp/*_functions.py",
+    # Legacy/misc top-level modules with no active unit tests
+    "src/idd_forecast_mbp/data.py",
+    "src/idd_forecast_mbp/cli.py",
+    # Stage pipeline scripts — integration-tested via slow tests, not unit-testable
+    "src/idd_forecast_mbp/01_map_to_admin_2/[0-9]*.py",
+    "src/idd_forecast_mbp/01_map_to_admin_2/pixel_*.py",
+    "src/idd_forecast_mbp/01_map_to_admin_2/run_suitability_pipeline.py",
+    "src/idd_forecast_mbp/02_data_prep/[0-9]*.py",
+    # Script-level test helper (not a pytest module)
+    "tests/compare_outputs.py",
+    # Package smoke test — no logic to unit-test
+    "tests/test_idd_forecast_mbp.py",
+    # Slow integration tests — only run with -m slow
+    "tests/02_data_prep/test_02a_fhs_population.py",
+    "tests/02_data_prep/test_02b_full_population.py",
+]
 
 [tool.coverage.report]
 fail_under = 100

@@ -1,0 +1,403 @@
+---
+title: "Explore malaria pfpr scam fits"
+format:
+  html:
+    toc: true
+    toc-depth: 3
+    code-fold: false
+execute:
+  echo: true
+  message: false
+  warning: false
+editor: source
+---
+
+## Setup
+
+```{r setup}
+rm(list = ls())
+
+require(glue)
+require(data.table)
+require(mgcv)
+require(scam)
+require(ggplot2)
+```
+
+## Pick a run
+
+Defaults to the most recent dated output dir under the run root. Set `run_date_override` to e.g. `"20260511"` to look at a specific run.
+
+```{r run-paths}
+output_root       <- "/mnt/team/idd/pub/forecast-mbp/03-modeling_data/malaria/scam_fits/lsae_1285"
+run_date_override <- NULL   # set to "20260511" or "20260512_v2" etc., or leave NULL
+
+if (is.null(run_date_override)) {
+  dirs <- list.dirs(output_root, recursive = FALSE)
+  dirs <- dirs[grepl("^[0-9]{8}", basename(dirs))]
+  stopifnot("No dated run dirs found under output_root" = length(dirs) > 0)
+  output_dir <- tail(sort(dirs), 1)
+} else {
+  output_dir <- file.path(output_root, run_date_override)
+}
+stopifnot(dir.exists(output_dir))
+output_dir
+```
+
+## Load all per-fit summaries
+
+Concatenates every `summary_*.rds` in the run dir. Each is a tiny 1-row data.table written by the rocket, so this is fast even for 210 fits.
+
+```{r load-summaries}
+summary_files <- list.files(output_dir, pattern = "^summary_[0-9]+\\.csv$",
+                            full.names = TRUE)
+stopifnot("No summary_*.csv files in this run dir" = length(summary_files) > 0)
+
+stats_dt <- rbindlist(lapply(summary_files, fread),
+                      use.names = TRUE, fill = TRUE)
+setorder(stats_dt, task_id)
+message(glue("Loaded {nrow(stats_dt)} summary rows from {output_dir}"))
+nrow(stats_dt)
+```
+
+## Run health
+
+```{r health}
+n_total_expected <- 210
+n_present        <- nrow(stats_dt)
+n_errored        <- sum(stats_dt$error, na.rm = TRUE)
+n_succeeded      <- sum(!stats_dt$error, na.rm = TRUE)
+n_missing        <- n_total_expected - n_present
+
+data.table(
+  metric = c("expected (param_map rows)", "summaries on disk",
+             "  errored fits", "  successful fits",
+             "missing (no summary written)"),
+  count  = c(n_total_expected, n_present, n_errored, n_succeeded, n_missing)
+)
+```
+
+### Missing task_ids
+
+```{r missing}
+present_ids <- sort(unique(stats_dt$task_id))
+missing_ids <- setdiff(seq_len(n_total_expected), present_ids)
+length(missing_ids)
+head(missing_ids, 60)
+```
+
+### Errored fits
+
+```{r errored}
+if (any(stats_dt$error)) {
+  stats_dt[error == TRUE, .(task_id, error_msg, formula_text)]
+} else {
+  message("No errored fits.")
+}
+```
+
+## AIC leaderboard
+
+```{r leaderboard}
+leaderboard <- stats_dt[error == FALSE][order(aic)]
+leaderboard[, formula_short := substr(formula_text, 1, 120)]
+head(leaderboard[, .(task_id, aic, bic, dev_expl, r_sq, n_coef, edf_sum,
+                     edf_smooth, n_smooths, elapsed_sec, formula_short)], 20)
+```
+
+## Distributions
+
+### AIC
+
+```{r aic-hist, fig.width=8, fig.height=4}
+ggplot(stats_dt[error == FALSE], aes(x = aic)) +
+  geom_histogram(bins = 40, fill = "steelblue", colour = "white") +
+  geom_vline(xintercept = min(stats_dt$aic, na.rm = TRUE),
+             colour = "red", linetype = "dashed") +
+  labs(title = "AIC across all fits (red = best)", x = "AIC", y = "Count") +
+  theme_minimal()
+```
+
+### Deviance explained
+
+```{r devexpl-hist, fig.width=8, fig.height=4}
+ggplot(stats_dt[error == FALSE], aes(x = dev_expl)) +
+  geom_histogram(bins = 40, fill = "darkgreen", colour = "white") +
+  labs(title = "Deviance explained", x = "Deviance explained", y = "Count") +
+  theme_minimal()
+```
+
+### Elapsed seconds
+
+```{r elapsed-hist, fig.width=8, fig.height=4}
+ggplot(stats_dt, aes(x = elapsed_sec)) +
+  geom_histogram(bins = 40, fill = "darkorange", colour = "white") +
+  labs(title = "Per-fit elapsed seconds", x = "Seconds", y = "Count") +
+  theme_minimal()
+```
+
+### Smoothing parameters
+
+`max_sp` near `+Inf` (or very large) usually means a smooth was driven toward zero/linear by the penalty. Wide spread across fits is a hint that the penalty surface is doing real work.
+
+```{r sp-scatter, fig.width=8, fig.height=4}
+ggplot(stats_dt[error == FALSE & is.finite(max_sp)],
+       aes(x = log10(max_sp), y = aic)) +
+  geom_point(alpha = 0.6) +
+  labs(title = "AIC vs log10(max smoothing parameter)",
+       x = "log10(max_sp)", y = "AIC") +
+  theme_minimal()
+```
+
+## Drill into specific fits
+
+Set `inspect_task_ids` to a vector of task_ids — the chunks below load each one's full `fit_<NNN>.rds`, print summary via `mgcv:::summary.gam` (works where `summary.scam` chokes), and report the path to its plot PDF. Defaults to the top-1 by AIC; replace with whichever you want to look at.
+
+```{r inspect-ids}
+inspect_task_ids <- head(leaderboard$task_id, 1)
+inspect_task_ids
+```
+
+```{r inspect-load}
+load_one <- function(tid) {
+  fp <- file.path(output_dir, sprintf("fit_%03d.rds", tid))
+  readRDS(fp)
+}
+inspect_objs <- setNames(lapply(inspect_task_ids, load_one),
+                         paste0("task_", inspect_task_ids))
+names(inspect_objs)
+```
+
+```{r inspect-meta}
+# Compact side-by-side metadata for the inspected fits.
+rbindlist(lapply(inspect_objs, function(o) {
+  data.table(
+    task_id      = o$task_id,
+    formula_text = o$formula_text,
+    elapsed_sec  = o$elapsed_sec,
+    error        = o$error,
+    plot_pdf     = file.path(output_dir, sprintf("plot_%03d.pdf", o$task_id))
+  )
+}))
+```
+
+```{r inspect-summaries, results='asis'}
+for (nm in names(inspect_objs)) {
+  o <- inspect_objs[[nm]]
+  cat(glue("\n\n### {nm}  (task_id={o$task_id})\n\n"))
+  cat(glue("**Formula:** `{o$formula_text}`\n\n"))
+  if (isTRUE(o$error)) {
+    cat(glue("**Fit errored:** {o$error_msg}\n"))
+    next
+  }
+  cat("```\n")
+  print(mgcv:::summary.gam(o$fit))
+  cat("```\n")
+}
+```
+
+### Smooth term plots (inline)
+
+If you'd rather look at the curves inside the notebook instead of the PDF, this regenerates them via `mgcv:::plot.gam`.
+
+```{r inspect-plots, fig.width=10, fig.height=4}
+for (nm in names(inspect_objs)) {
+  o <- inspect_objs[[nm]]
+  if (isTRUE(o$error)) next
+  n_smooths <- length(o$fit$smooth)
+  if (n_smooths == 0) next
+  op <- par(mfrow = c(1, min(n_smooths, 4)),
+            oma = c(0, 0, 3, 0))
+  mgcv:::plot.gam(o$fit, pages = 1, shade = TRUE, residuals = FALSE)
+  title(main = glue("{nm}: {substr(o$formula_text, 1, 100)}"),
+        outer = TRUE, cex.main = 0.9)
+  par(op)
+}
+```
+
+## Spec structure of top-N
+
+What `(var, form)` combinations dominate the top of the leaderboard?
+
+```{r top-specs}
+top_n     <- 20
+top_files <- file.path(output_dir,
+                       sprintf("fit_%03d.rds",
+                               head(leaderboard$task_id, top_n)))
+top_specs <- rbindlist(lapply(top_files, function(fp) {
+  o <- readRDS(fp)
+  if (length(o$spec) == 0) {
+    return(data.table(task_id = o$task_id, var = NA_character_, form = NA_character_))
+  }
+  data.table(task_id = o$task_id, var = names(o$spec), form = unlist(o$spec))
+}), use.names = TRUE, fill = TRUE)
+
+top_specs[, .N, by = .(var, form)][order(-N)]
+```
+
+## Pairwise compare
+
+```{r compare-ids}
+task_a <- leaderboard$task_id[1]
+task_b <- leaderboard$task_id[2]
+```
+
+```{r compare}
+sa <- stats_dt[task_id == task_a]
+sb <- stats_dt[task_id == task_b]
+list(
+  task_a    = task_a,
+  task_b    = task_b,
+  aic_a     = sa$aic,
+  aic_b     = sb$aic,
+  delta_aic = sb$aic - sa$aic,
+  formula_a = sa$formula_text,
+  formula_b = sb$formula_text
+)
+```
+
+## Refit: IS + IS-no-FE + 5-fold country-holdout (no FE)
+
+Given a vector of task_ids, `refit_all_7()` produces all 7 model objects per spec: the full in-sample fit with country FE, the in-sample fit without FE, and 5 country-holdout fold fits without FE. Returns a named list of lists.
+
+```{r refit-setup}
+require(arrow)
+
+# -- Data loading (mirrors rocket) --
+parquet_path      <- "/mnt/team/idd/pub/forecast-mbp/03-modeling_data/malaria/past_inputs_nc/lsae_1285/current/malaria_past_inputs.parquet"
+suit_variant_pick <- "mordecai_0_0"
+
+past_data <- as.data.frame(arrow::read_parquet(parquet_path))
+past_data$A0_af <- as.factor(past_data$A0_location_id)
+
+nan_toss <- function(df, var) {
+  to_toss <- which(is.na(df[var]))
+  if (length(to_toss)) df[-to_toss, ] else df
+}
+past_data <- nan_toss(past_data, "malaria_pfpr")
+past_data <- nan_toss(past_data, "gdppc_mean")
+past_data <- nan_toss(past_data, "mal_DAH_total_per_capita")
+
+suit_col <- paste0("malaria_suitability_", suit_variant_pick)
+past_data$malaria_suit_fraction     <- past_data[[suit_col]] / 365
+past_data$malaria_suit_fraction     <- pmin(pmax(past_data$malaria_suit_fraction, 0.001), 0.999)
+past_data$logit_malaria_suitability <- log(past_data$malaria_suit_fraction / (1 - past_data$malaria_suit_fraction))
+past_data$do30_fraction <- past_data$days_over_30C / 365
+past_data$do30_fraction <- pmin(pmax(past_data$do30_fraction, 0.001), 0.999)
+past_data$logit_do30    <- log(past_data$do30_fraction / (1 - past_data$do30_fraction))
+
+log_covs <- c("mal_DAH_total_per_capita", "gdppc_mean", "ldipc_mean", "med_consumppc")
+for (cov in log_covs) {
+  past_data[[paste0("log_", cov)]] <- log(past_data[[cov]])
+}
+
+# -- Formula builders (mirrors rocket) --
+K_DEFAULT <- 6
+build_term <- function(var, form) {
+  if (form == "linear") return(var)
+  sprintf("s(%s, k = %d, bs = '%s')", var, K_DEFAULT, form)
+}
+build_formula <- function(spec, response) {
+  rhs <- mapply(build_term, names(spec), unlist(spec), USE.NAMES = FALSE)
+  reformulate(rhs, response = response)
+}
+
+# -- Country folds (greedy bin-packing, same seed as rocket) --
+N_FOLDS <- 5L
+CV_SEED <- 42L
+
+set.seed(CV_SEED)
+country_ids <- unique(past_data$A0_location_id)
+country_n   <- table(past_data$A0_location_id)[as.character(country_ids)]
+ord         <- order(country_n, decreasing = TRUE)
+country_ids <- country_ids[ord]
+country_n   <- country_n[ord]
+
+fold_sizes   <- rep(0L, N_FOLDS)
+country_fold <- integer(length(country_ids))
+for (i in seq_along(country_ids)) {
+  smallest        <- which.min(fold_sizes)
+  country_fold[i] <- smallest
+  fold_sizes[smallest] <- fold_sizes[smallest] + country_n[i]
+}
+names(country_fold) <- as.character(country_ids)
+folds <- country_fold[as.character(past_data$A0_location_id)]
+
+message(glue("Data: {nrow(past_data)} rows, {length(country_ids)} countries"))
+message(glue("Fold sizes: {paste(fold_sizes, collapse=', ')}"))
+```
+
+```{r}
+dim(past_data)
+hist(past_data$logit_malaria_pfpr)
+```
+
+```{r refit-function}
+#' Refit all 7 models for a given task_id.
+#'
+#' @param tid Integer task_id
+#' @return Named list: is_fit (with FE), is_no_fe_fit (without FE),
+#'   cv_fits (list of 5 fold fits without FE), spec, fml, fml_no_fe
+refit_7 <- function(tid) {
+  spec       <- specs[[param_map[tid, spec_index]]]
+  fml        <- build_formula(spec, "logit_malaria_pfpr")
+  spec_no_fe <- spec[names(spec) != "A0_af"]
+  fml_no_fe  <- build_formula(spec_no_fe, "logit_malaria_pfpr")
+
+  message(glue("task_id={tid}: fitting IS (with FE) ..."))
+  is_fit <- tryCatch(
+    scam(fml, data = past_data, optimizer = "efs", control = list(maxit = 300)),
+    error = function(e) e
+  )
+
+  message(glue("task_id={tid}: fitting IS (no FE) ..."))
+  is_no_fe_fit <- tryCatch(
+    scam(fml_no_fe, data = past_data, optimizer = "efs", control = list(maxit = 300)),
+    error = function(e) e
+  )
+
+  message(glue("task_id={tid}: fitting 5-fold CV (no FE) ..."))
+  cv_fits <- vector("list", N_FOLDS)
+  for (k in seq_len(N_FOLDS)) {
+    train_idx <- which(folds != k)
+    cv_fits[[k]] <- tryCatch(
+      scam(fml_no_fe, data = past_data[train_idx, ], optimizer = "efs",
+           control = list(maxit = 300)),
+      error = function(e) e
+    )
+    status <- if (inherits(cv_fits[[k]], "error")) "FAILED" else "OK"
+    message(glue("  Fold {k}: {status}"))
+  }
+  names(cv_fits) <- paste0("fold_", seq_len(N_FOLDS))
+
+  list(
+    task_id      = tid,
+    spec         = spec,
+    fml          = fml,
+    fml_no_fe    = fml_no_fe,
+    is_fit       = is_fit,
+    is_no_fe_fit = is_no_fe_fit,
+    cv_fits      = cv_fits
+  )
+}
+
+#' Refit all 7 models for a vector of task_ids.
+#'
+#' @param task_ids Integer vector
+#' @return Named list (keyed by "task_<tid>") of refit_7() results
+refit_all_7 <- function(task_ids) {
+  results <- lapply(task_ids, refit_7)
+  names(results) <- paste0("task_", task_ids)
+  results
+}
+```
+
+```{r refit-example, eval=FALSE}
+# Example: refit the top 3 by OOS R²
+# refit_results <- refit_all_7(head(leaderboard$task_id, 3))
+# refit_results$task_42$is_fit          # full model with country FE
+# refit_results$task_42$is_no_fe_fit    # model without country FE
+# refit_results$task_42$cv_fits$fold_1  # fold-1 fit (no FE)
+```
+
+\`\`\`

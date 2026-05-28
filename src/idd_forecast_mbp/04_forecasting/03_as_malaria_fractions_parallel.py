@@ -3,24 +3,23 @@ import uuid
 from jobmon.client.tool import Tool  # type: ignore
 from pathlib import Path
 import geopandas as gpd  # type: ignore
-from idd_forecast_mbp import constants as rfc
+from idd_forecast_mbp import constants as mbpc
 
-repo_name = rfc.repo_name
-package_name = rfc.package_name
+repo_name = mbpc.repo_name
+package_name = mbpc.package_name
 
 # Script directory
-SCRIPT_ROOT = rfc.REPO_ROOT / repo_name / "src" / package_name / "04_forecasting"
+SCRIPT_ROOT = mbpc.REPO_ROOT / repo_name / "src" / package_name / "04_forecasting"
 
 malaria_hold_variables = ['DAH', 'flood', 'gdppc', 'suitability']
 run_hold_variables = False
 
-ssp_scenarios = rfc.ssp_scenarios
-dah_scenarios = rfc.dah_scenarios
+ssp_scenarios = mbpc.ssp_scenarios
+dah_scenarios = mbpc.dah_scenarios
 dah_scenarios = ["Baseline", "Constant"]
-dah_scenarios = ['GK_reference_2025_11_02', 'GK_cut20_2025_11_02']
-# dah_scenarios = ['reference', 'better', 'worse']
-modeling_measure_map = rfc.modeling_measure_map
-draws = rfc.draws
+
+modeling_measure_map = mbpc.modeling_measure_map
+draws = mbpc.draws
 
 # Jobmon setup
 user = getpass.getuser()

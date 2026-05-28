@@ -184,7 +184,6 @@ build_formula <- function(spec, response) {
 # Generate
 specs <- expand_models(groups, var_forms)
 length(specs)   # should print 73710
-That 
 ```
 
 ```{r}

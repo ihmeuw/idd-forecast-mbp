@@ -6,6 +6,7 @@ from idd_forecast_mbp import constants as mbpc
 from idd_forecast_mbp.lib.io.parquet import read_parquet_with_integer_ids, write_parquet
 from idd_forecast_mbp.lib.io.netcdf import convert_to_xarray, write_netcdf
 from idd_forecast_mbp.lib.processing.helpers import level_filter
+from idd_forecast_mbp.lib.versioning import finalize_artifact
 
 
 def main(
@@ -208,6 +209,16 @@ def main(
         )
         print(f"Wrote {as_full_cause_df_path}")
 
+    if 'malaria' in causes:
+        finalize_artifact(mbpc._A02_MAL_RAKED_AS)
+    if 'dengue' in causes:
+        finalize_artifact(mbpc._A02_DEN_RAKED_AS)
+
 
 if __name__ == "__main__":
-    main()
+    import argparse
+    parser = argparse.ArgumentParser(description="Rake age-sex A2 counts to GBD")
+    parser.add_argument("--causes", nargs="+", default=None,
+                        help="Causes to process (e.g. --causes malaria). Defaults to malaria and dengue.")
+    args = parser.parse_args()
+    main(causes=args.causes)

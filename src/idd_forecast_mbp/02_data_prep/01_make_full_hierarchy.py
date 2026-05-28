@@ -1,25 +1,27 @@
 import pandas as pd
 import numpy as np
-from idd_forecast_mbp import constants as rfc
+from idd_forecast_mbp import constants as mbpc
 from idd_forecast_mbp.lib.io.netcdf import convert_to_xarray, write_netcdf
 from idd_forecast_mbp.lib.io.parquet import read_parquet_with_integer_ids, write_parquet
+from idd_forecast_mbp.lib.versioning import finalize_artifact
 
-RAW_DATA_PATH = rfc.MODEL_ROOT / "01-raw_data"
-PROCESSED_DATA_PATH = rfc.MODEL_ROOT / "02-processed_data"
+RAW_DATA_PATH = mbpc.RAW_DATA_PATH
+HIERARCHY_WRITE_PATH = mbpc.HIERARCHY_WRITE_PATH
+HIERARCHY_WRITE_PATH.mkdir(parents=True, exist_ok=True)
 
 GBD_DATA_PATH = f"{RAW_DATA_PATH}/gbd"
-lsae_hierarchy = "lsae_1209"
+lsae_hierarchy = mbpc.LSAE_HIERARCHY
 
 ################################################################
 #### Hierarchy Paths, loading, and cleaning
 ################################################################
-lsae_2023_hierarchy_path = "/mnt/team/rapidresponse/pub/population-model/admin-inputs/raking/gbd-inputs/hierarchy_lsae_1209.parquet"
+lsae_2023_hierarchy_path = f"/mnt/team/rapidresponse/pub/population-model/admin-inputs/raking/gbd-inputs/hierarchy_{lsae_hierarchy}.parquet"
 gbd_2023_hierarchy_path = f"{GBD_DATA_PATH}/gbd_2023_modeling_hierarchy.parquet"
 fhs_2023_hierarchy_path = f"{GBD_DATA_PATH}/fhs_2023_modeling_hierarchy.parquet"
 
 # Output path for the full hierarchy
-hierarchy_2023_df_path = f"{PROCESSED_DATA_PATH}/full_hierarchy_2023_{lsae_hierarchy}.parquet"
-hierarchy_2023_ds_path = f"{PROCESSED_DATA_PATH}/full_hierarchy_2023_{lsae_hierarchy}.nc"
+hierarchy_2023_df_path = HIERARCHY_WRITE_PATH / f"full_hierarchy_2023_{lsae_hierarchy}.parquet"
+hierarchy_2023_ds_path = HIERARCHY_WRITE_PATH / f"full_hierarchy_2023_{lsae_hierarchy}.nc"
 
 lsae_2023_hierarchy_df = read_parquet_with_integer_ids(lsae_2023_hierarchy_path)
 gbd_2023_hierarchy_df = read_parquet_with_integer_ids(gbd_2023_hierarchy_path)
@@ -221,7 +223,7 @@ fhs_look_uptable_df["fhs_location_id"] = fhs_location_ids
 fhs_look_uptable_df["fhs_level"] = fhs_levels
 
 # Write the updated DataFrame to a new parquet file
-output_path = f"{PROCESSED_DATA_PATH}/lsae_to_fhs_table.parquet"
+output_path = HIERARCHY_WRITE_PATH / f"{lsae_hierarchy}_to_fhs_table.parquet"
 fhs_look_uptable_df.to_parquet(output_path, index=False)
 
 # Merge the lookup table with the full hierarchy
@@ -282,7 +284,7 @@ gbd_look_uptable_df["gbd_location_id"] = gbd_location_ids
 gbd_look_uptable_df["gbd_level"] = gbd_levels
 
 # Write the updated DataFrame to a new parquet file
-output_path = f"{PROCESSED_DATA_PATH}/lsae_to_gbd_table.parquet"
+output_path = HIERARCHY_WRITE_PATH / f"{lsae_hierarchy}_to_gbd_table.parquet"
 gbd_look_uptable_df.to_parquet(output_path, index=False)
 
 # Merge the lookup table with the full hierarchy
@@ -337,3 +339,4 @@ hierarchy_2023_ds = convert_to_xarray(
 
 # Write to NetCDF
 write_netcdf(hierarchy_2023_ds, hierarchy_2023_ds_path)
+finalize_artifact(mbpc._A02_HIERARCHY)

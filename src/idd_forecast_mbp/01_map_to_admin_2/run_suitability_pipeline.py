@@ -12,8 +12,8 @@ import numpy as np
 from climate_data.generate import scenario_annual, utils
 from climate_data import constants as cdc
 
-from idd_forecast_mbp import constants as rfc
-PROCESSED_DATA_PATH = rfc.PROCESSED_DATA_PATH
+from idd_forecast_mbp import constants as mbpc
+PROCESSED_DATA_PATH = mbpc.MODEL_ROOT / "02-processed_data"
 malaria_temp_suitabilities_df_path = PROCESSED_DATA_PATH / 'malaria_temp_suitabilities_df.parquet'
 
 

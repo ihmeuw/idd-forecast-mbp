@@ -8,6 +8,7 @@ import os
 import pytest
 import pandas as pd
 import numpy as np
+from unittest.mock import patch, MagicMock
 
 from idd_forecast_mbp.lib.io.parquet import (
     ensure_id_columns_are_integers,
@@ -215,3 +216,76 @@ def test_filter_df_by_range_multiple(id_df):
 def test_filter_df_by_range_bad_column(id_df):
     with pytest.raises(ValueError, match="not found"):
         filter_df_by_range(id_df, nonexistent=(0, 1))
+
+
+def test_filter_df_by_range_no_args_returns_df(id_df):
+    result = filter_df_by_range(id_df)
+    assert len(result) == len(id_df)
+
+
+# ---------------------------------------------------------------------------
+# write_parquet edge cases
+# ---------------------------------------------------------------------------
+
+def test_write_overwrite_remove_fails_continues(tmp_path, simple_df, capsys):
+    """If os.remove raises during overwrite, write still proceeds (warning only)."""
+    path = tmp_path / 'test.parquet'
+    write_parquet(simple_df, path)  # create first
+
+    with patch('idd_forecast_mbp.lib.io.parquet.os.remove', side_effect=OSError('locked')):
+        # Should not raise — the warning is printed and write proceeds
+        write_parquet(simple_df, path, overwrite=True)
+
+    captured = capsys.readouterr()
+    assert 'Warning' in captured.out
+
+
+def test_write_validation_row_count_mismatch_raises(tmp_path, simple_df):
+    """Metadata row count mismatch triggers ValueError on attempt, then raises after retries."""
+    path = tmp_path / 'test.parquet'
+
+    mock_meta = MagicMock()
+    mock_meta.num_rows = 0  # wrong row count
+
+    with patch('pyarrow.parquet.read_metadata', return_value=mock_meta):
+        with pytest.raises(ValueError, match='Row count mismatch'):
+            write_parquet(simple_df, path, max_retries=1, validate=True)
+
+
+def test_write_validation_column_mismatch_raises(tmp_path, simple_df):
+    """Column set mismatch triggers ValueError on attempt, then raises after retries."""
+    path = tmp_path / 'test.parquet'
+
+    mock_meta = MagicMock()
+    mock_meta.num_rows = len(simple_df)
+    mock_schema = MagicMock()
+    mock_schema.names = ['wrong_col']
+
+    with patch('pyarrow.parquet.read_metadata', return_value=mock_meta), \
+         patch('pyarrow.parquet.read_schema', return_value=mock_schema):
+        with pytest.raises(ValueError, match='Column mismatch'):
+            write_parquet(simple_df, path, max_retries=1, validate=True)
+
+
+def test_write_non_atomic_cleanup_on_failure(tmp_path, simple_df, capsys):
+    """use_atomic=False: failed write cleans up the partial target file."""
+    path = tmp_path / 'test.parquet'
+
+    call_count = {'n': 0}
+    original = pd.DataFrame.to_parquet
+
+    def failing_to_parquet(self, *args, **kwargs):
+        call_count['n'] += 1
+        if call_count['n'] == 1:
+            # Write a partial file then raise
+            original(self, *args, **kwargs)
+            raise IOError('simulated mid-write failure')
+        return original(self, *args, **kwargs)
+
+    pd.DataFrame.to_parquet = failing_to_parquet
+    try:
+        write_parquet(simple_df, path, max_retries=2, validate=False, use_atomic=False)
+    finally:
+        pd.DataFrame.to_parquet = original
+
+    assert path.exists()  # written on retry

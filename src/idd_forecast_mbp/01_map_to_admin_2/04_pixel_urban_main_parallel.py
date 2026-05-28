@@ -3,23 +3,27 @@ import uuid
 from jobmon.client.tool import Tool # type: ignore
 from pathlib import Path
 import geopandas as gpd # type: ignore
-from idd_forecast_mbp import constants as rfc
+from idd_forecast_mbp import constants as mbpc
 from idd_forecast_mbp.yaml_functions import load_yaml_dictionary, parse_yaml_dictionary
 
-repo_name = rfc.repo_name
-package_name = rfc.package_name
+# Sibling module — importable because Python adds the script's dir to sys.path[0]
+from block_utils import blocks_with_shapefile_intersections  # noqa: E402
+
+repo_name = mbpc.repo_name
+package_name = mbpc.package_name
 
 thresholds = [300, 1500]
 
 # Script directory
-SCRIPT_ROOT = rfc.REPO_ROOT / repo_name / "src" / package_name / "01_map_to_admin_2"
+SCRIPT_ROOT = mbpc.REPO_ROOT / repo_name / "src" / package_name / "01_map_to_admin_2"
 
 # Population block/tile stuff
-modeling_frame = gpd.read_parquet("/mnt/team/rapidresponse/pub/population-model/ihmepop_results/2025_03_22/modeling_frame.parquet")
+
+modeling_frame_path = mbpc.MODELING_FRAME_PATH
+modeling_frame = gpd.read_parquet(modeling_frame_path)
 block_keys = modeling_frame["block_key"].unique()
 
-# heirarchies = ["lsae_1209", "gbd_2021", "lsae_1285", "gbd_2023"]
-heirarchies = ["lsae_1209", "gbd_2021"]
+hierarchies = mbpc.hierarchies
 # Jobmon setup
 user = getpass.getuser()
 
@@ -75,27 +79,36 @@ task_template = tool.get_task_template(
     command_template=(
         "python {script_root}/pixel_urban_main.py "
         "--threshold {{threshold}} "
-        "--hiearchy {{hiearchy}} "
+        "--hierarchy {{hierarchy}} "
         "--block_key {{block_key}} "
     ).format(script_root=SCRIPT_ROOT),
-    node_args=[ "hiearchy", "block_key", "threshold"],  #
+    node_args=[ "hierarchy", "block_key", "threshold"],  #
     task_args=[], # Only variation is task-specific
     op_args=[],
 )
 
 
+# Compute intersecting block_keys once per hierarchy — same for every threshold,
+# so don't recompute inside the threshold loop. Lossless skip of blocks whose
+# footprint doesn't overlap any admin polygon (open ocean, Antarctic interior).
+intersecting_by_hier = {
+    h: blocks_with_shapefile_intersections(h) for h in hierarchies
+}
+
 # Add tasks
 tasks = []
 for threshold in thresholds:
-        for hiearchy in heirarchies:
-            for block_key in block_keys:
-                tasks.append(
-                    task_template.create_task(
-                        threshold=threshold,
-                        hiearchy=hiearchy,
-                        block_key=block_key
-                    )
+    for hierarchy in hierarchies:
+        filtered_block_keys = [b for b in block_keys if b in intersecting_by_hier[hierarchy]]
+        print(f"Creating tasks for threshold: {threshold}, hierarchy: {hierarchy} ({len(filtered_block_keys)}/{len(block_keys)} blocks)")
+        for block_key in filtered_block_keys:
+            tasks.append(
+                task_template.create_task(
+                    threshold=threshold,
+                    hierarchy=hierarchy,
+                    block_key=block_key
                 )
+            )
 
 
 
@@ -117,7 +130,7 @@ except Exception as e:
     print(f"❌ Workflow binding failed: {e}")
 
 try:
-    status = workflow.run()
+    status = workflow.run(seconds_until_timeout=60 * 60 * 24 * 3)  # 3 days
     print(f"Workflow {workflow.workflow_id} completed with status {status}.")
 except Exception as e:
     print(f"❌ Workflow submission failed: {e}")

@@ -274,6 +274,9 @@ def rake_aa_count_lsae_to_gbd(
         level_5_df,
     ], ignore_index=True)
 
+    if 'level' in aa_full_count_df.columns:
+        aa_full_count_df = aa_full_count_df.drop(columns=['level'])
+
     if aa_full_count_df_path is not None:
         write_parquet(aa_full_count_df, aa_full_count_df_path)
 

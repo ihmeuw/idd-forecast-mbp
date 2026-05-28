@@ -3,27 +3,24 @@ import uuid
 from jobmon.client.tool import Tool  # type: ignore
 from pathlib import Path
 import geopandas as gpd  # type: ignore
-from idd_forecast_mbp import constants as rfc
+from idd_forecast_mbp import constants as mbpc
 from idd_forecast_mbp.yaml_functions import load_yaml_dictionary
 
-repo_name = rfc.repo_name
-package_name = rfc.package_name
+repo_name = mbpc.repo_name
+package_name = mbpc.package_name
 
 # Script directory
-SCRIPT_ROOT = rfc.REPO_ROOT / repo_name / "src" / package_name / "01_map_to_admin_2"
-YAML_PATH = rfc.REPO_ROOT / repo_name / "src" / package_name / "COVARIATE_DICT.yaml"
+SCRIPT_ROOT = mbpc.REPO_ROOT / repo_name / "src" / package_name / "01_map_to_admin_2"
+YAML_PATH = mbpc.REPO_ROOT / repo_name / "src" / package_name / "COVARIATE_DICT.yaml"
 COVARIATE_DICT = load_yaml_dictionary(YAML_PATH)
 
-modeling_frame = gpd.read_parquet("/mnt/team/rapidresponse/pub/population-model/ihmepop_results/2025_03_22/modeling_frame.parquet")
+modeling_frame_path = "/mnt/team/rapidresponse/pub/population-model/modeling/100m/modeling_frame.parquet"
+modeling_frame = gpd.read_parquet(modeling_frame_path)
 block_keys = modeling_frame["block_key"].unique()
 root = Path("/mnt/team/rapidresponse/pub/flooding/results/output/raw-results")
 
-# heirarchies = ["lsae_1209", "gbd_2021", "lsae_1285", "gbd_2023"]
-hierarchies = ["lsae_1209", "gbd_2023"]
+hierarchies = mbpc.hierarchies
 scenarios = ["ssp126", "ssp245", "ssp585"]
-
-
-
 
 # Jobmon setup
 user = getpass.getuser()
@@ -118,7 +115,7 @@ except Exception as e:
     print(f"❌ Workflow binding failed: {e}")
 
 try:
-    status = workflow.run()
+    status = workflow.run(seconds_until_timeout=60 * 60 * 24 * 3)  # 3 days
     print(f"Workflow {workflow.workflow_id} completed with status {status}.")
 except Exception as e:
     print(f"❌ Workflow submission failed: {e}")

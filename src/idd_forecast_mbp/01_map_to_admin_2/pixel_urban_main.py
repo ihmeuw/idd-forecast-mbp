@@ -14,31 +14,35 @@ from shapely import MultiPolygon, Polygon # type: ignore
 from typing import Literal, NamedTuple
 import itertools
 from rra_tools.shell_tools import mkdir # type: ignore
-from idd_forecast_mbp import constants as rfc
+from idd_forecast_mbp import constants as mbpc
 from idd_forecast_mbp.yaml_functions import load_yaml_dictionary, parse_yaml_dictionary
 import argparse
 import yaml
 
-parser = argparse.ArgumentParser(description="Run James code")
+# Sibling module — importable because Python adds the script's dir to sys.path[0]
+from block_utils import load_raking_shapes  # noqa: E402
+
+parser = argparse.ArgumentParser(description="Run James code to make urban covariates at the pixel level.")
 
 # Define arguments
 parser.add_argument("--threshold", type=float, required=True, help="urban threshold")
-parser.add_argument("--hiearchy", type=str, required=True, help="Hiearchy")
+parser.add_argument("--hierarchy", type=str, required=True, help="hierarchy")
 parser.add_argument("--block_key", type=str, required=True, help="Block Key")
 
 # Parse arguments
 args = parser.parse_args()
 
 threshold = args.threshold
-hiearchy = args.hiearchy
+hierarchy = args.hierarchy
 block_key = args.block_key
 
 years = list(range(2000, 2101))
 
-POPULATION_1km_PATH = "/mnt/team/rapidresponse/pub/population-model/results/2025_02_21/world_cylindrical_1000/{year}q1.tif"
-pop_root = Path("/mnt/team/rapidresponse/pub/population-model/modeling/100m/models/2025_02_19.001/raked_predictions")
+gridded_population_root = mbpc.GRIDDED_POPULATION_ROOT
+gridded_population_by_block_path = mbpc.GRIDDED_POPULATION_BY_BLOCK_PATH
 
-DATA_PATH = rfc.MODEL_ROOT / "02-processed_data"
+DATA_PATH = mbpc.MODEL_ROOT / "02-processed_data"
+DATA_PATH.mkdir(parents=True, exist_ok=True)
 
 class _Scenarios(NamedTuple):
     historical: str = "historical"
@@ -104,57 +108,6 @@ def get_bbox(raster: rt.RasterArray, crs: str | None = None) -> shapely.Polygon:
     return cast(shapely.Polygon, out_bbox.iloc[0])
 
 
-def load_raking_shapes(full_aggregation_hierarchy: str, bounds: tuple[float, float, float, float]
-) -> gpd.GeoDataFrame:
-    """Load shapes for a full aggregation hierarchy within given bounds.
-
-    Parameters
-    ----------
-    full_aggregation_hierarchy
-        The full aggregation hierarchy to load (e.g. "gbd_2021")
-    bounds
-        The bounds to load (xmin, ymin, xmax, ymax)
-
-    Returns
-    -------
-    gpd.GeoDataFrame
-        The shapes for the given hierarchy and bounds
-    """
-    root = Path("/mnt/team/rapidresponse/pub/population-model/admin-inputs/raking")
-    if full_aggregation_hierarchy in ["gbd_2021", "gbd_2023"]:
-        shape_path = (
-            root/ f"shapes_{full_aggregation_hierarchy}.parquet"
-        )
-        gdf = gpd.read_parquet(shape_path, bbox=bounds)
-
-        # We're using population data here instead of a hierarchy because
-        # The populations include extra locations we've supplemented that aren't
-        # modeled in GBD (e.g. locations with zero population or places that
-        # GBD uses population scalars from WPP to model)
-        pop_path = (
-            root / f"population_{full_aggregation_hierarchy}.parquet"
-        )
-        pop = pd.read_parquet(pop_path)
-
-        keep_cols = ["location_id", "location_name", "most_detailed", "parent_id"]
-        keep_mask = (
-            (pop.year_id == pop.year_id.max())  # Year doesn't matter
-            & (pop.most_detailed == 1)
-        )
-        out = gdf.merge(pop.loc[keep_mask, keep_cols], on="location_id", how="left")
-    elif full_aggregation_hierarchy in ["lsae_1209", "lsae_1285"]:
-        # This is only a2 geoms, so already most detailed
-        shape_path = (
-            root
-            / "gbd-inputs"
-            / f"shapes_{full_aggregation_hierarchy}_a2.parquet"
-        )
-        out = gpd.read_parquet(shape_path, bbox=bounds)
-    else:
-        msg = f"Unknown pixel hierarchy: {full_aggregation_hierarchy}"
-        raise ValueError(msg)
-    return out
-
 def build_bounds_map(
     raster_template: rt.RasterArray,
     shape_values: list[tuple[Polygon | MultiPolygon, int]],
@@ -197,15 +150,15 @@ def build_bounds_map(
 
 def build_location_masks(
     block_key: str,
-    hiearchy: str,
+    hierarchy: str,
 ) -> tuple[dict[str, slice], dict[int, tuple[slice, slice, npt.NDArray[np.bool_]]]]:
-    pop_root = Path("/mnt/team/rapidresponse/pub/population-model/modeling/100m/models/2025_03_22.001/raked_predictions/2020q1")
+    pop_root = gridded_population_by_block_path / "raked_predictions" / "2020q1"
     pop_file = pop_root / f"{block_key}.tif"
 
     template = rt.load_raster(pop_file)
     template_bbox = get_bbox(template, "EPSG:4326")
     bounds = template_bbox.bounds
-    raking_shapes = load_raking_shapes(hiearchy, bounds=bounds)
+    raking_shapes = load_raking_shapes(hierarchy, bounds=bounds)
     raking_shapes = raking_shapes[raking_shapes.intersects(template_bbox)].to_crs(
         template.crs
     )
@@ -235,18 +188,18 @@ def pixel_main(
         years: list[int],
         threshold: float,
         block_key: str,
-        hiearchy: str
+        hierarchy: str
 ):
     
-    bounds, bounds_map = build_location_masks(block_key, hiearchy)
+    bounds, bounds_map = build_location_masks(block_key, hierarchy)
 
     result_records = []
     for year in years:
-        pop_file = pop_root / f"{year}q1" / f"{block_key}.tif"
+        pop_file = gridded_population_by_block_path / "raked_predictions" / f"{year}q1" / f"{block_key}.tif"
         # Load 100m population data for the current year
         pop_100m = rt.load_raster(pop_file)
         # Load 1km population data for the current year
-        pop_1km_path = POPULATION_1km_PATH.format(year=year)
+        pop_1km_path = Path(f"{gridded_population_root}/world_cylindrical_1000/{year}q1.tif")
         pop_1km = rt.load_raster(pop_1km_path)
         clipped_pop_1km = pop_1km.clip(get_bbox(pop_100m))
         clipped_pop_1km_at_100m = clipped_pop_1km.resample_to(pop_100m, "nearest")
@@ -302,7 +255,7 @@ def pixel_main(
             "population",
         ],
     ).sort_values(by=["location_id", "year_id"])
-    save_path = DATA_PATH / hiearchy / f"urban_threshold_{threshold}_simple" / block_key
+    save_path = DATA_PATH / hierarchy / f"urban_threshold_{threshold}_simple" / block_key
     mkdir(save_path, parents=True, exist_ok=True)
     filename = "000.parquet"
     results.to_parquet(
@@ -311,4 +264,4 @@ def pixel_main(
     )
 
 # Call the function with parsed arguments
-pixel_main(years, threshold, block_key, hiearchy)
+pixel_main(years, threshold, block_key, hierarchy)

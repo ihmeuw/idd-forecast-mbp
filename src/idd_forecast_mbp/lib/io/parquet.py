@@ -185,7 +185,7 @@ def write_parquet(
                 raise
             print(f'Retrying ({attempt + 1}/{max_retries})...')
 
-    return False
+    return False  # pragma: no cover
 
 
 # ---------------------------------------------------------------------------

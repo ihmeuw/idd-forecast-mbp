@@ -5,9 +5,12 @@ import geopandas as gpd # type: ignore
 from rra_tools.shell_tools import mkdir # type: ignore
 import numpy as np # type: ignore
 import argparse
-from idd_forecast_mbp import constants as rfc
+from idd_forecast_mbp import constants as mbpc
 from idd_forecast_mbp.lib.io.yaml import parse_yaml_dictionary
 import yaml
+
+# Sibling module — importable because Python adds the script's dir to sys.path[0]
+from block_utils import blocks_with_shapefile_intersections  # noqa: E402
 
 parser = argparse.ArgumentParser(description="Run urban aggregation for climate data.")
 
@@ -23,7 +26,9 @@ hierarchy = args.hierarchy
 
 years = list(range(2000, 2101))
 
-DATA_PATH = rfc.MODEL_ROOT / "02-processed_data"
+modeling_frame_path = mbpc.MODELING_FRAME_PATH
+DATA_PATH = mbpc.MODEL_ROOT / "02-processed_data"
+DATA_PATH.mkdir(parents=True, exist_ok=True)
 
 # urban_mean.parquet
 
@@ -64,25 +69,8 @@ def aggregate_climate_to_hierarchy(
         level_mask = hierarchy.level == level
         parent_map = hierarchy.loc[level_mask].set_index("location_id").parent_id
 
-        # For every location in the parent map, we need to check if it is the results
-        # For those that are, proceed to aggregate
-        # For those that aren't, check to make sure their parent is in the results. If not, exit with an error
-        absent_parent_map = parent_map.index.difference(results.index)
-        if len(absent_parent_map) > 0:
-            msg = f"Some parent locations are not in the results: {absent_parent_map}"
-            # Check to see if the parent of each location id that is missing is in the results
-            parent_of_absent = parent_map.loc[absent_parent_map]
-            unique_parent_ids = parent_of_absent.unique()
-            # Check to see if the unique_parent_ids are in the results
-            missing_parents = unique_parent_ids[~np.isin(unique_parent_ids, results.index)]
-            if len(missing_parents) > 0:
-                msg = f"Some parent locations are not in the results: {missing_parents}"
-                raise ValueError(msg)
-        
-        present_parent_map = parent_map.loc[parent_map.index.isin(results.index)]
-        # Continue aggregation only on the present locations
-        subset = results.loc[present_parent_map.index]
-        subset["parent_id"] = present_parent_map
+        subset = results.loc[parent_map.index]
+        subset["parent_id"] = parent_map
 
         parent_values = (
             subset.groupby(["year_id", "parent_id"])[[f"weighted_1km_urban_threshold_{threshold}_simple", 
@@ -97,8 +85,8 @@ def aggregate_climate_to_hierarchy(
         results.reset_index()
         .sort_values(["location_id", "year_id"])
     )
-    parent_values[f"weighted_1km_urban_threshold_{threshold}_simple_mean"] = parent_values[f"weighted_1km_urban_threshold_{threshold}_simple"] / parent_values.population
-    parent_values[f"weighted_100m_urban_threshold_{threshold}_simple_mean"] = parent_values[f"weighted_100m_urban_threshold_{threshold}_simple"] / parent_values.population
+    results[f"weighted_1km_urban_threshold_{threshold}_simple_mean"] = results[f"weighted_1km_urban_threshold_{threshold}_simple"] / results["population"].replace(0, np.nan)
+    results[f"weighted_100m_urban_threshold_{threshold}_simple_mean"] = results[f"weighted_100m_urban_threshold_{threshold}_simple"] / results["population"].replace(0, np.nan)
     return results
 
 def load_subset_hierarchy(subset_hierarchy: str) -> pd.DataFrame:
@@ -158,9 +146,16 @@ def hierarchy_main(
     # Load hierarchy data for aggregation
     hierarchy_df = pd.read_parquet(f"/mnt/team/rapidresponse/pub/population-model/admin-inputs/raking/gbd-inputs/hierarchy_{hierarchy}.parquet")
 
-    # Get all block keys
-    modeling_frame = gpd.read_parquet("/mnt/team/rapidresponse/pub/population-model/ihmepop_results/2025_03_22/modeling_frame.parquet")
+    # Get all block keys, then drop those whose footprint doesn't intersect any
+    # admin polygon in the hierarchy's raking shapefile. Lossless under the
+    # sum-then-divide rollup. Must match the filter the launcher
+    # (04_pixel_urban_main_parallel.py) applied — otherwise we try to read
+    # parquets the launcher didn't write.
+    modeling_frame = gpd.read_parquet(modeling_frame_path)
     block_keys = modeling_frame.block_key.unique()
+    intersecting = blocks_with_shapefile_intersections(hierarchy)
+    block_keys = [b for b in block_keys if b in intersecting]
+    print(f"  Block keys after shapefile-intersection filter: {len(block_keys)}")
 
     all_results = []
     pop_df: pd.DataFrame | None = None
@@ -185,9 +180,7 @@ def hierarchy_main(
     pop_df = agg_df[["location_id", "year_id", "population"]]
     pop_df = pop_df.set_index(["location_id", "year_id"]).reset_index(drop=False)
 
-    agg_df[f"weighted_1km_urban_threshold_{threshold}_simple_mean"] = agg_df[f"weighted_1km_urban_threshold_{threshold}_simple"] / agg_df.population
-    agg_df[f"weighted_100m_urban_threshold_{threshold}_simple_mean"] = agg_df[f"weighted_100m_urban_threshold_{threshold}_simple"] / agg_df.population
-    agg_df = agg_df[["location_id", "year_id", 
+    agg_df = agg_df[["location_id", "year_id",
                         f"weighted_1km_urban_threshold_{threshold}_simple_mean",
                         f"weighted_100m_urban_threshold_{threshold}_simple_mean"]]
     all_results.append(agg_df)
@@ -211,34 +204,24 @@ def hierarchy_main(
             pop_df,
         )
 
-        # Save results for the subset hierarchy
-        subset_results_path = (
-            DATA_PATH / subset_hierarchy 
-        )
-        filename = f"{summary_covariate}.parquet" 
-        mkdir(subset_results_path, parents=True, exist_ok=True)
+        # Save final aggregated covariate to leaf-versioned path
+        covariate_write_path = mbpc.URBAN_WRITE_PATH
+        mkdir(covariate_write_path, parents=True, exist_ok=True)
+        filename = f"{summary_covariate}.parquet"
         subset_results.to_parquet(
-            subset_results_path / filename,
+            covariate_write_path / filename,
             index=True,
         )
-        final_path = subset_results_path / filename
-        final_path.chmod(0o775)
+        (covariate_write_path / filename).chmod(0o775)
 
+        # Write population to intermediate scratch path (used within stage 01 only)
+        scratch_path = DATA_PATH / subset_hierarchy
+        mkdir(scratch_path, parents=True, exist_ok=True)
         subset_pop = pop_df[pop_df["location_id"].isin(subset_location_ids)]
-        popname = f"population.parquet"
-        # Check if the population file already exists
-        if (subset_results_path / popname).exists():
-            # If it exists, don't re-write it
-            continue
-        else:
-            # If it doesn't exist, write it
-            subset_pop.to_parquet(
-                subset_results_path / popname,
-                index=True,
-            )
-            # change file permssions to 0775
-            pop_path = subset_results_path / popname
-            pop_path.chmod(0o775)
+        popname = "population.parquet"
+        if not (scratch_path / popname).exists():
+            subset_pop.to_parquet(scratch_path / popname, index=True)
+            (scratch_path / popname).chmod(0o775)
 
 
 # Call the function with parsed arguments

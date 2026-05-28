@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import yaml
 
-from idd_forecast_mbp import constants as rfc
+from idd_forecast_mbp import constants as mbpc
 
 
 def load_yaml_dictionary(yaml_path: str) -> dict:
@@ -39,7 +39,7 @@ def parse_yaml_dictionary(covariate: str) -> dict:
 
     # Extracted from: yaml_functions.py:18
     """
-    YAML_PATH = rfc.REPO_ROOT / rfc.repo_name / 'src' / rfc.package_name / 'COVARIATE_DICT.yaml'
+    YAML_PATH = mbpc.REPO_ROOT / mbpc.repo_name / 'src' / mbpc.package_name / 'COVARIATE_DICT.yaml'
     covariate_dict = load_yaml_dictionary(YAML_PATH)
     if covariate not in covariate_dict:
         raise ValueError(f"Covariate '{covariate}' not found in the dictionary.")

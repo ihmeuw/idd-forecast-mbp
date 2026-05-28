@@ -34,7 +34,7 @@ def main(
     hierarchy_df_path = Path(hierarchy_read_path) / f"full_hierarchy_2023_{lsae_hierarchy}.parquet"
     hierarchy_df = read_parquet_with_integer_ids(hierarchy_df_path)
 
-    CLIMATE_DATA_PATH = f"/mnt/team/rapidresponse/pub/climate-aggregates/2025_03_20/results/{lsae_hierarchy}"
+    CLIMATE_DATA_PATH = str(mbpc.CLIMATE_AGGREGATES_PATH / lsae_hierarchy)
 
     aa_full_cause_df_path = Path(den_raked_aa_read_path) / f"aa_full_{cause}_df.parquet"
     as_full_cause_df_path = Path(den_raked_as_read_path) / f"as_full_{cause}_df.parquet"

@@ -1,0 +1,649 @@
+---
+title: "My Super Spiffy Markdown Thing"
+output: markdowntemplates::hrbrmrkdn
+---
+
+```{r}
+require(glue)
+require(data.table)
+
+USER <- Sys.getenv("USER")
+repo_dir    <- glue("/ihme/homes/{USER}/repos/idd-forecast-mbp")
+
+
+
+
+
+parquet_path      <- "/mnt/team/idd/pub/forecast-mbp/03-modeling_data/malaria/past_inputs_nc/lsae_1285/current/malaria_past_inputs.parquet"
+suit_variant_pick <- "mordecai_0_0"
+
+past_data <- as.data.frame(arrow::read_parquet(parquet_path))
+past_data$A0_af <- as.factor(past_data$A0_location_id)
+
+nan_toss <- function(df, var) {
+  to_toss <- which(is.na(df[var]))
+  if (length(to_toss)) df[-to_toss, ] else df
+}
+past_data <- nan_toss(past_data, "malaria_pfpr")
+past_data <- nan_toss(past_data, "gdppc_mean")
+past_data <- nan_toss(past_data, "mal_DAH_total_per_capita")
+
+suit_col <- paste0("malaria_suitability_", suit_variant_pick)
+past_data$malaria_suit_fraction     <- past_data[[suit_col]] / 365
+past_data$malaria_suit_fraction     <- pmin(pmax(past_data$malaria_suit_fraction, 0.001), 0.999)
+past_data$logit_malaria_suitability <- log(past_data$malaria_suit_fraction / (1 - past_data$malaria_suit_fraction))
+past_data$do30_fraction <- past_data$days_over_30C / 365
+past_data$do30_fraction <- pmin(pmax(past_data$do30_fraction, 0.001), 0.999)
+past_data$logit_do30    <- log(past_data$do30_fraction / (1 - past_data$do30_fraction))
+past_data$rh_fraction <- past_data$relative_humidity / 100
+past_data$rh_fraction <- pmin(pmax(past_data$rh_fraction, 0.001), 0.999)
+past_data$logit_relative_humidity <- log(past_data$rh_fraction / (1 - past_data$rh_fraction))
+
+log_covs <- c("mal_DAH_total_per_capita", "gdppc_mean", "ldipc_mean", "med_consumppc")
+for (cov in log_covs) {
+  past_data[[paste0("log_", cov)]] <- log(past_data[[cov]])
+}
+
+# -------------------------- Build the specs --------------------------
+
+# Per-variable allowed forms. "linear" + bs codes from scam.
+var_forms <- list(
+  # Group 1 (decreasing, always in)
+  "mal_DAH_total_per_capita"     = c("linear", "mpd"),
+  "log_mal_DAH_total_per_capita" = c("linear"),
+
+  # Group 2 (decreasing, always in)
+  "gdppc_mean"        = c("linear", "mpd"),
+  "log_gdppc_mean"    = c("linear"),
+  "ldipc_mean"        = c("linear", "mpd"),
+  "log_ldipc_mean"    = c("linear"),
+  "med_consumppc"     = c("linear", "mpd"),
+  "log_med_consumppc" = c("linear"),
+
+  # Group 3 (decreasing)
+  "weighted_1km_urban_threshold_300.0_simple_mean"   = c("linear", "mpd"),
+  "weighted_1km_urban_threshold_1500.0_simple_mean"  = c("linear", "mpd"),
+  "weighted_100m_urban_threshold_1500.0_simple_mean" = c("linear", "mpd"),
+
+  # Group 4 (mpi or cv)
+  "people_flood_days_per_capita" = c("linear", "mpi", "cv"),
+
+  # Group 5 (mpi or cv)
+  "total_precipitation"          = c("linear", "mpi", "cv"),
+  "precipitation_days"           = c("linear", "mpi", "cv"),
+
+  # Group 6 (increasing)
+  "relative_humidity" = c("linear", "mpi"),
+  "logit_relative_humidity" = c("linear", "mpi"),
+
+  # Group 7 (mixed)
+  "mean_temperature"                 = c("linear", "cv"),
+  "mean_low_temperature"             = c("linear", "cv"),
+  "mean_high_temperature"            = c("linear", "cv"),
+  "days_over_30C"                    = c("linear", "cv"),
+  "logit_do30"                       = c("linear"),
+  "malaria_suitability_mordecai_0_0" = c("linear", "mpi"),
+  "logit_malaria_suitability"        = c("linear"),
+
+  # Group 8 (linear only, always in)
+  "A0_af" = c("linear")
+)
+
+groups <- list(
+  g1 = list(always_in = TRUE,  vars = c("mal_DAH_total_per_capita", "log_mal_DAH_total_per_capita")),
+  g2 = list(always_in = TRUE,  vars = c("gdppc_mean", "log_gdppc_mean", "ldipc_mean", "log_ldipc_mean", "med_consumppc", "log_med_consumppc")),
+  g3 = list(always_in = FALSE, vars = c("weighted_1km_urban_threshold_300.0_simple_mean", "weighted_1km_urban_threshold_1500.0_simple_mean", "weighted_100m_urban_threshold_1500.0_simple_mean")),
+  g4 = list(always_in = FALSE, vars = c("people_flood_days_per_capita")),
+  g5 = list(always_in = FALSE, vars = c("total_precipitation", "precipitation_days")),
+  g6 = list(always_in = FALSE, vars = c("relative_humidity", "logit_relative_humidity")),
+  g7 = list(always_in = FALSE, vars = c("mean_temperature", "mean_low_temperature", "mean_high_temperature", "days_over_30C", "logit_do30", "malaria_suitability_mordecai_0_0", "logit_malaria_suitability")),
+  g8 = list(always_in = TRUE,  vars = c("A0_af"))
+)
+
+# Build all (var, form) options for a group; NA represents "skip" if optional
+group_options <- function(group, var_forms) {
+  opts <- list()
+  if (!group$always_in) opts <- c(opts, list(NA))
+  for (v in group$vars) {
+    for (f in var_forms[[v]]) {
+      opts <- c(opts, list(list(var = v, form = f)))
+    }
+  }
+  opts
+}
+
+# Cartesian product across groups -> list of model specs
+expand_models <- function(groups, var_forms) {
+  per_group <- lapply(groups, group_options, var_forms = var_forms)
+  ng  <- sapply(per_group, length)
+  idx <- do.call(expand.grid, lapply(ng, seq_len))
+
+  lapply(seq_len(nrow(idx)), function(i) {
+    spec <- list()
+    for (g in seq_along(groups)) {
+      opt <- per_group[[g]][[idx[i, g]]]
+      if (!identical(opt, NA)) spec[[opt$var]] <- opt$form
+    }
+    spec
+  })
+}
+
+# Formula construction (duplicated in rocket — keep in sync)
+K_DEFAULT <- 6
+build_term <- function(var, form) {
+  if (form == "linear") return(var)
+  sprintf("s(%s, k = %d, bs = '%s')", var, K_DEFAULT, form)
+}
+build_formula <- function(spec, response) {
+  rhs <- mapply(build_term, names(spec), unlist(spec), USE.NAMES = FALSE)
+  reformulate(rhs, response = response)
+}
+
+matches <- function(spec) {
+  identical(spec[["logit_malaria_suitability"]],  "linear") &&
+  identical(spec[["gdppc_mean"]],                 "mpd")    &&
+  identical(spec[["mal_DAH_total_per_capita"]],   "mpd")
+}
+
+specs <- expand_models(groups, var_forms)
+neighborhood_specs <- Filter(matches, specs)
+message(glue("Built {length(neighborhood_specs)} neighborhood specs."))
+
+
+load_one <- function(tid, output_dir) {
+  fp <- file.path(output_dir, sprintf("fit_%03d.rds", tid))
+  readRDS(fp)
+}
+
+```
+
+```{r}
+sacct_out <- system(
+  "sacct -u $USER --name=fit_malaria_pfpr --format=JobID%25,State%12,ExitCode,MaxRSS%12,Elapsed%12 -S 2026-05-14 | head -300",
+  intern = TRUE
+)
+
+failed_lines <- grep("FAILED|TIMEOUT|OUT_OF_ME|CANCELLED", sacct_out, value = TRUE)
+cat(failed_lines, sep = "\n")
+
+state_table <- system(
+ "sacct -u $USER --name=fit_malaria_pfpr --format=State%15 -S 2026-05-14 --noheader | sort | uniq -c | sort -rn",
+ intern = TRUE
+)
+cat(state_table, sep = "\n")
+
+
+lost_n_smooths <- sapply(lost_task_ids, function(tid) {
+  s <- neighborhood_specs[[tid]]
+  sum(unlist(s) != "linear")
+})
+finished_n_smooths <- sapply(finished_task_ids, function(tid) {
+  s <- neighborhood_specs[[tid]]
+  sum(unlist(s) != "linear")
+})
+
+cat("Lost tasks — smooths distribution:\n")
+print(table(lost_n_smooths))
+cat("\nFinished tasks — smooths distribution:\n")
+print(table(finished_n_smooths))
+
+# 5. Which bs types appear in lost tasks?
+lost_forms <- unlist(lapply(lost_task_ids, function(tid) {
+  s <- neighborhood_specs[[tid]]
+  unlist(s)[unlist(s) != "linear"]
+}))
+cat("\nSmooth types in lost tasks:\n")
+print(table(lost_forms))
+
+finished_forms <- unlist(lapply(finished_task_ids, function(tid) {
+  s <- neighborhood_specs[[tid]]
+  unlist(s)[unlist(s) != "linear"]
+}))
+cat("\nSmooth types in finished tasks:\n")
+print(table(finished_forms))
+
+# What's the best oos_pfpr_r among finished 5-6 smooth specs?
+best_metric_by_smooths <- sapply(sort(unique(finished_n_smooths)), function(n) {
+  ids <- finished_task_ids[finished_n_smooths == n]
+  max(metric_df$oos_pfpr_r[metric_df$task_id %in% ids], na.rm = TRUE)
+})
+cat("\nBest oos_pfpr_r by number of smooths in finished tasks:\n")
+print(best_metric_by_smooths)
+
+```
+
+
+```{r include=FALSE, message=FALSE, warning=FALSE}
+knitr::opts_chunk$set(
+  message = FALSE, warning = FALSE, echo = TRUE, fig.retina = 2, collapse = TRUE
+)
+knitr::knit_hooks$set(chunk = markdowntemplates:::chunk_hook_html) # DO NOT DELETE - NECESSARY FOR PRISM
+knitr::knit_hooks$set(optipng = knitr::hook_optipng) # DELETE ONLY IF YOU DON'T WANT COMPRESSION
+knitr::knit_hooks$set(pngquant = knitr::hook_pngquant) # DELETE ONLY IF YOU DON'T WANT COMPRESSION
+
+
+FIT_OUTPUT_DIR='/mnt/team/idd/pub/forecast-mbp/03-modeling_data/malaria/scam_fits/lsae_1285/20260514_v2'
+finished = list.files(FIT_OUTPUT_DIR, pattern = "summary", full.names = TRUE)
+finished_task_ids <- unname(sapply(finished, function(x) as.numeric(strsplit(strsplit(x, "summary_")[[1]][2], ".csv")[[1]][1])))
+
+
+df <- as.data.frame(data.table::rbindlist(lapply(finished, data.table::fread)))
+metric_df <- df[,c("task_id", "is_aic", "is_bic", "is_loglik", "is_deviance", 
+  "is_dev_expl", "is_r_sq", "is_rmse", "is_mae", 
+  "is_no_fe_aic", "is_no_fe_bic", "is_no_fe_dev_expl", "is_no_fe_r_sq", "is_no_fe_rmse", "is_no_fe_mae",
+  "oos_rmse", "oos_mae", "oos_r_sq", "is_pfpr_rmse", "is_pfpr_mae", "is_pfpr_r", 
+  "is_no_fe_pfpr_rmse", "is_no_fe_pfpr_mae", "is_no_fe_pfpr_r", "oos_pfpr_rmse", "oos_pfpr_mae", "oos_pfpr_r")]
+metric_df <- metric_df[order(metric_df$oos_r_sq, decreasing = TRUE),]
+
+
+# metric_df <- metric_df[metric_df$oos_r_sq > 0.3,]
+metric_df <- metric_df[metric_df$oos_pfpr_r > 0.12,]
+metric_df <- metric_df[metric_df$oos_mae < 4.7,]
+remaining_tasks <- metric_df$task_id
+final_df <- df[df$task_id %in% remaining_tasks,]
+
+cov_yn <- data.frame(matrix(0, nrow = nrow(final_df), ncol = length(var_forms)))
+names(cov_yn) <- names(var_forms)
+cov_yn$task_id <- final_df$task_id
+cov_yn$is_mae <- final_df$is_mae
+cov_yn$is_r_sq <- final_df$is_r_sq
+cov_yn$is_pfpr_r <- final_df$is_pfpr_r
+cov_yn$is_no_fe_pfpr_r <- final_df$is_no_fe_pfpr_r
+cov_yn$oos_mae <- final_df$oos_mae
+cov_yn$oos_r_sq <- final_df$oos_r_sq
+cov_yn$oos_pfpr_mae <- final_df$oos_pfpr_mae
+cov_yn$oos_pfpr_r <- final_df$oos_pfpr_r
+for (t_num in seq_along(final_df$task_id)) {
+  task_id <- final_df$task_id[t_num]
+  tmp_spec <- neighborhood_specs[[task_id]]
+  cov_yn[t_num, names(tmp_spec)] <- unname(unlist(tmp_spec))
+}
+
+quantile(metric_df$oos_mae, probs = seq(0, 1, 0.1))
+
+
+good_task_ids <- cov_yn$task_id
+good_tasks <- length(good_task_ids)
+for (g_num in seq_along(good_task_ids)){
+  print(glue("Loading task {g_num} of {good_tasks} (task_id = {good_task_ids[g_num]})"))
+  task_id <- good_task_ids[g_num]
+  row_num <- which(cov_yn$task_id == task_id)
+  tmp_fit <- load_one(task_id)$fit
+  cf   <- tmp_fit$coefficients
+  nm   <- names(cf); if (is.null(nm)) nm <- rownames(cf)
+  vals <- as.numeric(cf)
+  keep <- !grepl("^A0_", nm) & !grepl("s(", nm, fixed = TRUE) & !grepl("Intercept", nm, fixed = TRUE)
+  cov_yn[row_num, nm[keep]] <- vals[keep]
+}
+
+
+flood_contraint <- FALSE
+urban_contraint <- TRUE
+
+if (flood_contraint){
+  v   <- cov_yn$people_flood_days_per_capita
+  num <- suppressWarnings(as.numeric(v))
+  toss <- which(!is.na(num) & num < 0)
+  if(length(toss)){
+    print(glue("Tossing {length(toss)} rows for flood constraint"))
+    cov_yn <- cov_yn[-toss, ]
+  }
+}
+
+if (urban_contraint){
+  for (var in groups[['g3']]$vars){
+    v   <- cov_yn[[var]]
+    num <- suppressWarnings(as.numeric(v))
+    toss <- which(!is.na(num) & num > 0)
+    if (length(toss)){
+      print(glue("Tossing {length(toss)} rows for urban constraint on {var}"))
+      cov_yn <- cov_yn[-toss, ]
+    }
+  }
+}
+
+toss <- which(sapply(cov_yn, function(x) length(unique(x))) == 1)
+if (length(toss)){
+  cov_yn <- cov_yn[, -toss]
+}
+
+cov_yn <- cov_yn[order(cov_yn$oos_pfpr_r, decreasing = TRUE),]
+cov_yn
+
+total_tasks <- length(neighborhood_specs)
+missing_tasks <- total_tasks - dim(df)[1]
+missing_task_ids <- setdiff(seq_len(total_tasks), finished_task_ids)
+print(glue("Total tasks: {total_tasks}"))
+print(glue("Completed tasks: {dim(df)[1]}, post-filter tasks: {dim(final_df)[1]}"))
+print(glue("Remaining tasks: {missing_tasks}"))
+
+
+# Look for jobs with fit_mala in their name
+running <- system("squeue --me --name=fit_malaria_pfpr --format='%K' --noheader", intern = TRUE)
+running_task_ids <- as.numeric(running)
+still_running <- length(running_task_ids)
+
+print(glue("There are {still_running} still running fit jobs."))
+if (still_running > missing_tasks){
+  print("Warning: There are more running jobs than missing tasks. Some jobs may not be for this run.")
+} else if (still_running < missing_tasks) {
+  print("Warning: There are fewer running jobs than missing tasks. Some tasks may not have been started.")
+  running_task_ids <- unname(sapply(fit_jobs, function(x) as.numeric(strsplit(strsplit(x, "_")[[1]][2], " ")[[1]][1])))
+  # 
+  lost_task_ids <- setdiff(missing_task_ids, running_task_ids)
+  print(glue("Lost task IDs: {paste(lost_task_ids, collapse = ', ')}"))
+} else {
+  print("The number of running jobs matches the number of missing tasks.")
+}
+
+lost_task_ids <- setdiff(missing_task_ids, running_task_ids)
+print(glue("There are {length(lost_task_ids)} lost tasks."))
+print(glue("Lost task IDs: {paste(lost_task_ids, collapse = ', ')}"))
+
+
+
+```
+
+
+```{r}
+# Parse the per-fold iters
+iter_lists <- strsplit(as.character(df$cv_iter_per_fold), ";")
+max_iters_per_task <- sapply(iter_lists, function(x) max(as.numeric(x), na.rm = TRUE))
+table(max_iters_per_task == 300, df$cv_n_converged < 5)
+# Should show: tasks with <5 converged almost always have at least one fold at iter=300
+
+```
+
+```{r}
+
+require(parallel)
+
+fit_files <- list.files(FIT_OUTPUT_DIR, pattern = "^fit_\\d+\\.rds$", full.names = TRUE)
+
+conv_df <- data.frame(task_id = integer(), iter = integer(), converged = logical())
+
+
+conv_list <- mclapply(fit_files, function(f) {
+  obj <- readRDS(f)
+  if (isTRUE(obj$error)) return(NULL)
+  list(task_id = obj$task_id, iter = obj$fit$iter, converged = isTRUE(obj$fit$conv))
+}, mc.cores = 8)
+conv_df <- do.call(rbind, lapply(Filter(Negate(is.null), conv_list), as.data.frame))
+table(conv_df$converged, conv_df$iter)
+
+```
+
+
+
+```{r}
+
+cov_yn$people_flood_days_per_capita
+
+
+
+
+tmp_fit <- load_one(131, output_dir = FIT_OUTPUT_DIR)$fit
+
+cf   <- tmp_fit$coefficients
+nm   <- names(cf); if (is.null(nm)) nm <- rownames(cf)
+vals <- as.numeric(cf)
+
+keep <- !grepl("^A0_", nm) & !grepl("s(", nm, fixed = TRUE) & !grepl("Intercept", nm, fixed = TRUE)
+
+df <- data.frame(term = nm[keep], coef = vals[keep], row.names = NULL)
+df
+
+smooths <- unlist(lapply(neighborhood_specs, function(x) length(which(unlist(x)!="linear"))))
+table(smooths)
+tmp_l <- neighborhood_specs[[1]]
+
+
+# Pick one — let's say lost task_id = 413
+require(scam)
+tid <- 23
+spec <- neighborhood_specs[[tid]]
+fml  <- build_formula(spec, "logit_malaria_pfpr")
+fml
+# Run with iteration tracing on
+t0 <- Sys.time()
+fit_bfgs <- scam(fml, data = past_data,
+                 optimizer = "bfgs",
+                 control = list(maxit = 300, trace = TRUE))
+cat("Elapsed:", as.numeric(Sys.time() - t0, units = "secs"), "s\n")
+cat("iter:", fit_bfgs$iter, "  converged:", fit_bfgs$conv, "\n")
+
+
+require(httpgd)
+httpgd::hgd()
+
+
+summary(fit_bfgs)
+plot(fit_bfgs, pages = 1, scale = 0)
+plot(1)
+# fit_bfgs_445 = fit_bfgs
+
+```
+
+
+```{r}
+sapply(lost_task_ids, function (x) neighborhood_specs[[x]])
+neighborhood_specs[[]]
+```
+
+
+```{r}
+CATCHUP <- FALSE
+if (CATCHUP){
+  USER <- Sys.getenv("USER")
+  repo_dir    <- glue("/ihme/homes/{USER}/repos/idd-forecast-mbp")
+  message_dir <- "/mnt/team/idd/pub"
+
+  script <- glue("{repo_dir}/src/idd_forecast_mbp/03_modeling/fit_malaria_models_rocket_bfgs.r")
+
+  error_filepath  <- glue("-e {message_dir}/stderr/%x.e%j")
+  output_filepath <- glue("-o {message_dir}/stdout/%x.o%j")
+  project_flag    <- "-A proj_rapidresponse"
+
+  # Retry lost tasks into existing output dir
+  output_dir   <- FIT_OUTPUT_DIR
+  CV_STRATEGY  <- "country_no_fe"
+  rocket_env   <- glue("--export=ALL,FIT_OUTPUT_DIR='{output_dir}',CV_STRATEGY='{CV_STRATEGY}'")
+
+  job_name     <- "fit_malaria_pfpr"
+  thread_flag  <- "-c 8"
+  mem_flag     <- "--mem=16G"
+  runtime_flag <- if (CV_STRATEGY == "none") "-t 30" else "-t 180"
+  queue_flag   <- "-p long.q"
+
+  n_jobs <- paste(lost_task_ids, collapse = ",")
+
+  qsub_command <- glue(
+    "sbatch -J {job_name} {mem_flag} {thread_flag} {project_flag} {runtime_flag} {queue_flag} ",
+    "-a '{n_jobs}' {rocket_env} {error_filepath} {output_filepath} ",
+    "/ihme/singularity-images/rstudio/shells/execRscript.sh ",
+    "-i /ihme/singularity-images/rstudio/ihme_rstudio_4222.img -s {script}"
+  )
+  message(qsub_command)
+  system(qsub_command)
+}
+```
+
+```{r}
+load_one <- function(tid) {
+  fp <- file.path(FIT_OUTPUT_DIR, sprintf("fit_%03d.rds", tid))
+  readRDS(fp)
+}
+task_id <- 30
+
+
+obj <- load_one(task_id, FIT_OUTPUT_DIR)
+mod <- obj$fit
+
+df_row <- df[df$task_id == task_id,]
+invlogit <- function(x) exp(x) / (1 + exp(x))
+as.formula(df_row$formula_text)
+
+fit <- scam(mod$formula, data = past_data, optimizer = "efs", control = list(maxit = 300))
+
+
+
+pub_mod <- scam(logit_malaria_pfpr ~ s(mal_DAH_total_per_capita, k = 6, bs = 'mpd') + 
+                              s(gdppc_mean, k = 6, bs = 'mpd') + 
+                             people_flood_days_per_capita + 
+                             logit_malaria_suitability + 
+                             A0_af,
+                           data = past_data,
+                           optimizer = "efs",      # Faster optimizer
+                           control = list(maxit = 300))
+
+summary(pub_mod)$dev.expl
+df_row$is_dev_expl
+
+
+
+obj <- load_one(task_id)
+mod <- obj$fit  
+summary(mod)
+
+pub_mod_no_fe <- scam(logit_malaria_pfpr ~ s(mal_DAH_total_per_capita, k = 6, bs = 'mpd') + 
+                              s(gdppc_mean, k = 6, bs = 'mpd') + 
+                             people_flood_days_per_capita + 
+                             logit_malaria_suitability,
+                           data = past_data,
+                           optimizer = "efs",      # Faster optimizer
+                           control = list(maxit = 300))
+
+
+cor(invlogit(mod$y), invlogit(mod$fitted.values))
+
+final_df$is_pfpr_r[which(final_df$task_id == 142)]
+
+no_fe_RHS <- "s(mal_DAH_total_per_capita, k = 6, bs = 'mpd') + 
+    s(gdppc_mean, k = 6, bs = 'mpd') + weighted_1km_urban_threshold_300.0_simple_mean + 
+    s(relative_humidity, k = 6, bs = 'mpi') + logit_malaria_suitability"
+
+no_fe_formula <- as.formula(glue("logit_malaria_pfpr ~ {no_fe_RHS}"))
+fe_formula <- as.formula(glue("logit_malaria_pfpr ~ {no_fe_RHS} + A0_af"))
+require(scam)
+mod <- scam(fe_formula, data = past_data, optimizer = "efs", control = list(maxit = 300))
+mod_no_fe <- scam(no_fe_formula, data = past_data, optimizer = "efs", control = list(maxit = 300))
+
+require(httpgd)
+httpgd::hgd()
+
+plot(mod, pages = 1, scale = 0)
+plot(mod_no_fe, pages = 1, scale = 0)
+cor(invlogit(fit_mod$y), invlogit(fit_mod$fitted.values))
+cor(past_data$malaria_pfpr, invlogit(fit_mod$fitted.values))
+final_df$is_no_fe_pfpr_r[which(final_df$task_id == 142)]
+```
+
+```{r}
+require(scam)
+require(arrow)
+
+# -- Data loading (mirrors rocket) --
+
+length(which(past_data$logit_malaria_pfpr > 0))
+length(which(past_data$logit_malaria_pfpr > 0.10))
+
+mod_full <- scam(logit_malaria_pfpr ~ logit_malaria_suitability + 
+                             s(gdppc_mean, k = 6, bs = 'mpd') + 
+                             s(mal_DAH_total_per_capita, k = 6, bs = 'mpd') + 
+                             people_flood_days_per_capita,
+                           data = past_data,
+                           optimizer = "efs",      # Faster optimizer
+                           control = list(maxit = 300))
+
+mod_01 <- scam(logit_malaria_pfpr ~ logit_malaria_suitability + 
+                             s(gdppc_mean, k = 6, bs = 'mpd') + 
+                             s(mal_DAH_total_per_capita, k = 6, bs = 'mpd') + 
+                             people_flood_days_per_capita,
+                           data = past_data[past_data$logit_malaria_pfpr > 0.01,],
+                           optimizer = "efs",      # Faster optimizer
+                           control = list(maxit = 300))
+
+mod_05 <- scam(logit_malaria_pfpr ~ logit_malaria_suitability + 
+                             s(gdppc_mean, k = 6, bs = 'mpd') + 
+                             s(mal_DAH_total_per_capita, k = 6, bs = 'mpd') + 
+                             people_flood_days_per_capita,
+                           data = past_data[past_data$logit_malaria_pfpr > 0.05,],
+                           optimizer = "efs",      # Faster optimizer
+                           control = list(maxit = 300))
+
+mod_10 <- scam(logit_malaria_pfpr ~ logit_malaria_suitability + 
+                             s(gdppc_mean, k = 6, bs = 'mpd') + 
+                             s(mal_DAH_total_per_capita, k = 6, bs = 'mpd') + 
+                             people_flood_days_per_capita,
+                           data = past_data[past_data$logit_malaria_pfpr > 0.10,],
+                           optimizer = "efs",      # Faster optimizer
+                           control = list(maxit = 300))
+
+gdppc_mean_vec <- seq(min(past_data$gdppc_mean), max(past_data$gdppc_mean), length.out = 101)
+mal_DAH_total_per_capita_vec  <- seq(min(past_data$mal_DAH_total_per_capita), max(past_data$mal_DAH_total_per_capita), length.out = 101)
+sample_levels <- c(1,26,51,76,101)
+pred_grid <- expand.grid(gdppc_mean = gdppc_mean_vec, mal_DAH_total_per_capita = mal_DAH_total_per_capita_vec)
+pred_grid$logit_malaria_suitability <- mean(past_data$logit_malaria_suitability)
+pred_grid$people_flood_days_per_capita <- mean(past_data$people_flood_days_per_capita)
+pred_grid$logit_malaria_pfpr_full <- predict(mod_full, newdata = pred_grid)
+pred_grid$logit_malaria_pfpr_01   <- predict(mod_01, newdata = pred_grid)
+pred_grid$logit_malaria_pfpr_05   <- predict(mod_05, newdata = pred_grid)
+pred_grid$logit_malaria_pfpr_10   <- predict(mod_10, newdata = pred_grid)
+require(httpgd)
+httpgd::hgd()
+
+
+
+plot(invlogit(mod_full$y), invlogit(mod_full$fitted.values), pch = 19, cex = 0.5)
+cor(invlogit(mod_full$y), invlogit(mod_full$fitted.values))
+
+
+
+mod_suffixs <- c('_full', '_01', '_05', '_10')
+covs <- c('mal_DAH_total_per_capita', 'gdppc_mean')
+cov_names <- c("DAH per capita", "GDP per capita")
+require(glue)
+par(mfrow = c(4,2))
+YLIM <- range(pred_grid$logit_malaria_pfpr_full, pred_grid$logit_malaria_pfpr_01, pred_grid$logit_malaria_pfpr_05, pred_grid$logit_malaria_pfpr_10)
+YLIM <- invlogit(YLIM)
+for (mod_suffix in mod_suffixs) {
+  for (cov in covs) {
+    other_cov <- covs[covs != cov]
+    other_cov_vec <- get(paste0(other_cov, "_vec"))
+    cov_name <- cov_names[which(covs == cov)]
+    print(glue("Plotting mod{mod_suffix} vs {cov}"))
+    for (s_num in seq_along(sample_levels)) {
+      s_level <- sample_levels[s_num] 
+      tmp_df <- pred_grid[which(pred_grid[[other_cov]] == other_cov_vec[s_level]),]
+      x <- tmp_df[[cov]]
+      y <- invlogit(tmp_df[[paste0("logit_malaria_pfpr", mod_suffix)]])
+      if (s_num == 1) {
+        plot(x, y, type = 'l', col = s_num, lwd = 2,
+        ylim = YLIM,
+        xlab = cov_name, ylab = paste0("Logit PfPR - ", mod_suffix))
+      } else {
+        lines(x, y, col = s_num, lwd = 2)
+      }
+    }
+    legend("bottomleft", legend = paste0(other_cov, " = ", round(other_cov_vec[sample_levels], 2)), col = sample_levels, lwd = 2)
+  }
+}
+mod_suffix <- "_01"
+cov <- "gdppc_mean"
+other_cov <- covs[covs != cov]
+other_cov_vec <- get(paste0(other_cov, "_vec"))
+cov_name <- cov_names[which(covs == cov)]
+print(glue("Plotting mod{mod_suffix} vs {cov}"))
+s_level <- sample_levels[1]
+tmp_df <- pred_grid[which(pred_grid[[other_cov]] == other_cov_vec[s_level]),]
+
+plot(1)
+
+
+
+
+
+
+
+
+```

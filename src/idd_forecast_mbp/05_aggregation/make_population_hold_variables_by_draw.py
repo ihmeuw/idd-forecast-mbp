@@ -8,9 +8,9 @@ import pandas as pd # type: ignore
 from typing import Literal, NamedTuple
 import itertools
 from rra_tools.shell_tools import mkdir # type: ignore
-from idd_forecast_mbp import constants as rfc
-from idd_forecast_mbp.parquet_functions import read_parquet_with_integer_ids, write_parquet
-from idd_forecast_mbp.xarray_functions import read_netcdf_with_integer_ids, write_netcdf, convert_with_preset
+from idd_forecast_mbp import constants as mbpc
+from idd_forecast_mbp.lib.io.parquet import read_parquet_with_integer_ids, write_parquet
+from idd_forecast_mbp.lib.io.netcdf import read_netcdf_with_integer_ids, write_netcdf, convert_with_preset
 
 import argparse
 
@@ -35,9 +35,9 @@ reference_year = 2022
 
 dah_scenario = 'Baseline'
 
-PROCESSED_DATA_PATH = rfc.MODEL_ROOT / "02-processed_data"
-FORECASTING_DATA_PATH = rfc.MODEL_ROOT / "04-forecasting_data"
-UPLOAD_DATA_PATH = rfc.MODEL_ROOT / "05-upload_data"
+PROCESSED_DATA_PATH = mbpc.MODEL_ROOT / "02-processed_data"
+FORECASTING_DATA_PATH = mbpc.MODEL_ROOT / "04-forecasting_data"
+UPLOAD_DATA_PATH = mbpc.MODEL_ROOT / "05-upload_data"
 
 as_full_population_ds_path = f"{PROCESSED_DATA_PATH}/as_2023_full_population_ds.nc"
 aa_full_population_ds_path = f"{PROCESSED_DATA_PATH}/aa_2023_full_population_ds.nc"

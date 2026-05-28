@@ -17,11 +17,12 @@ from pathlib import Path
 from idd_forecast_mbp import constants as mbpc
 from idd_forecast_mbp.lib.io.parquet import read_parquet_with_integer_ids, write_parquet
 from idd_forecast_mbp.lib.io.netcdf import write_netcdf, convert_with_preset
+from idd_forecast_mbp.lib.versioning import finalize_artifact
 
 
 _FUTURE_FHS_POP_PATH = Path(
-    "/mnt/share/forecasting/data/33/future/population"
-    "/20250319_updated_rerun_pop_shifted_etl_417/population.nc"
+    "/mnt/share/forecasting/data/32/future/population"
+    "/future_population_s130v41/population_agg.nc"
 )
 
 
@@ -66,18 +67,20 @@ def main(
     as_future_fhs_population_df = (
         xr.open_dataset(_FUTURE_FHS_POP_PATH)
         .sel(age_group_id=age_metadata_df["age_group_id"].unique(), sex_id=sex_ids)
-        .population.mean(dim="draw")
+        .draws.mean(dim="draw")
         .to_dataframe()
         .reset_index()
         .drop(columns=["scenario"])
+        .rename(columns={"draws": "population"})
     )
     aa_future_fhs_population_df = (
         xr.open_dataset(_FUTURE_FHS_POP_PATH)
         .sel(age_group_id=22, sex_id=3)
-        .population.mean(dim="draw")
+        .draws.mean(dim="draw")
         .to_dataframe()
         .reset_index()
         .drop(columns=["scenario"])
+        .rename(columns={"draws": "population"})
     )
 
     # ── Fix: location 44858 → {60908, 95069, 94364} ──────────────────────────
@@ -134,6 +137,15 @@ def main(
     )
 
     # ── Combine past + future ─────────────────────────────────────────────────
+    # Future file starts at 2023 which overlaps with past; drop the overlap.
+    last_past_year = aa_past_fhs_population_df["year_id"].max()
+    aa_future_fhs_population_df = aa_future_fhs_population_df[
+        aa_future_fhs_population_df["year_id"] > last_past_year
+    ]
+    as_future_fhs_population_df = as_future_fhs_population_df[
+        as_future_fhs_population_df["year_id"] > last_past_year
+    ]
+
     aa_fhs_population_df = pd.concat(
         [aa_past_fhs_population_df, aa_future_fhs_population_df], ignore_index=True
     ).rename(columns={"population": "aa_population"})
@@ -155,6 +167,7 @@ def main(
     write_parquet(as_fhs_population_df, as_fhs_population_df_path)
     write_netcdf(convert_with_preset(aa_fhs_population_df, preset="aa_variables"), aa_fhs_population_ds_path)
     write_netcdf(convert_with_preset(as_fhs_population_df, preset="as_variables"), as_fhs_population_ds_path)
+    finalize_artifact(mbpc._A02_POPULATION)
 
 
 if __name__ == "__main__":

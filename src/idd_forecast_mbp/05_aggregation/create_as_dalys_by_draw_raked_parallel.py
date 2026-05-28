@@ -9,9 +9,9 @@ import pandas as pd # type: ignore
 from typing import Literal, NamedTuple
 import itertools
 from rra_tools.shell_tools import mkdir # type: ignore
-from idd_forecast_mbp import constants as rfc
-from idd_forecast_mbp.parquet_functions import read_parquet_with_integer_ids, write_parquet
-from idd_forecast_mbp.xarray_functions import read_netcdf_with_integer_ids, write_netcdf, convert_with_preset
+from idd_forecast_mbp import constants as mbpc
+from idd_forecast_mbp.lib.io.parquet import read_parquet_with_integer_ids, write_parquet
+from idd_forecast_mbp.lib.io.netcdf import read_netcdf_with_integer_ids, write_netcdf, convert_with_preset
 import argparse
 
 parser = argparse.ArgumentParser(description="Add DAH Sceanrios and create draw level dataframes for forecating malaria")
@@ -37,11 +37,11 @@ vaccinate = 'None'
 hold_variable = args.hold_variable
 run_date = args.run_date
 
-measure_map = rfc.measure_map
+measure_map = mbpc.measure_map
 
-PROCESSED_DATA_PATH = rfc.MODEL_ROOT / "02-processed_data"
-FORECASTING_DATA_PATH = rfc.MODEL_ROOT / "04-forecasting_data"
-UPLOAD_DATA_PATH = rfc.MODEL_ROOT / "05-upload_data"
+PROCESSED_DATA_PATH = mbpc.MODEL_ROOT / "02-processed_data"
+FORECASTING_DATA_PATH = mbpc.MODEL_ROOT / "04-forecasting_data"
+UPLOAD_DATA_PATH = mbpc.MODEL_ROOT / "05-upload_data"
 
 if cause == "malaria":
     if hold_variable == 'None':

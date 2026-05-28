@@ -85,9 +85,9 @@ def write_hdf(
 
             if attempt == max_retries - 1:
                 raise
-            raise
+            raise  # non-lock errors re-raise immediately without retry
 
-    return False
+    return False  # pragma: no cover
 
 
 def create_hdf_structure(

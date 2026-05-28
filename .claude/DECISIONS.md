@@ -65,7 +65,40 @@
 **Why:** The clip is a data-quality rule for the covariate itself, not a disease-specific modeling choice. Disease-specific additions can be passed via `extra_clip_rules`.
 **Revisit if:** Evidence that malaria model behavior is sensitive to RH values at the extremes and the clip is harmful.
 
-## 2026-03-27: write_netcdf gains mkdir; write_parquet atomic default changes
+## 2026-05-07: Past inputs format: flat parquet not netCDF
+**Decision:** 05_build_malaria_past_inputs.py (and future 06_dengue) output a flat parquet with one row per valid (location_id, year_id), not a dimension-aware netCDF.
+**Why:** netCDF squareness forces ~24% of cells to be NaN (locations that had zero pfpr in some years). This wastes space, requires explicit NaN handling in R, and makes merging awkward. Past inputs have no draw dimension, so netCDF buys nothing. NetCDF is still the right format for forecasted inputs/outputs where draw dimension is needed.
+**Revisit if:** Past inputs acquire a draw dimension, or if R merging of multiple forecast files makes the flat format too unwieldy.
+
+## 2026-05-07: DAH missingness in source = $0
+**Decision:** NaN values in the DAH source file (dah_by_channel_hfa_recip_1990_2100.csv) for a given country-year mean DAH = $0, not missing data. Fill with 0.
+**Why:** Confirmed by Joe (DAH data owner) directly during this session.
+**Revisit if:** Joe clarifies there are cases where NaN means "data not collected" rather than "no DAH."
+
+## 2026-05-07: GDP population-masked locations stay in pipeline as NaN
+**Decision:** 309 admin-2 locations with NaN gdppc_mean (all <5K population, pop_masking_flag=1 in source) are retained in the pipeline output with NaN gdppc_mean. R model drops them via nan_toss().
+**Why:** All NaN GDP rows are confirmed population-masked in source. Dropping them in Python would silently change the location set; better to let R handle them explicitly with a warning message.
+**Revisit if:** Bianca provides a fill strategy or GDP estimates for these locations.
+
+## 2026-05-06: flooding is a scalar (non-draw) covariate in past inputs
+**Decision:** Flooding goes into read_shared_covariates (loc×year scalar), not into read_draw_climate.
+**Why:** Flooding parquet uses _mean_r1i1p1f1 naming — already ensemble-averaged, no draw variance.
+**Revisit if:** A draw-varying flooding product becomes available.
+
+## 2026-05-06: dengue_suitability not in read_draw_climate defaults
+**Decision:** read_draw_climate() does not include dengue_suitability. Dengue script adds it via extra_vars.
+**Why:** Disease-specificity boundary — malaria uses Mordecai/Villena suitability variants instead.
+**Revisit if:** Never.
+
+## 2026-05-11: CV strategy = country_no_fe (preferred)
+**Decision:** Use country_no_fe as the default CV strategy for model selection. This drops A0_af from the OOS formula entirely, fitting 7 models: IS with FE, IS without FE, 5-fold country-holdout without FE.
+**Why:** Country-holdout without fixed effects isolates pure covariate signal — the fairest comparison across specs. The "country" strategy (mean-FE imputation) produces terrible OOS metrics because the mean FE is a bad predictor.
+**Revisit if:** We find that FE contribute meaningful OOS signal via a better imputation strategy.
+
+## 2026-05-12: PfPR-space metric is Pearson correlation, not R²
+**Decision:** PfPR-space fit metric uses `cor(observed_pfpr, predicted_pfpr)` — Pearson correlation — not R². Column name is `_pfpr_r`.
+**Why:** R² can be negative for poor OOS predictions, making ranking awkward. Correlation is always in [-1, 1] and more interpretable for model comparison. The R² naming was a misnomer from the original implementation.
+**Revisit if:** Never.
 **Decision:** `write_netcdf` will accept a `mkdir=True` parameter to create parent directories. `write_parquet` `use_atomic` default changes from False to True.
 **Why:** Standardizes behavior: both functions now create dirs and use atomic writes by default. Eliminates footguns where caller forgets to pre-create dirs.
 **Revisit if:** Atomic writes cause 2x disk usage problems on specific filesystems.
@@ -110,6 +143,12 @@
 **Why:** The `pre_restructure` golden was generated using `yn==1` filtering on `dengue_stage_2_df`. That filter was changed to `A0_dengue_ids` filtering in commit 9aef0f2, which predates the refactor commit (ead6495). The current script produces ~2,473 extra locations (US counties + 36 countries). Values are identical for all locations present in both outputs. The refactor did not introduce this discrepancy.
 **Revisit if:** lsae_1285 run generates new goldens — at that point establish a new baseline and decide whether the expanded location set is scientifically correct.
 
+## 2026-04-17: Stage 04 forecasting_data versioning
+**Decision:** Version `04-forecasting_data/` matching stages 01-03 structure: `{cause}/lsae_1209/{YYYYMMDD}/` + `current` + named symlinks. First versioned run date: `20250811` (first_submission). ~3,800 orphan/obsolete files deleted.
+**Why:** Flat unversioned root made re-runs destructive and origin of each file unclear. Multiple partial runs (Jul 3, Jul 8, Jul 29, Jul 30, Aug 10/11, Nov 2/7) were interleaved.
+**What was deleted:** 600 Increasing/Decreasing malaria parquets (never completed pipeline); 2,400 GK malaria files (GK_cut20, GK_reference); 200 better/reference malaria parquets (Nov 2 re-generation, pipeline not re-run); 190 Jul 29 orphans (old hold naming: logit_malaria_suitability, mal_DAH_total_per_capita, people_flood_days_per_capita superseded by short-name Jul 30 files); 2 dengue orphans; hierarchy_lsae_1209_full.parquet (unreferenced).
+**Revisit if:** A second run completes — create `20YYYYMMDD/` + update `current` symlink.
+
 ## 2026-04-05: Implement node-level output versioning per STANDARDS.md
 **Decision:** Implement STANDARDS.md versioning: all pipeline output goes to `{stage_dir}/{RUN_DATE}/`; `current/` symlink points to the active run. Controlled via `IDD_RUN_DATE` env var (default `"20260405"`).
 **Why:** Pipeline was writing flat files into stage roots, making re-runs destructive with no recovery path. Versioning is required before running with new input data.
@@ -126,3 +165,133 @@
 - `06_upload/`: fhs_upload_as_draws.py, create_and_combine_as_and_aa_draws.py, make_full_means_ds.py
 - Legacy modules: helper_functions.py, covariate_functions.py, fhs_functions.py, counterfactual_functions.py
 **Revisit if:** Partial-pipeline re-runs become common — the read/write path split may need a cleaner interface.
+
+## 2026-04-16: Cell-by-cell regression test strategy — netCDF addendum
+**Decision:** For large netCDF outputs (tens of millions of cells), use xarray `.sel()` slice-based checks rather than 5% row sampling. Select 3 meaningful (location_id, year_id) coordinate pairs covering early/mid/late years and zero/nonzero locations; compare the full age×sex grid at each (25 age groups × 2 sexes = 50 cells per slice, 150 per variable). Always include a global mean check via `xr.DataArray.mean()`. Never fewer than ~150 cells for any array-based output regardless of size.
+**Why:** 5% row sampling is natural for parquet (row-oriented) but wasteful and awkward for netCDF (coordinate-indexed). Slice checks are cheaper to compute, easier to interpret on failure, and cover more meaningful coordinate combinations. The 150-cell floor ensures systematic errors (wrong merge key, dtype change, off-by-one in year filter) cannot slip through.
+**Revisit if:** Never — applies to all repos and all refactors.
+
+## 2026-04-20: Verification status at start of lsae_1285 runs
+**Decision:** Document exact verification state before switching to lsae_1285 input data.
+
+**Verified via passing pytest regression tests (cell-by-cell, rtol=1e-5, against lsae_1209 first_submission goldens):**
+- Stage 02 scripts 01–09 (all Python data prep scripts): `tests/02_data_prep/`
+- Stage 04 Python compute scripts: as_malaria_fractions.py, rake_dengue.py, as_dengue_shifts.py: `tests/04_forecasting/`
+
+**Verified via compare_outputs.py (exact value comparison) but no pytest:**
+- Stage 05 (aggregation): passed compare_outputs.py as of 2026-03-30 after two bug fixes
+
+**Excluded by design (R scripts — no Python regression test possible):**
+- Stage 01 (map_to_admin_2): all R/pixel processing
+- Stage 03 (modeling): all R modeling scripts
+- Stage 04 scripts 01–02: R forecast launchers (forecast_malaria/dengue_admin_2s)
+
+**Never verified:**
+- Stage 06 (upload): migrated to lib/ but compare_outputs.py never run and no regression tests written
+
+**Why:** Starting lsae_1285 runs without this record makes it impossible to distinguish pipeline bugs from input-data-driven output changes.
+**Revisit if:** Stage 06 verification is completed, or a full end-to-end lsae_1285 run produces new goldens — at that point re-establish regression test baselines.
+
+## 2026-05-06: flooding is a scalar (non-draw) covariate in past inputs
+**Decision:** Flooding goes into `read_shared_covariates` (loc×year scalar),
+not into `read_draw_climate`.
+**Why:** Flooding parquet uses `_mean_r1i1p1f1` naming — already
+ensemble-averaged, no draw variance.
+**Revisit if:** A draw-varying flooding product becomes available.
+
+## 2026-05-06: dengue_suitability not in read_draw_climate defaults
+**Decision:** `read_draw_climate()` does not include `dengue_suitability`.
+Dengue script adds it via `extra_vars`.
+**Why:** Disease-specificity boundary — malaria uses Mordecai/Villena
+suitability variants instead.
+**Revisit if:** Never.
+
+## 2026-05-07: Past inputs format: flat parquet not netCDF
+**Decision:** `05_build_malaria_past_inputs.py` (and future
+`06_build_dengue_past_inputs.py`) output a flat parquet with one row per
+valid (location_id, year_id), not a dimension-aware netCDF.
+**Why:** netCDF squareness forces ~24 % of cells to be NaN (locations that
+had zero pfpr in some years). Wastes space, requires explicit NaN handling
+in R, makes merging awkward. Past inputs have no draw dimension, so netCDF
+buys nothing. NetCDF is still the right format for forecasted inputs /
+outputs where the draw dimension is needed.
+**Revisit if:** Past inputs acquire a draw dimension, or if R merging of
+multiple forecast files makes flat too unwieldy.
+
+## 2026-05-07: DAH missingness in source = $0
+**Decision:** NaN values in the DAH source file
+(`dah_by_channel_hfa_recip_1990_2100.csv`) for a given country-year mean
+DAH = $0, not missing data. Fill with 0.
+**Why:** Confirmed by Joe (DAH data owner) directly.
+**Revisit if:** Joe clarifies that there are cases where NaN means "data
+not collected" rather than "no DAH."
+
+## 2026-05-07: GDP population-masked locations stay in pipeline as NaN
+**Decision:** 309 admin-2 locations with NaN `gdppc_mean` (all <5K
+population, `pop_masking_flag=1` in source) are retained in the pipeline
+output with NaN `gdppc_mean`. R model drops them via `nan_toss()`.
+**Why:** All NaN GDP rows are confirmed population-masked in source.
+Dropping them in Python would silently change the location set; better to
+let R handle them explicitly with a warning message.
+**Revisit if:** Bianca provides a fill strategy or GDP estimates for these
+locations.
+
+## 2026-05-06: Retroactive fix — versioning implementation gaps
+
+**Decision:** Fix two gaps from the 2026-04-05 versioning rollout that were spec'd but never coded.
+
+**Gap 1 — `finalize_artifact` not called by scripts.**
+Every stage script that writes to a versioned artifact root must call `finalize_artifact(mbpc._AXX_*)` at the end of `main()`. None of the stage 02 scripts did this. Fixed in this session for all in-scope stage 02 scripts (01, 02a, 02b, 03, 04, 05, 06, 07, make_dah, make_gdppc, make_ldipc). Deferred (explicitly): stage 05 orchestrator, stage 06 scripts.
+
+**Gap 2 — `_artifact_read` fallback never implemented.**
+The original decision spec'd that if `current/` is missing, `_artifact_read` falls back to the most recent dated subdirectory. The implementation just returned `artifact_root / "current"` unconditionally. Fixed: `_artifact_read` now iterates dated subdirs and returns the most recent, with a `warnings.warn` so the gap is visible.
+
+**New enforcements added:**
+- `lib/versioning.assert_artifact_ready(artifact_root)` — call at top of `main()` for each artifact the script reads; raises `FileNotFoundError` with a clear message instead of a cryptic pandas error.
+- `tests/test_versioning_completeness.py` — AST-level check that any script importing a `*_WRITE_PATH` constant also imports `finalize_artifact`. Fails CI if a new script is added without it. Known deferred scripts are listed explicitly in `DEFERRED` set.
+
+**Why:** The missing fallback meant the pipeline silently broke whenever `current/` wasn't present. The missing `finalize_artifact` calls meant `current/` was never updated, so every downstream run was reading stale data or failing with confusing errors.
+**Revisit if:** Stage 05 orchestrator and stage 06 scripts are fixed — remove them from `DEFERRED` in the completeness test.
+
+## 2026-05-13: Model selection uses 4-method MCDM with convergence test
+**Decision:** Rank candidate models with four methods in parallel — Borda
+count, TOPSIS, Pareto frontier (filter, not ranker), and pairwise
+dominance — and treat 3-of-4 method agreement as the robust pick. Do not
+rely on any single method.
+**Why:** Each method has different sensitivities to correlated metric
+blocs. TOPSIS in particular is not invariant to bloc structure (a pair of
+metrics with τ ≈ 0.9 effectively counts as one signal weighted ~2×).
+Standard MCDM practice: use multiple methods, look for convergence, treat
+disagreement as a diagnostic. Demonstrated on the 12-metric set this
+session — 3 methods picked task 1, only TOPSIS picked task 22; the
+disagreement aligned exactly with TOPSIS's known bloc-bias weakness.
+**Revisit if:** A different MCDM method (e.g., VIKOR, weighted Borda)
+shows clearly better convergence properties on this kind of metric set.
+
+## 2026-05-14: BFGS over EFS for scam fits in this model-selection grid
+**Decision:** Use `optimizer = "bfgs"` (not "efs") in scam for the malaria
+PfPR neighborhood grid. Wall bumped to 240 min and threads to `-c 8`.
+**Why:** EFS silently hits `maxit = 300` without converging on a
+non-trivial fraction of specs in this grid (133 of 1388 finished EFS fits
+had iter = 300; many more iter-1 fits may also be non-converged — the
+convergence-check loop is suspect because EFS stores `$conv` as a list
+rather than a logical, so `isTRUE(fit$conv)` always returns FALSE). BFGS
+converges in ~4 outer iterations on the same specs. The trade is fewer
+but heavier iterations: a single fit takes ~12 min instead of 22 s, but
+the rate of unreliable fits drops to near zero. The wall + threading
+bump absorbs the heavier-per-iter cost.
+**Revisit if:** A scam release improves EFS convergence behavior, or a
+different optimizer (e.g. `optim` with `method = "BFGS"`, or `"newton"`)
+shows a better wall × convergence trade.
+
+## 2026-05-14: BLAS threading must be set explicitly inside singularity
+**Decision:** When submitting scam jobs from the singularity image, pass
+`OPENBLAS_NUM_THREADS={n} OMP_NUM_THREADS={n}` via `sbatch --export` in
+addition to slurm's `-c {n}`.
+**Why:** Without the env vars, OpenBLAS inside the singularity container
+falls back to 1 thread even when slurm has allocated more cores; matrix
+solves run single-threaded and scam fits are 5–8× slower than they
+should be. This compounded with EFS non-convergence to produce the
+original "16 timed out" failures.
+**Revisit if:** The singularity image is rebuilt with a different BLAS,
+or upstream slurm/singularity integration changes behavior.

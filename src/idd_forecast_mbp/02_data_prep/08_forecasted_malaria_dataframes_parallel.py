@@ -13,6 +13,8 @@ SCRIPT_ROOT = mbpc.REPO_ROOT / repo_name / "src" / package_name / "02_data_prep"
 
 ssp_scenarios = mbpc.ssp_scenarios
 draws = mbpc.draws
+# To run all 14 variants, replace with mbpc.MALARIA_SUITABILITY_VARIANTS
+malaria_suitability_variants = [mbpc.MALARIA_SUITABILITY_VARIANT]
 
 # Jobmon setup
 user = getpass.getuser()
@@ -70,22 +72,24 @@ task_template = tool.get_task_template(
         "python {script_root}/forecasted_draw_specific_malaria_dataframes.py "
         "--ssp_scenario {{ssp_scenario}} "
         "--draw {{draw}} "
+        "--suitability_variant {{suitability_variant}} "
     ).format(script_root=SCRIPT_ROOT),
-    node_args=["ssp_scenario", "draw"],
+    node_args=["ssp_scenario", "draw", "suitability_variant"],
     task_args=[],
     op_args=[],
 )
 
 # Add tasks
 tasks = []
-for ssp_scenario in ssp_scenarios:
-    for draw in draws:
-        # Create the primary task
-        task = task_template.create_task(
-            ssp_scenario=ssp_scenario,
-            draw=draw,
-        )
-        tasks.append(task)
+for suitability_variant in malaria_suitability_variants:
+    for ssp_scenario in ssp_scenarios:
+        for draw in draws:
+            task = task_template.create_task(
+                ssp_scenario=ssp_scenario,
+                draw=draw,
+                suitability_variant=suitability_variant,
+            )
+            tasks.append(task)
 
 print(f"Number of tasks: {len(tasks)}")
 

@@ -15,6 +15,7 @@ from idd_forecast_mbp.lib.processing.scenarios import generate_dah_scenarios
 def main(
     ssp_scenario: str,
     draw: str,
+    suitability_variant: str = mbpc.MALARIA_SUITABILITY_VARIANT,
     lsae_hierarchy: str = mbpc.LSAE_HIERARCHY,
     hierarchy_read_path: Path = mbpc.HIERARCHY_READ_PATH,
     mal_raked_aa_read_path: Path = mbpc.MAL_RAKED_AA_READ_PATH,
@@ -23,7 +24,7 @@ def main(
     forecasting_data_write_path: Path = mbpc.FORECASTING_DATA_PATH,
 ) -> None:
     forecasting_data_read_path = Path(forecasting_data_read_path)
-    forecasting_data_write_path = Path(forecasting_data_write_path)
+    forecasting_data_write_path = Path(forecasting_data_write_path) / suitability_variant
     forecasting_data_write_path.mkdir(parents=True, exist_ok=True)
 
     ssp_scenarios = mbpc.ssp_scenarios
@@ -42,7 +43,7 @@ def main(
     hierarchy_df_path = Path(hierarchy_read_path) / f"full_hierarchy_2023_{lsae_hierarchy}.parquet"
     hierarchy_df = read_parquet_with_integer_ids(hierarchy_df_path)
 
-    CLIMATE_DATA_PATH = f"/mnt/team/rapidresponse/pub/climate-aggregates/2025_03_20/results/{lsae_hierarchy}"
+    CLIMATE_DATA_PATH = str(mbpc.CLIMATE_AGGREGATES_PATH / lsae_hierarchy)
 
     aa_full_cause_df_path = Path(mal_raked_aa_read_path) / f"aa_full_{cause}_df.parquet"
     as_full_cause_df_path = Path(mal_raked_as_read_path) / f"as_full_{cause}_df.parquet"
@@ -50,7 +51,7 @@ def main(
     cc_sensitive_paths = {
         "total_precipitation":      "{CLIMATE_DATA_PATH}/total_precipitation_{ssp_scenario}.parquet",
         "relative_humidity":        "{CLIMATE_DATA_PATH}/relative_humidity_{ssp_scenario}.parquet",
-        "malaria_suitability":      "{CLIMATE_DATA_PATH}/malaria_suitability_{ssp_scenario}.parquet",
+        "malaria_suitability":      mbpc.get_malaria_suitability_path(suitability_variant, ssp_scenario, lsae_hierarchy),
     }
 
     aa_malaria_df = read_parquet_with_integer_ids(aa_full_cause_df_path,
@@ -144,5 +145,6 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Add DAH Scenarios and create draw level dataframes for forecasting malaria")
     parser.add_argument("--ssp_scenario", type=str, required=True, help="ssp scenario number (ssp126, ssp245, ssp585)")
     parser.add_argument("--draw", type=str, required=True, help="Draw number (e.g., '001', '002', etc.)")
+    parser.add_argument("--suitability_variant", type=str, default=mbpc.MALARIA_SUITABILITY_VARIANT)
     args = parser.parse_args()
-    main(ssp_scenario=args.ssp_scenario, draw=args.draw)
+    main(ssp_scenario=args.ssp_scenario, draw=args.draw, suitability_variant=args.suitability_variant)

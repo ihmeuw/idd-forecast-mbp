@@ -106,3 +106,112 @@ def test_read_hdf_metadata_ignores_missing_columns(tmp_path):
     result = read_hdf_metadata(path, ['location_id', 'nonexistent'])
     assert 'location_id' in result.columns
     assert 'nonexistent' not in result.columns
+
+
+# ---------------------------------------------------------------------------
+# write_hdf validation failures
+# ---------------------------------------------------------------------------
+
+def test_write_hdf_validation_row_count_mismatch_raises(tmp_path, simple_df):
+    """Validation row count mismatch should raise ValueError (no retry — not a lock error)."""
+    from unittest.mock import patch, MagicMock
+
+    path = tmp_path / 'test.h5'
+    bad_df = simple_df.iloc[:1].copy()
+
+    with patch('idd_forecast_mbp.lib.io.hdf5.pd.read_hdf', return_value=bad_df):
+        with pytest.raises(ValueError, match='Row count mismatch'):
+            write_hdf(simple_df, path, validate=True, max_retries=1)
+
+
+def test_write_hdf_validation_column_mismatch_raises(tmp_path, simple_df):
+    """Validation column name mismatch should raise ValueError."""
+    from unittest.mock import patch
+
+    path = tmp_path / 'test.h5'
+    wrong_df = simple_df.rename(columns={'value': 'wrong'})
+
+    with patch('idd_forecast_mbp.lib.io.hdf5.pd.read_hdf', return_value=wrong_df):
+        with pytest.raises(ValueError, match='Column names mismatch'):
+            write_hdf(simple_df, path, validate=True, max_retries=1)
+
+
+def test_write_hdf_non_lock_error_reraises_immediately(tmp_path, simple_df):
+    """Non-lock errors re-raise immediately even on the first attempt."""
+    from unittest.mock import patch
+
+    path = tmp_path / 'test.h5'
+
+    def always_fails(self, *args, **kwargs):
+        raise RuntimeError('something unrelated to locking')
+
+    with patch.object(pd.DataFrame, 'to_hdf', always_fails):
+        with pytest.raises(RuntimeError, match='something unrelated'):
+            write_hdf(simple_df, path, max_retries=3, validate=False)
+
+
+def test_write_hdf_lock_retry(tmp_path, simple_df, capsys):
+    """Lock errors trigger exponential-backoff retry; success on second attempt."""
+    from unittest.mock import patch
+
+    path = tmp_path / 'test.h5'
+    call_count = {'n': 0}
+    original_to_hdf = pd.DataFrame.to_hdf
+
+    def flaky_to_hdf(self, *args, **kwargs):
+        call_count['n'] += 1
+        if call_count['n'] == 1:
+            raise OSError('Resource temporarily unavailable')
+        return original_to_hdf(self, *args, **kwargs)
+
+    with patch.object(pd.DataFrame, 'to_hdf', flaky_to_hdf), \
+         patch('idd_forecast_mbp.lib.io.hdf5.time.sleep'):
+        result = write_hdf(simple_df, path, max_retries=3, validate=False)
+
+    assert result is True
+    captured = capsys.readouterr()
+    assert 'lock' in captured.out.lower() or 'Retry' in captured.out
+
+
+# ---------------------------------------------------------------------------
+# create_hdf_structure — metadata column not in DataFrame
+# ---------------------------------------------------------------------------
+
+def test_create_hdf_structure_skips_missing_metadata_col(tmp_path):
+    """Columns in metadata_columns but not in metadata_df should be silently skipped."""
+    meta = pd.DataFrame({'location_id': [1, 2]})
+    path = tmp_path / 'test.h5'
+    # 'nonexistent' is in metadata_columns but not in meta — should not raise
+    create_hdf_structure(path, meta, [], ['location_id', 'nonexistent'])
+
+    import h5py
+    with h5py.File(path, 'r') as f:
+        assert 'location_id' in f
+        assert 'nonexistent' not in f
+
+
+def test_create_hdf_structure_object_dtype_column(tmp_path):
+    """Object dtype columns should be encoded as fixed-length byte strings."""
+    meta = pd.DataFrame({'location_id': [1], 'label': ['region_a']})
+    path = tmp_path / 'test.h5'
+    create_hdf_structure(path, meta, [], ['location_id', 'label'])
+
+    import h5py
+    with h5py.File(path, 'r') as f:
+        assert 'label' in f
+        assert f['label'].dtype.kind == 'S'  # byte string
+
+
+# ---------------------------------------------------------------------------
+# read_hdf_metadata — byte-string conversion
+# ---------------------------------------------------------------------------
+
+def test_read_hdf_metadata_byte_string_decoded(tmp_path):
+    """Byte-string (S-kind) datasets should be converted to str."""
+    meta = pd.DataFrame({'location_id': [1], 'label': ['region_a']})
+    path = tmp_path / 'test.h5'
+    create_hdf_structure(path, meta, [], ['location_id', 'label'])
+
+    result = read_hdf_metadata(path, ['label'])
+    assert result['label'].dtype == object
+    assert result['label'].iloc[0] == 'region_a'

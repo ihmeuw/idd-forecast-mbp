@@ -9,9 +9,9 @@ import pandas as pd # type: ignore
 from typing import Literal, NamedTuple
 import itertools
 from rra_tools.shell_tools import mkdir # type: ignore
-from idd_forecast_mbp import constants as rfc
-from idd_forecast_mbp.parquet_functions import read_parquet_with_integer_ids, write_parquet
-from idd_forecast_mbp.xarray_functions import read_netcdf_with_integer_ids, write_netcdf, convert_with_preset
+from idd_forecast_mbp import constants as mbpc
+from idd_forecast_mbp.lib.io.parquet import read_parquet_with_integer_ids, write_parquet
+from idd_forecast_mbp.lib.io.netcdf import read_netcdf_with_integer_ids, write_netcdf, convert_with_preset
 import argparse
 
 parser = argparse.ArgumentParser(description="Add DAH Sceanrios and create draw level dataframes for forecating malaria")
@@ -39,11 +39,11 @@ vaccinate = 'None'
 hold_variable = args.hold_variable
 run_date = args.run_date
 
-measure_map = rfc.measure_map
+measure_map = mbpc.measure_map
 
-PROCESSED_DATA_PATH = rfc.MODEL_ROOT / "02-processed_data"
-FORECASTING_DATA_PATH = rfc.MODEL_ROOT / "04-forecasting_data"
-UPLOAD_DATA_PATH = rfc.MODEL_ROOT / "05-upload_data"
+PROCESSED_DATA_PATH = mbpc.MODEL_ROOT / "02-processed_data"
+FORECASTING_DATA_PATH = mbpc.MODEL_ROOT / "04-forecasting_data"
+UPLOAD_DATA_PATH = mbpc.MODEL_ROOT / "05-upload_data"
 
 raked_base = '/mnt/team/rapidresponse/pub/malaria-denv/deliverables/2025_08_26_admin_2_counts'
 folder_template_dict = {
@@ -108,7 +108,7 @@ for output_measure in output_measures:
                 processed_forecast_ds_path = f"{UPLOAD_DATA_PATH}/upload_folders/{run_date}/full_as_{cause}_measure_{output_measure}_ssp_scenario_{ssp_scenario}_no_vaccinate_draw_{draw}_with_predictions_hold_{hold_variable}.nc"
 
     # Hierarchy path
-    hierarchy_df_path = f'{PROCESSED_DATA_PATH}/full_hierarchy_lsae_1209.parquet'
+    hierarchy_df_path = f'{PROCESSED_DATA_PATH}/full_hierarchy_2023_lsae_1209.parquet'
     hierarchy_df = read_parquet_with_integer_ids(hierarchy_df_path)
 
     def process_forecast_data(forecast_ds_path, measure, hierarchy_df, ratio_ds):

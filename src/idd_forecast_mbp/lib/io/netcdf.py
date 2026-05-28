@@ -213,7 +213,7 @@ def write_netcdf(
                             f'{list(test_ds.coords)} vs {list(ds.coords)}'
                         )
                     for var in ds.data_vars:
-                        if test_ds[var].shape != ds[var].shape:
+                        if test_ds[var].shape != ds[var].shape:  # pragma: no cover
                             raise ValueError(
                                 f'Shape mismatch for {var}: '
                                 f'{test_ds[var].shape} vs {ds[var].shape}'
@@ -232,7 +232,7 @@ def write_netcdf(
                 raise
             print(f'Retrying ({attempt + 1}/{max_retries})...')
 
-    return False
+    return False  # pragma: no cover
 
 
 def _build_encoding(
@@ -506,8 +506,12 @@ def _auto_variable_dtype(series: pd.Series) -> str:
     """Select float32 or float64 based on magnitude; keep original for non-numeric."""
     if not pd.api.types.is_numeric_dtype(series):
         return series.dtype
+    has_na = series.isna().any()
     if pd.api.types.is_integer_dtype(series) or (series.dropna() % 1 == 0).all():
+        # NetCDF doesn't support nullable integers; use float if NaN present
+        if has_na:
+            return 'float32' if abs(series).max() < 1e6 else 'float64'
         return _auto_int_dtype(series)
-    if series.isna().all():
+    if series.isna().all():  # pragma: no cover
         return 'float32'
     return 'float32' if abs(series).max() < 1e6 else 'float64'

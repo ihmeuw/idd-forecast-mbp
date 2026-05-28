@@ -10,10 +10,13 @@ import tempfile
 from idd_forecast_mbp import constants as rfc
 
 def load_yaml_dictionary(yaml_path: str) -> dict:
-    # Read YAML
     with open(yaml_path, 'r') as f:
         yaml_data = yaml.safe_load(f)
-    return(yaml_data['COVARIATE_DICT'])
+    full_dict = yaml_data['COVARIATE_DICT']
+    subset = yaml_data.get('covariates_to_run')
+    if subset is not None:
+        return {k: v for k, v in full_dict.items() if k in subset}
+    return full_dict
 
 def parse_yaml_dictionary(covariate: str) -> dict:
     YAML_PATH = rfc.REPO_ROOT / rfc.repo_name / 'src' / rfc.package_name /  'COVARIATE_DICT.yaml'

@@ -24,13 +24,13 @@ def load_hierarchy(path: str | Path | None = None) -> pd.DataFrame:
     ----------
     path:
         Explicit path to the hierarchy parquet. If None, defaults to
-        constants.PROCESSED_DATA_PATH/full_hierarchy_lsae_1209.parquet.
+        constants.HIERARCHY_READ_PATH/full_hierarchy_2023_{LSAE_HIERARCHY}.parquet.
 
     # Extracted from: inline in 12+ scripts, e.g. 02_data_prep/00_make_covariate_means.py:30
     """
     if path is None:
         from idd_forecast_mbp import constants as mbpc
-        path = Path(mbpc.PROCESSED_DATA_PATH) / 'full_hierarchy_lsae_1209.parquet'
+        path = mbpc.HIERARCHY_READ_PATH / f"full_hierarchy_2023_{mbpc.LSAE_HIERARCHY}.parquet"
     return read_parquet_with_integer_ids(path)
 
 

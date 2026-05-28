@@ -4,13 +4,13 @@ import pandas as pd # type: ignore
 from jobmon.client.status_commands import workflow_tasks, task_status # type: ignore
 from jobmon.client.tool import Tool # type: ignore
 from pathlib import Path
-from idd_forecast_mbp import constants as rfc
+from idd_forecast_mbp import constants as mbpc
 
-repo_name = rfc.repo_name
-package_name = rfc.package_name
+repo_name = mbpc.repo_name
+package_name = mbpc.package_name
 
 # Script directory
-SCRIPT_ROOT = rfc.REPO_ROOT / repo_name / "src" / package_name / "05_aggregation"
+SCRIPT_ROOT = mbpc.REPO_ROOT / repo_name / "src" / package_name / "05_aggregation"
 run_date = '2025_08_28'
 
 

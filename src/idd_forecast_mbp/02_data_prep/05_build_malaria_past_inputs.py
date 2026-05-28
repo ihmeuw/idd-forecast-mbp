@@ -18,32 +18,10 @@ from idd_forecast_mbp.lib.io.array_builders import (
     wide_to_array, read_shared_covariates, read_draw_climate,
 )
 from idd_forecast_mbp.lib.processing.helpers import level_filter
+from idd_forecast_mbp.lib.processing.locations import malaria_fit_location_ids
 from idd_forecast_mbp.lib.versioning import finalize_artifact
 
 PAST_YEARS = list(range(2000, 2023))
-
-
-def _endemic_location_ids(
-    aa_df: pd.DataFrame,
-    hierarchy_df: pd.DataFrame,
-    mort_threshold: float = 1.0,
-) -> list[int]:
-    """Return sorted endemic most-detailed location IDs."""
-    df = aa_df.merge(
-        hierarchy_df[['location_id', 'A0_location_id', 'most_detailed_lsae']],
-        on='location_id', how='left',
-    )
-    df = df[
-        (df['malaria_pfpr'] > 0) &
-        (df['malaria_mort_count'] > 0) &
-        (df['malaria_inc_count'] >= 0)
-    ]
-    a0_2022 = df[
-        (df['location_id'] == df['A0_location_id']) & (df['year_id'] == 2022)
-    ]
-    endemic_a0 = a0_2022[a0_2022['malaria_mort_count'] >= mort_threshold]['A0_location_id'].unique()
-    md = df[df['A0_location_id'].isin(endemic_a0) & (df['most_detailed_lsae'] == 1)]
-    return sorted(md['location_id'].unique().tolist())
 
 
 def _arrays_to_df(arrays: dict, location_ids: list[int], years: list[int]) -> pd.DataFrame:
@@ -89,7 +67,7 @@ def main(
         ],
     )
 
-    location_ids = _endemic_location_ids(aa_df, hierarchy_df)
+    location_ids = malaria_fit_location_ids(aa_df, hierarchy_df)
     print(f"  Endemic locations: {len(location_ids)}, years: {len(PAST_YEARS)}")
 
     # ── 2. Base dataframe: valid AA rows only ─────────────────────────────────
@@ -98,7 +76,7 @@ def main(
         aa_df['location_id'].isin(location_ids) &
         (aa_df['malaria_pfpr'] > 0) &
         (aa_df['malaria_mort_count'] > 0) &
-        (aa_df['malaria_inc_count'] >= 0)
+        (aa_df['malaria_inc_count'] > 0)
     ].copy()
 
     outcome_cols = [

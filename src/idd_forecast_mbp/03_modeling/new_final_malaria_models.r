@@ -1,6 +1,15 @@
 rm(list = ls())
 #
+library(languageserver)
+library(httpgd)
+library(rlang)
 
+x <- 1:10
+plot(x, x^2)
+
+
+
+library(tidync)
 require(glue)
 require(mgcv)
 require(scam)
@@ -9,6 +18,46 @@ require(data.table)
 
 "%ni%" <- Negate("%in%")
 "%nlike%" <- Negate("%like%")
+
+###########################################
+
+nc_path <- "/mnt/team/idd/pub/forecast-mbp/03-modeling_data/malaria/past_inputs_nc/lsae_1285/current/malaria_past_inputs.nc"
+src <- tidync(nc_path)
+
+suit_variant_pick <- "mordecai_0_0"
+
+src <- tidync(nc_path)
+
+# loc x year grid (no draw)
+ly_src   <- activate(src, "malaria_pfpr")
+ly_df    <- as.data.frame(hyper_tibble(ly_src))
+
+# loc x year x draw grid (climate vars) -- keep all draws
+lyd_src  <- activate(src, "mean_temperature")
+lyd_df   <- as.data.frame(hyper_tibble(lyd_src))
+
+# loc x year x draw x suit_variant (malaria_suitability) -- pick variant, keep draws
+lyds_src <- activate(src, "malaria_suitability")
+lyds_src <- hyper_filter(lyds_src, suit_variant = suit_variant == suit_variant_pick)
+lyds_df  <- as.data.frame(hyper_tibble(lyds_src))
+lyds_df$suit_variant <- NULL
+
+# A0_location_id (coord on location_id)
+A0_src   <- activate(src, "A0_location_id")
+A0_df    <- as.data.frame(hyper_tibble(A0_src))
+
+full_df <- merge(lyd_df, lyds_df, by = c("location_id", "year_id", "draw_id"), all.x = TRUE)
+full_df <- merge(full_df, ly_df,  by = c("location_id", "year_id"),            all.x = TRUE)
+full_df <- merge(full_df, A0_df,  by = "location_id",                          all.x = TRUE)
+
+
+
+
+
+
+
+
+
 
 ###########################################
 dah_scenario_name = 'Baseline'

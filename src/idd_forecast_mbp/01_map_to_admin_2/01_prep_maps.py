@@ -5,15 +5,16 @@ import os
 from pathlib import Path
 from datetime import datetime
 from rra_tools.shell_tools import mkdir  # type: ignore
-from idd_forecast_mbp import constants as rfc
+from idd_forecast_mbp import constants as mbpc
 from idd_forecast_mbp.yaml_functions import load_yaml_dictionary, parse_yaml_dictionary
 
-repo_name = rfc.repo_name
-package_name = rfc.package_name
+repo_name = mbpc.repo_name
+package_name = mbpc.package_name
 
 # Script directory
-YAML_PATH = rfc.REPO_ROOT / repo_name / "src" / package_name / "COVARIATE_DICT.yaml"
-OUTPUT_PATH = rfc.MODEL_ROOT / "02-processed_data" / "cc_insensitive"
+YAML_PATH = mbpc.REPO_ROOT / repo_name / "src" / package_name / "COVARIATE_DICT.yaml"
+OUTPUT_PATH = mbpc.MODEL_ROOT / "02-processed_data" / "cc_insensitive"
+OUTPUT_PATH.mkdir(parents=True, exist_ok=True)
 COVARIATE_DICT = load_yaml_dictionary(YAML_PATH)
 
 # Function to set 775 permissions on a file

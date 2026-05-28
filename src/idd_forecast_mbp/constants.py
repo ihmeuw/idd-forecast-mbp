@@ -7,7 +7,13 @@ REPO_ROOT = Path("/mnt/share/homes/bcreiner/repos")
 
 # Run date: set IDD_RUN_DATE env var to override (e.g. for re-running a prior date).
 # Format: YYYYMMDD. Multiple runs same day: set to YYYYMMDD_v2, etc.
+# RUN_DATE: "20260405" First run after refactor
+# RUN_DATE: "20260527" Run with 'new' gridded population: '2026_05_15.001'
 RUN_DATE: str = os.environ.get("IDD_RUN_DATE", "20260405")
+CLIMATE_COVARIATE_RUN_DATE: str = "2026_01_12"
+GRIDDED_POPULATION_BY_BLOCK_RUNDATE = "2026_05_15.001"
+GRIDDED_POPULATION_RUNDATE = "2026_05_16"
+
 
 # ── Stage root directories ────────────────────────────────────────────────────
 # These are the node directories that contain dated run subdirs + current/ symlink.
@@ -42,10 +48,27 @@ GBD_DATA_PATH  = RAW_DATA_PATH / "gbd"
 LSAE_HIERARCHY = "lsae_1285"
 LSAE_INPUT_PATH = _PROCESSED_STAGE / LSAE_HIERARCHY
 
-CLIMATE_COVARIATE_RUN_DATE: str = "2026_01_12"
+
 CLIMATE_AGGREGATES_PATH = Path("/mnt/team/rapidresponse/pub/climate-aggregates") / CLIMATE_COVARIATE_RUN_DATE / "results"
+# Canonical gridded population (location_id × year_id, 1950-2100), produced
+# by the rapidresponse team alongside the climate aggregates. Read-only here.
+# Uses the upstream `current/` symlink so refreshes track automatically; do
+# NOT route through CLIMATE_AGGREGATES_PATH (which is date-pinned).
+LSAE_POP_PATH = CLIMATE_AGGREGATES_PATH / LSAE_HIERARCHY / "population.parquet"
+
+
+# Gridded population by block, for use in urban pixel generation. Also produced by the
+# rapidresponse team but updated more frequently, so we route through the population model
+# modeling frame to get the correct run date for each block.
+
+MODELING_FRAME_PATH = Path("/mnt/team/rapidresponse/pub/population-model/modeling/100m/modeling_frame.parquet")
+GRIDDED_POPULATION_ROOT = f"/mnt/team/rapidresponse/pub/population-model/results/{GRIDDED_POPULATION_RUNDATE}"
+GRIDDED_POPULATION_BY_BLOCK_PATH = Path(f"/mnt/team/rapidresponse/pub/population-model/modeling/100m/models/{GRIDDED_POPULATION_BY_BLOCK_RUNDATE}")
 
 # Malaria suitability variants (malaria-specific, not universal across causes).
+# Provenance: the 14 variant files (2 methods × 7 shifts) are produced by the
+# climate-data repo at /mnt/share/homes/bcreiner/repos/climate-data/. This repo
+# only consumes them via get_malaria_suitability_path() below.
 MALARIA_SUITABILITY_METHODS = ["mordecai", "villena"]
 MALARIA_SUITABILITY_SHIFTS = ["0_0", "p0_25", "p0_5", "p1_0", "m0_25", "m0_5", "m1_0"]
 MALARIA_SUITABILITY_VARIANTS = [
@@ -126,6 +149,16 @@ MAL_MODELING_READ_PATH     = _artifact_read(_A03_MAL_MODELING)
 DEN_MODELING_READ_PATH     = _artifact_read(_A03_DEN_MODELING)
 MAL_PAST_INPUTS_READ_PATH  = _artifact_read(_A03_MAL_PAST_INPUTS)
 DEN_PAST_INPUTS_READ_PATH  = _artifact_read(_A03_DEN_PAST_INPUTS)
+
+# ── 04-forecasting_data artifact roots ───────────────────────────────────────
+_A04_MAL_FORECAST_LOCATIONS = _FORECASTING_STAGE / "malaria" / "prediction_locations" / LSAE_HIERARCHY
+_A04_MAL_FORECAST_INPUTS    = _FORECASTING_STAGE / "malaria" / "forecast_inputs"      / LSAE_HIERARCHY
+
+MAL_FORECAST_LOCATIONS_WRITE_PATH = _artifact_write(_A04_MAL_FORECAST_LOCATIONS)
+MAL_FORECAST_LOCATIONS_READ_PATH  = _artifact_read(_A04_MAL_FORECAST_LOCATIONS)
+
+MAL_FORECAST_INPUTS_WRITE_PATH = _artifact_write(_A04_MAL_FORECAST_INPUTS)
+MAL_FORECAST_INPUTS_READ_PATH  = _artifact_read(_A04_MAL_FORECAST_INPUTS)
 
 # ── Stage-level paths (stages 04–10, not yet artifact-structured) ─────────────
 FORECASTING_DATA_PATH = _FORECASTING_STAGE / RUN_DATE

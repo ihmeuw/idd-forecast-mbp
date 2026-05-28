@@ -4,12 +4,14 @@ Tests for lib/data/hierarchy.py
 Uses synthetic hierarchy DataFrames — no real pipeline data.
 """
 
-import pytest
 import pandas as pd
+import pytest
+from unittest.mock import patch
 
 from idd_forecast_mbp.lib.data.hierarchy import (
     level_filter,
     get_location_ids,
+    load_hierarchy,
     make_location_filter,
 )
 
@@ -134,3 +136,27 @@ def test_make_location_filter_roundtrip(hierarchy_df):
     f1 = make_location_filter(ids)
     f2 = level_filter(hierarchy_df, 5)
     assert set(f1[2]) == set(f2[2])
+
+
+# ---------------------------------------------------------------------------
+# load_hierarchy
+# ---------------------------------------------------------------------------
+
+def test_load_hierarchy_uses_explicit_path(tmp_path, hierarchy_df):
+    path = tmp_path / 'hierarchy.parquet'
+    hierarchy_df.to_parquet(path, index=False)
+    result = load_hierarchy(path)
+    assert set(result.columns) >= {'location_id', 'level'}
+
+
+def test_load_hierarchy_default_path(hierarchy_df, tmp_path):
+    """When path=None, load_hierarchy reads from mbpc.HIERARCHY_READ_PATH."""
+    path = tmp_path / 'full_hierarchy_lsae_1209.parquet'
+    hierarchy_df.to_parquet(path, index=False)
+
+    with patch('idd_forecast_mbp.lib.data.hierarchy.read_parquet_with_integer_ids') as mock_read:
+        mock_read.return_value = hierarchy_df
+        result = load_hierarchy(path=None)
+
+    assert mock_read.called
+    assert isinstance(result, pd.DataFrame)

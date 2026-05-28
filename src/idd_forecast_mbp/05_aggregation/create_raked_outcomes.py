@@ -5,8 +5,7 @@ from pathlib import Path
 import re
 import numpy as np # type: ignore
 import os
-from idd_forecast_mbp import constants as rfc
-from idd_forecast_mbp.xarray_functions import read_netcdf_with_integer_ids, write_netcdf
+from idd_forecast_mbp.lib.io.netcdf import read_netcdf_with_integer_ids, write_netcdf
 
 import argparse
 

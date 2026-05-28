@@ -5,9 +5,12 @@ import geopandas as gpd # type: ignore
 from rra_tools.shell_tools import mkdir # type: ignore
 import numpy as np # type: ignore
 import argparse
-from idd_forecast_mbp import constants as rfc
+from idd_forecast_mbp import constants as mbpc
 from idd_forecast_mbp.lib.io.yaml import parse_yaml_dictionary
 import yaml
+
+# Sibling module — importable because Python adds the script's dir to sys.path[0]
+from block_utils import blocks_with_shapefile_intersections  # noqa: E402
 
 parser = argparse.ArgumentParser(description="Run James code")
 
@@ -28,7 +31,10 @@ years = covariate_dict['years']
 synoptic = covariate_dict['synoptic']
 cc_sensitive = covariate_dict['cc_sensitive']
 
-DATA_PATH = rfc.MODEL_ROOT / "02-processed_data"
+modeling_frame_path = "/mnt/team/rapidresponse/pub/population-model/modeling/100m/modeling_frame.parquet"
+
+DATA_PATH = mbpc.MODEL_ROOT / "02-processed_data"
+DATA_PATH.mkdir(parents=True, exist_ok=True)
 
 summary_covariate = f"{covariate_name}_{summary_statistic}"
 
@@ -68,25 +74,13 @@ def aggregate_climate_to_hierarchy(
         level_mask = hierarchy.level == level
         parent_map = hierarchy.loc[level_mask].set_index("location_id").parent_id
 
-        # For every location in the parent map, we need to check if it is the results
-        # For those that are, proceed to aggregate
-        # For those that aren't, check to make sure their parent is in the results. If not, exit with an error
-        absent_parent_map = parent_map.index.difference(results.index)
-        if len(absent_parent_map) > 0:
-            msg = f"Some parent locations are not in the results: {absent_parent_map}"
-            # Check to see if the parent of each location id that is missing is in the results
-            parent_of_absent = parent_map.loc[absent_parent_map]
-            unique_parent_ids = parent_of_absent.unique()
-            # Check to see if the unique_parent_ids are in the results
-            missing_parents = unique_parent_ids[~np.isin(unique_parent_ids, results.index)]
-            if len(missing_parents) > 0:
-                msg = f"Some parent locations are not in the results: {missing_parents}"
-                raise ValueError(msg)
-        
-        present_parent_map = parent_map.loc[parent_map.index.isin(results.index)]
+        print("results.index[:5]:", results.index[:5])
+        print("parent_map.index[:5]:", parent_map.index[:5])
+        print("level:", level)
+
         # Continue aggregation only on the present locations
-        subset = results.loc[present_parent_map.index]
-        subset["parent_id"] = present_parent_map
+        subset = results.loc[parent_map.index]
+        subset["parent_id"] = parent_map
 
         parent_values = (
             subset.groupby(["year_id", "parent_id"])[["weighted_climate", "population"]]
@@ -100,7 +94,7 @@ def aggregate_climate_to_hierarchy(
         results.reset_index()
         .sort_values(["location_id", "year_id"])
     )
-    parent_values["value"] = parent_values.weighted_climate / parent_values.population
+    results["value"] = results["weighted_climate"] / results["population"].replace(0, np.nan)
     return results
 
 def load_subset_hierarchy(subset_hierarchy: str) -> pd.DataFrame:
@@ -167,9 +161,16 @@ def hierarchy_main(
     # Load hierarchy data for aggregation
     hierarchy_df = pd.read_parquet(f"/mnt/team/rapidresponse/pub/population-model/admin-inputs/raking/gbd-inputs/hierarchy_{hierarchy}.parquet")
 
-    # Get all block keys
-    modeling_frame = gpd.read_parquet("/mnt/team/rapidresponse/pub/population-model/ihmepop_results/2025_03_22/modeling_frame.parquet")
+    # Get all block keys, then drop those whose footprint doesn't intersect any
+    # admin polygon in the hierarchy's raking shapefile. Skipped blocks would
+    # have contributed zero rows under sum-then-divide aggregation, so this is
+    # lossless. Must match the filter the launcher (02_pixel_main_parallel.py)
+    # applied — otherwise we try to read parquets the launcher didn't write.
+    modeling_frame = gpd.read_parquet(modeling_frame_path)
     block_keys = modeling_frame.block_key.unique()
+    intersecting = blocks_with_shapefile_intersections(hierarchy)
+    block_keys = [b for b in block_keys if b in intersecting]
+    print(f"  Block keys after shapefile-intersection filter: {len(block_keys)}")
 
     DRAWS = [f"{d:>03}" for d in range(1)]
 
@@ -208,7 +209,6 @@ def hierarchy_main(
             pop_df = agg_df[["location_id", "year_id", "population"]]
             pop_df = pop_df.set_index(["location_id", "year_id"]).reset_index(drop=False)
 
-            agg_df["value"] = agg_df.weighted_climate / agg_df.population
             agg_df = agg_df[["location_id", "year_id", "value"]].rename(columns={"value": draw})
             all_results.append(agg_df)
 
@@ -235,9 +235,7 @@ def hierarchy_main(
             )
 
             # Save results for the subset hierarchy
-            subset_results_path = (
-                DATA_PATH / "GBD2023" / subset_hierarchy 
-            )
+            subset_results_path = DATA_PATH / subset_hierarchy
             filename = f"{summary_covariate}_{scenario}.parquet" 
             mkdir(subset_results_path, parents=True, exist_ok=True)
             subset_results.to_parquet(

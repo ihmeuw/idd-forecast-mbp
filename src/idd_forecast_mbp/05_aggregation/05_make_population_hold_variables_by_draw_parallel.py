@@ -3,21 +3,21 @@ import uuid
 from jobmon.client.tool import Tool  # type: ignore
 from pathlib import Path
 import geopandas as gpd  # type: ignore
-from idd_forecast_mbp import constants as rfc
+from idd_forecast_mbp import constants as mbpc
 
-repo_name = rfc.repo_name
-package_name = rfc.package_name
+repo_name = mbpc.repo_name
+package_name = mbpc.package_name
 
 # Script directory
-SCRIPT_ROOT = rfc.REPO_ROOT / repo_name / "src" / package_name / "05_aggregation"
+SCRIPT_ROOT = mbpc.REPO_ROOT / repo_name / "src" / package_name / "05_aggregation"
 
 run_date = '2025_08_28'
 
-ssp_scenarios = rfc.ssp_scenarios
-draws = rfc.draws
-causes = rfc.cause_map
+ssp_scenarios = mbpc.ssp_scenarios
+draws = mbpc.draws
+causes = mbpc.cause_map
 causes = ['malaria', 'dengue']
-full_measure_map = rfc.full_measure_map
+full_measure_map = mbpc.full_measure_map
 
 # Jobmon setup
 user = getpass.getuser()

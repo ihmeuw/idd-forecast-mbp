@@ -8,10 +8,9 @@ from idd_forecast_mbp.lib.io.parquet import read_parquet_with_integer_ids, write
 TEST_DIR = Path("/mnt/team/idd/pub/forecast-mbp/test_output/02-processed_data")
 
 RAW_DATA_PATH = mbpc.MODEL_ROOT / "01-raw_data"
-PROCESSED_DATA_PATH = mbpc.MODEL_ROOT / "02-processed_data"
 
 GBD_DATA_PATH = f"{RAW_DATA_PATH}/gbd"
-lsae_hierarchy = "lsae_1209"
+lsae_hierarchy = mbpc.LSAE_HIERARCHY
 
 ################################################################
 #### Hierarchy Paths, loading, and cleaning
@@ -21,9 +20,7 @@ gbd_2023_hierarchy_path = f"{GBD_DATA_PATH}/gbd_2023_modeling_hierarchy.parquet"
 fhs_2023_hierarchy_path = f"{GBD_DATA_PATH}/fhs_2023_modeling_hierarchy.parquet"
 
 # Output path for the full hierarchy
-hierarchy_2023_df_path = f"{PROCESSED_DATA_PATH}/full_hierarchy_2023_{lsae_hierarchy}.parquet"
 hierarchy_2023_df_path = TEST_DIR / f"full_hierarchy_2023_{lsae_hierarchy}.parquet"
-hierarchy_2023_ds_path = f"{PROCESSED_DATA_PATH}/full_hierarchy_2023_{lsae_hierarchy}.nc"
 hierarchy_2023_ds_path = TEST_DIR / f"full_hierarchy_2023_{lsae_hierarchy}.nc"
 
 lsae_2023_hierarchy_df = read_parquet_with_integer_ids(lsae_2023_hierarchy_path)
@@ -226,7 +223,6 @@ fhs_look_uptable_df["fhs_location_id"] = fhs_location_ids
 fhs_look_uptable_df["fhs_level"] = fhs_levels
 
 # Write the updated DataFrame to a new parquet file
-output_path = f"{PROCESSED_DATA_PATH}/lsae_to_fhs_table.parquet"
 output_path = TEST_DIR / "lsae_to_fhs_table.parquet"
 fhs_look_uptable_df.to_parquet(output_path, index=False)
 
@@ -288,7 +284,6 @@ gbd_look_uptable_df["gbd_location_id"] = gbd_location_ids
 gbd_look_uptable_df["gbd_level"] = gbd_levels
 
 # Write the updated DataFrame to a new parquet file
-output_path = f"{PROCESSED_DATA_PATH}/lsae_to_gbd_table.parquet"
 output_path = TEST_DIR / "lsae_to_gbd_table.parquet"
 gbd_look_uptable_df.to_parquet(output_path, index=False)
 

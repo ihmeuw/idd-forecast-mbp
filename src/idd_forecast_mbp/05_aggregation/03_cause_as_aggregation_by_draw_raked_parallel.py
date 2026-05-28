@@ -3,18 +3,18 @@ import uuid
 from jobmon.client.tool import Tool  # type: ignore
 from pathlib import Path
 import geopandas as gpd  # type: ignore
-from idd_forecast_mbp import constants as rfc
+from idd_forecast_mbp import constants as mbpc
 
-repo_name = rfc.repo_name
-package_name = rfc.package_name
+repo_name = mbpc.repo_name
+package_name = mbpc.package_name
 
 # Script directory
-SCRIPT_ROOT = rfc.REPO_ROOT / repo_name / "src" / package_name / "05_aggregation"
+SCRIPT_ROOT = mbpc.REPO_ROOT / repo_name / "src" / package_name / "05_aggregation"
 
 # run_date = '2025_08_28'
 run_date = 'GK_2025_11_02'
-ssp_scenarios = rfc.ssp_scenarios
-draws = rfc.draws
+ssp_scenarios = mbpc.ssp_scenarios
+draws = mbpc.draws
 
 hold_variables = {
     'malaria': ['DAH', 'flood', 'gdppc', 'suitability'],
@@ -23,12 +23,12 @@ hold_variables = {
 
 run_hold_variables = False
 
-# dah_scenarios = rfc.dah_scenarios
+# dah_scenarios = mbpc.dah_scenarios
 # dah_scenarios = ['Baseline','Constant']
 dah_scenarios = ['GK_reference_2025_11_02', 'GK_cut20_2025_11_02']
 # dah_scenarios = ['reference','better', 'worse']
 
-causes = rfc.cause_map
+causes = mbpc.cause_map
 causes = ['malaria']
 
 

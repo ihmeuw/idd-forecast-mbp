@@ -3,19 +3,19 @@ import uuid
 from jobmon.client.tool import Tool  # type: ignore
 from pathlib import Path
 import geopandas as gpd  # type: ignore
-from idd_forecast_mbp import constants as rfc
+from idd_forecast_mbp import constants as mbpc
 
-repo_name = rfc.repo_name
-package_name = rfc.package_name
+repo_name = mbpc.repo_name
+package_name = mbpc.package_name
 
 # Script directory
-SCRIPT_ROOT = rfc.REPO_ROOT / repo_name / "src" / package_name / "04_forecasting"
+SCRIPT_ROOT = mbpc.REPO_ROOT / repo_name / "src" / package_name / "04_forecasting"
 
 dengue_hold_variables = ['gdppc', 'suitability', 'urban']
 run_hold_variables = True
 
-ssp_scenarios = rfc.ssp_scenarios
-draws = rfc.draws
+ssp_scenarios = mbpc.ssp_scenarios
+draws = mbpc.draws
 
 # Jobmon setup
 user = getpass.getuser()

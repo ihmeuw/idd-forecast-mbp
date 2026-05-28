@@ -8,11 +8,9 @@ import pandas as pd # type: ignore
 from typing import Literal, NamedTuple
 import itertools
 from rra_tools.shell_tools import mkdir # type: ignore
-from idd_forecast_mbp import constants as rfc
-from idd_forecast_mbp.helper_functions import check_folders_for_files
-from idd_forecast_mbp.hd5_functions import write_hdf
-from idd_forecast_mbp.parquet_functions import read_parquet_with_integer_ids
-from idd_forecast_mbp.xarray_functions import convert_with_preset, write_netcdf, read_netcdf_with_integer_ids
+from idd_forecast_mbp import constants as mbpc
+from idd_forecast_mbp.lib.io.parquet import read_parquet_with_integer_ids
+from idd_forecast_mbp.lib.io.netcdf import convert_with_preset, write_netcdf, read_netcdf_with_integer_ids
 import argparse
 import os
 
@@ -42,16 +40,16 @@ run_date = args.run_date
 
 # --- PATHS AND CONSTANTS ---
 
-PROCESSED_DATA_PATH = rfc.MODEL_ROOT / "02-processed_data"
-UPLOAD_DATA_PATH = rfc.MODEL_ROOT / "05-upload_data"
+PROCESSED_DATA_PATH = mbpc.MODEL_ROOT / "02-processed_data"
+UPLOAD_DATA_PATH = mbpc.MODEL_ROOT / "05-upload_data"
 FINAL_UPLOAD_DATA_PATH = UPLOAD_DATA_PATH
 FHS_DATA_PATH = f"{PROCESSED_DATA_PATH}/age_specific_fhs"
 
-ssp_draws = rfc.draws
-metric_map = rfc.metric_map
-cause_map = rfc.cause_map
-ssp_scenarios = rfc.ssp_scenarios
-full_measure_map = rfc.full_measure_map
+ssp_draws = mbpc.draws
+metric_map = mbpc.metric_map
+cause_map = mbpc.cause_map
+ssp_scenarios = mbpc.ssp_scenarios
+full_measure_map = mbpc.full_measure_map
 scenario = ssp_scenarios[ssp_scenario]["dhs_scenario"]
 
 # Build file path components
@@ -79,32 +77,25 @@ as_upload_mean_file_path = f"{as_upload_folder_path}/mean.nc"
 aa_upload_draws_file_path = f"{aa_upload_folder_path}/draws.nc"
 aa_upload_mean_file_path = f"{aa_upload_folder_path}/mean.nc"
 age_metadata_path = f"{FHS_DATA_PATH}/age_metadata.parquet"
-hierarchy_df_path = f'{PROCESSED_DATA_PATH}/full_hierarchy_lsae_1209.parquet'
+hierarchy_df_path = f'{PROCESSED_DATA_PATH}/full_hierarchy_2023_lsae_1209.parquet'
 as_full_population_ds_path = f"{PROCESSED_DATA_PATH}/as_2023_full_population_ds.nc"
 
 # --- HIERARCHY AND FILTER PREP ---
 
+# Extended results use the full hierarchy (all levels), not just FHS locations.
 hierarchy_df = read_parquet_with_integer_ids(hierarchy_df_path)
-fhs_hierarchy_df = hierarchy_df[hierarchy_df["in_fhs_hierarchy"] == True].copy()
-
-swap_location_ids = [60908, 95069, 94364]
-fhs_location_ids = fhs_hierarchy_df["location_id"].unique().tolist() + swap_location_ids
+all_location_ids = sorted(hierarchy_df["location_id"].unique().tolist())
 year_ids = range(2022, 2101)
 
-# --- 1. POPULATION LOADING AND PRE-FILTERING (Efficient) ---
+# --- 1. POPULATION LOADING ---
 
-# Load population data early for efficient filtering of the main forecast.
 pop_ds = read_netcdf_with_integer_ids(as_full_population_ds_path)
 
-pop_locations = pop_ds.location_id.values
 pop_years = pop_ds.year_id.values
-
-# Define the *intersection* of target locations/years and available population data.
-locations_to_filter = [loc for loc in fhs_location_ids if loc in pop_locations]
 years_to_filter = [yr for yr in year_ids if yr in pop_years]
 
-# Filter population data using the safe lists
-pop_ds = pop_ds.sel(location_id=locations_to_filter, year_id=years_to_filter)
+# Filter population to forecast year range only; keep all locations.
+pop_ds = pop_ds.sel(year_id=years_to_filter)
 print(f"Processing SSP scenario: {ssp_scenario}")
 
 # --- 2. FORECAST LOADING AND EFFICIENT FILTERING (Robust) ---
@@ -119,10 +110,9 @@ print(f"Loading {len(file_paths)} files and applying efficient location/year fil
 
 # Define the preprocess function using a lambda. Uses .reindex() to prevent KeyError.
 preprocess_func = lambda ds: ds.reindex(
-    location_id=locations_to_filter, 
     year_id=years_to_filter
 ).drop_vars(
-    ['gbd_location_id', 'aa_count', 'level'], 
+    ['gbd_location_id', 'aa_count', 'level'],
     errors='ignore'
 )
 
@@ -176,10 +166,8 @@ age_metadata_df = read_parquet_with_integer_ids(age_metadata_path)
 age_group_ids_full = age_metadata_df["age_group_id"].unique()
 sex_ids_full = [1, 2, 3] # Include all 3 sex IDs for final output
 
-# Find missing locations (to fill with 0.0)
-missing_location_ids = set(fhs_location_ids) - set(existing_location_ids)
-missing_location_ids.discard(44858)
-missing_location_ids = list(missing_location_ids)
+# Find hierarchy locations absent from the draw files (no modelled disease burden).
+missing_location_ids = list(set(all_location_ids) - set(existing_location_ids))
 
 # Create the complete coordinate space
 complete_coords = {
@@ -211,8 +199,8 @@ print("Aggregating AS data to create All-Age (AA) data...")
 # NOTE: Must explicitly select sex_id=[1, 2] to prevent double-counting sex_id=3.
 aa_ds = as_ds_raw_counts.sel(sex_id=[1, 2]).sum(dim=['sex_id', 'age_group_id'], skipna=False)
 
-# Re-add sex_id dimension with label 3 (All Sexes)
-aa_ds = aa_ds.assign_coords(sex_id=3).expand_dims('sex_id')
+# sex_id=3 (both sexes) as a scalar coordinate — not a dimension, since age/sex are already summed.
+aa_ds = aa_ds.assign_coords(sex_id=3)
 
 
 # --- 6. FINAL RATE CALCULATION AND WRITE NETCDF ---
@@ -247,7 +235,7 @@ def calculate_rate_and_mean(ds_raw, metric_type, ds_type):
         ds_out = ds_out.drop_vars('population_count')
     
     # 2. Calculate Mean Dataset
-    ds_mean = ds_out.to_array().mean(dim='draw_id').to_dataset(name='val')
+    ds_mean = ds_out.mean(dim='draw_id')
 
     # 3. Assign Metadata (Scalars)
     ds_out = ds_out.assign_coords(cause_id=cause_map[cause]['cause_id'])

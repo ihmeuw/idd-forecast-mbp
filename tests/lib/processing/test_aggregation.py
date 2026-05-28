@@ -52,17 +52,6 @@ def level5_count_df(simple_hierarchy):
     return pd.DataFrame(rows)
 
 
-@pytest.fixture
-def level4_count_df(simple_hierarchy):
-    """Level-4 counts: 2 for each location (representing sum of 2 level-5 children)."""
-    level4_ids = simple_hierarchy[simple_hierarchy['level'] == 4]['location_id'].tolist()
-    rows = []
-    for loc in level4_ids:
-        for year in [2020, 2021]:
-            rows.append({'location_id': loc, 'year_id': year, 'count': 2.0})
-    return pd.DataFrame(rows)
-
-
 # ---------------------------------------------------------------------------
 # aggregate_level
 # ---------------------------------------------------------------------------
@@ -201,3 +190,87 @@ def test_aggregate_aa_rate_return_full_df(simple_hierarchy):
     assert isinstance(result, pd.DataFrame)
     assert 'rate' in result.columns
     assert 'tmp_count' not in result.columns
+
+
+def test_aggregate_aa_rate_drops_population_from_rate_df(simple_hierarchy):
+    """rate_df with a 'population' column: should be dropped before processing."""
+    level5_ids = simple_hierarchy[simple_hierarchy['level'] == 5]['location_id'].tolist()
+    rows = []
+    for loc in level5_ids:
+        for year in [2020, 2021]:
+            rows.append({'location_id': loc, 'year_id': year, 'rate': 0.001, 'population': 500.0})
+    rate_df = pd.DataFrame(rows)
+
+    pop_rows = []
+    for loc in simple_hierarchy['location_id'].tolist():
+        for year in [2020, 2021]:
+            pop_rows.append({'location_id': loc, 'year_id': year, 'population': 1000.0})
+    pop_df = pd.DataFrame(pop_rows)
+
+    result = aggregate_aa_rate_lsae_to_gbd(
+        'rate', simple_hierarchy, rate_df, pop_df, return_full_df=True,
+    )
+    assert isinstance(result, pd.DataFrame)
+    assert 'rate' in result.columns
+
+
+def test_aggregate_aa_rate_no_level_in_output(simple_hierarchy):
+    """'level' column should be dropped from the final rate result."""
+    level5_ids = simple_hierarchy[simple_hierarchy['level'] == 5]['location_id'].tolist()
+    rows = [{'location_id': loc, 'year_id': 2020, 'rate': 0.001} for loc in level5_ids]
+    rate_df = pd.DataFrame(rows)
+
+    pop_rows = [{'location_id': loc, 'year_id': 2020, 'population': 1000.0}
+                for loc in simple_hierarchy['location_id'].tolist()]
+    pop_df = pd.DataFrame(pop_rows)
+
+    result = aggregate_aa_rate_lsae_to_gbd(
+        'rate', simple_hierarchy, rate_df, pop_df, return_full_df=True,
+    )
+    assert 'level' not in result.columns
+
+
+# ---------------------------------------------------------------------------
+# make_rate_from_count
+# ---------------------------------------------------------------------------
+
+from idd_forecast_mbp.lib.processing.aggregation import make_rate_from_count
+
+
+@pytest.fixture
+def count_and_pop(simple_hierarchy):
+    all_locs = simple_hierarchy['location_id'].tolist()
+    count_rows = [{'location_id': loc, 'year_id': 2020, 'count': 10.0} for loc in all_locs]
+    pop_rows = [{'location_id': loc, 'year_id': 2020, 'population': 1000.0} for loc in all_locs]
+    return pd.DataFrame(count_rows), pd.DataFrame(pop_rows)
+
+
+def test_make_rate_from_count_returns_none_by_default(count_and_pop):
+    count_df, pop_df = count_and_pop
+    result = make_rate_from_count('rate', 'count', count_df, pop_df)
+    assert result is None
+
+
+def test_make_rate_from_count_return_full_df(count_and_pop):
+    count_df, pop_df = count_and_pop
+    result = make_rate_from_count('rate', 'count', count_df, pop_df, return_full_df=True)
+    assert isinstance(result, pd.DataFrame)
+    assert 'rate' in result.columns
+    assert 'count' not in result.columns
+
+
+def test_make_rate_from_count_drops_population_column(count_and_pop):
+    """count_df with a 'population' column should be dropped before the merge."""
+    count_df, pop_df = count_and_pop
+    count_df = count_df.copy()
+    count_df['population'] = 999.0
+    result = make_rate_from_count('rate', 'count', count_df, pop_df, return_full_df=True)
+    assert isinstance(result, pd.DataFrame)
+    assert 'rate' in result.columns
+
+
+def test_make_rate_from_count_writes_parquet(tmp_path, count_and_pop):
+    count_df, pop_df = count_and_pop
+    out = tmp_path / 'rate.parquet'
+    make_rate_from_count('rate', 'count', count_df, pop_df, aa_full_rate_df_path=str(out))
+    assert out.exists()

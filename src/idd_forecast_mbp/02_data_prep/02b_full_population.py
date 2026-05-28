@@ -26,9 +26,13 @@ from pathlib import Path
 from idd_forecast_mbp import constants as mbpc
 from idd_forecast_mbp.lib.io.parquet import read_parquet_with_integer_ids, write_parquet
 from idd_forecast_mbp.lib.io.netcdf import write_netcdf, convert_with_preset
+from idd_forecast_mbp.lib.versioning import finalize_artifact
 
 
-_LSAE_POP_ROOT = Path("/mnt/share/geospatial/ihmepop/gbd_release_id_16")
+# Canonical source for lsae_1285 population: pre-aggregated parquet covering all
+# locations and years 2000-2100, produced by the pixel population pipeline.
+# Path pattern: MODEL_ROOT / "02-processed_data" / <run_date> / <hierarchy> / "population.parquet"
+_LSAE_POP_PARQUET_ROOT = mbpc.MODEL_ROOT / "02-processed_data" / "20260405"
 _LSAE_YEARS = list(range(2000, 2024))
 _FUTURE_YEARS = list(range(2024, 2101))
 
@@ -79,19 +83,11 @@ def main(
     as_fhs_population_df = read_parquet_with_integer_ids(as_fhs_population_df_path)
 
     # ── Load LSAE historical all-age population ────────────────────────────────
-    lsae_population_dfs = []
-    for year in _LSAE_YEARS:
-        for level in ("adm1", "adm2"):
-            csv_path = (
-                _LSAE_POP_ROOT / lsae_hierarchy / f"pop_agg/{year}q1/aggregations/{level}.csv"
-            )
-            df = pd.read_csv(csv_path)
-            df = df.drop(columns=["count", "var", "location_name"], errors="ignore")
-            df = df.rename(columns={"Location ID": "location_id", "sum": "population"})
-            df["year_id"] = year
-            lsae_population_dfs.append(df)
-
-    aa_full_population_df = pd.concat(lsae_population_dfs, ignore_index=True)
+    lsae_pop_parquet = _LSAE_POP_PARQUET_ROOT / lsae_hierarchy / "population.parquet"
+    aa_full_population_df = pd.read_parquet(lsae_pop_parquet)
+    aa_full_population_df = aa_full_population_df[
+        aa_full_population_df["year_id"].isin(_LSAE_YEARS)
+    ]
 
     # ── Identify locations in hierarchy but absent from LSAE CSVs ─────────────
     missing_level_4_location_ids = hierarchy_df[
@@ -451,6 +447,7 @@ def main(
         convert_with_preset(as_full_population_df, preset="as_variables"),
         as_full_population_ds_path,
     )
+    finalize_artifact(mbpc._A02_POPULATION)
 
 
 if __name__ == "__main__":

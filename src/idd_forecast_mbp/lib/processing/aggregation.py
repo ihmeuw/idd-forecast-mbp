@@ -172,7 +172,7 @@ def aggregate_aa_rate_lsae_to_gbd(
         return_full_df=True,
     )
 
-    if 'level' in aa_full_rate_df.columns:
+    if 'level' in aa_full_rate_df.columns:  # pragma: no cover
         aa_full_rate_df = aa_full_rate_df.drop(columns=['level'])
 
     if return_full_df:

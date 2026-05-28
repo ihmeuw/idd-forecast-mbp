@@ -133,7 +133,7 @@ def test_rake_level_sums_match_parent(simple_hierarchy, problematic_rules):
             (level4_target['location_id'] == parent) &
             (level4_target['year_id'] == year)
         ]
-        if len(target_rows) == 0:
+        if len(target_rows) == 0:  # pragma: no cover
             continue  # parent not in level4 (shouldn't happen with consistent hierarchy)
         target = target_rows['count'].iloc[0]
         assert np.isclose(child_sum, target, rtol=1e-6)
@@ -256,3 +256,14 @@ def test_logit_shift_rake_preserves_row_count(logit_rake_dfs):
     forecast_df, observed_df = logit_rake_dfs
     result = logit_shift_rake(forecast_df, observed_df, rate_column='cfr', pred_column='cfr', rake_year=2022)
     assert len(result) == len(forecast_df)
+
+
+def test_rake_aa_count_writes_parquet(tmp_path, simple_hierarchy, problematic_rules, rake_aa_inputs):
+    """aa_full_count_df_path is not None → write_parquet is called (covers line 281)."""
+    lsae_all, gbd_df = rake_aa_inputs
+    out = tmp_path / 'raked.parquet'
+    rake_aa_count_lsae_to_gbd(
+        'count', simple_hierarchy, gbd_df, lsae_all, problematic_rules,
+        aa_full_count_df_path=str(out),
+    )
+    assert out.exists()
