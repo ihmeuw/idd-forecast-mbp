@@ -1,3 +1,4 @@
+import json
 import os
 from pathlib import Path
 
@@ -9,10 +10,32 @@ REPO_ROOT = Path("/mnt/share/homes/bcreiner/repos")
 # Format: YYYYMMDD. Multiple runs same day: set to YYYYMMDD_v2, etc.
 # RUN_DATE: "20260405" First run after refactor
 # RUN_DATE: "20260527" Run with 'new' gridded population: '2026_05_15.001'
-RUN_DATE: str = os.environ.get("IDD_RUN_DATE", "20260405")
-CLIMATE_COVARIATE_RUN_DATE: str = "2026_01_12"
+GRIDDED_RD_2026_05_15 = "20260527"
+RUN_DATE: str = os.environ.get("IDD_RUN_DATE", GRIDDED_RD_2026_05_15)
+CLIMATE_COVARIATE_RUN_DATE: str = "2026_05_28"
+MALARIA_SUITABILITY_RUN_DATE: str = "2026_05_27"
+# Rapidresponse-aggregated population.parquet lives under the climate-aggregates
+# tree but is published by a different upstream pipeline than the climate
+# covariates, on a different cadence. Pinned separately so the two can advance
+# independently. Sole consumer: LSAE_POP_PATH (defined below).
+LSAE_POP_RUN_DATE: str = "2026_05_27"
+# Rapidresponse flooding aggregates. The output dir
+# /mnt/team/rapidresponse/pub/flooding/results/output/<hierarchy>/ holds older flat
+# files; newer reruns land in a dated subdir <hierarchy>/<FLOODING_RUN_DATE>/.
+# Every flooding read in this repo routes through this constant.
+FLOODING_RUN_DATE: str = "20260530"
 GRIDDED_POPULATION_BY_BLOCK_RUNDATE = "2026_05_15.001"
 GRIDDED_POPULATION_RUNDATE = "2026_05_16"
+
+# Whether the upstream FHS future-population file still contains location_id 44858
+# (Ethiopia super-national, present in older FHS releases; split into 60908/95069/94364
+# at source in newer releases). When True, 02a_fhs_population.py applies the historical
+# split-redistribution to map 44858's future pop onto the three sub-nationals. When False
+# (current FHS vintage, verified 2026-05-30: `44858 in future_fhs_pop_ds.location_id.values`
+# returns False), that block is skipped because the data already has the three sub-nationals.
+# Downstream scripts in 05_aggregation and 06_upload also have 44858 special-casing that
+# should eventually gate on this flag (separate work; not yet done).
+FHS_FUTURE_POP_HAS_44858: bool = False
 
 
 # ── Stage root directories ────────────────────────────────────────────────────
@@ -39,22 +62,114 @@ def _artifact_read(artifact_root: Path) -> Path:
     return artifact_root / "current"
 
 
+# ── Malaria model registry ────────────────────────────────────────────────────
+# JSON registry of fitted malaria-model runs, written by
+# 03_modeling/02_fit_final_malaria_models.r (via lib/model_registry.R). One array
+# of run records; each carries a `best` flag and exactly one is True. This is the
+# single source of truth for "which run is best" — both R and Python read it
+# rather than hardcoding a model_date. Lives next to the {run_date}_malaria_models.RData.
+MALARIA_MODEL_REGISTRY: Path = _MODELING_STAGE / "malaria_model_registry.json"
+
+
+def read_malaria_model_registry(path: Path = MALARIA_MODEL_REGISTRY) -> list[dict]:
+    """Return the malaria model run registry (list of run records), best-first.
+
+    Empty list if the registry does not exist yet (i.e. no run has been recorded)."""
+    path = Path(path)
+    if not path.exists():
+        return []
+    with open(path) as f:
+        recs = json.load(f)
+    return recs or []
+
+
+def get_malaria_model_run_date(best: bool = True, run_date: str | None = None,
+                               path: Path = MALARIA_MODEL_REGISTRY) -> str:
+    """Resolve a malaria-model run_date from the registry.
+
+    - run_date set: verify it exists and return it.
+    - best=True (default): return the run_date of the single entry flagged best.
+
+    Raises if the registry is empty/missing, the date is absent, or the best flag
+    is ambiguous (0 or >1 entries flagged)."""
+    recs = read_malaria_model_registry(path)
+    if not recs:
+        raise FileNotFoundError(f"Malaria model registry is empty or missing: {path}")
+    if run_date is not None:
+        hits = [r for r in recs if str(r.get("run_date")) == str(run_date)]
+        if not hits:
+            raise KeyError(f"No malaria model run with run_date={run_date!r} in {path}")
+        return str(hits[0]["run_date"])
+    if best:
+        best_hits = [r for r in recs if r.get("best") is True]
+        if len(best_hits) == 0:
+            raise ValueError(f"No malaria model flagged best=True in {path}")
+        if len(best_hits) > 1:
+            raise ValueError(
+                f"Multiple malaria models flagged best=True in {path}; exactly one expected."
+            )
+        return str(best_hits[0]["run_date"])
+    raise ValueError("get_malaria_model_run_date(): specify run_date=, or leave best=True.")
+
+
 # ── External / read-only data (not versioned by this pipeline) ────────────────
 RAW_DATA_PATH  = _RAW_STAGE          # GBD pulls, raw inputs — never written by pipeline
 GBD_DATA_PATH  = RAW_DATA_PATH / "gbd"
+# Versioned GBD pull written by 00_pull_raw_data/get_gbd_data (dated dir + `current`
+# symlink). All GBD readers resolve through this, NOT the loose top-level files.
+GBD_DATA_READ_PATH = GBD_DATA_PATH / "current"
 
 # Covariate data produced by the RapidResponse lsae pipeline. Lives flat in
 # 02-processed_data/lsae_XXXX/ and is updated externally, not by this pipeline.
 LSAE_HIERARCHY = "lsae_1285"
 LSAE_INPUT_PATH = _PROCESSED_STAGE / LSAE_HIERARCHY
 
+# ── 02-processed_data stage-01 pixel artifacts (GBD-release-tagged) ──────────
+# pixel_main (per-block scratch) and pixel_hierarchy (per-hierarchy aggregates)
+# outputs are tagged with the GBD release the source TIFFs were calibrated
+# against. Currently 'GBD2023'. A future GBD2024 release would write to a
+# sibling 'GBD2024/' tree without disturbing this one.
+#
+# Per-hierarchy artifact root: 02-processed_data/GBD2023/<hierarchy>/,
+# versioned by RUN_DATE via _artifact_write / _artifact_read. Both per-block
+# scratch and per-hierarchy aggregates share the same root for a given
+# (release, hierarchy) — pixel_main writes <root>/<RUN_DATE>/<cov>/<block>/000.parquet
+# and pixel_hierarchy writes <root>/<RUN_DATE>/<cov>_<stat>_<scenario>.parquet.
+#
+# This convention does NOT apply to pixel_urban_main / pixel_urban_hierarchy —
+# urban is derived from population density and is not GBD-release-dependent.
+PIXEL_GBD_RELEASE: str = "GBD2023"
+
+
+def pixel_artifact_root(hierarchy: str) -> Path:
+    """Artifact root for stage-01 pixel outputs at `hierarchy` under the
+    current GBD release. Used by both pixel_main (per-block scratch) and
+    pixel_hierarchy (per-hierarchy aggregates). Pass `finalize_artifact(...)`
+    after a successful launch to update the current/ symlink."""
+    return _PROCESSED_STAGE / PIXEL_GBD_RELEASE / hierarchy
+
+
+def pixel_write_path(hierarchy: str, run_date: str | None = None) -> Path:
+    """Versioned write path for stage-01 pixel outputs at `hierarchy`.
+    Resolves to: 02-processed_data/GBD2023/<hierarchy>/<RUN_DATE>/."""
+    return _artifact_write(pixel_artifact_root(hierarchy), run_date)
+
+
+def pixel_read_path(hierarchy: str) -> Path:
+    """Read path (via current/ symlink) for stage-01 pixel outputs at `hierarchy`.
+    Resolves to: 02-processed_data/GBD2023/<hierarchy>/current/."""
+    return _artifact_read(pixel_artifact_root(hierarchy))
+
 
 CLIMATE_AGGREGATES_PATH = Path("/mnt/team/rapidresponse/pub/climate-aggregates") / CLIMATE_COVARIATE_RUN_DATE / "results"
-# Canonical gridded population (location_id × year_id, 1950-2100), produced
-# by the rapidresponse team alongside the climate aggregates. Read-only here.
-# Uses the upstream `current/` symlink so refreshes track automatically; do
-# NOT route through CLIMATE_AGGREGATES_PATH (which is date-pinned).
-LSAE_POP_PATH = CLIMATE_AGGREGATES_PATH / LSAE_HIERARCHY / "population.parquet"
+# Canonical gridded population (location_id × year_id, ~1950-2100), produced
+# by the rapidresponse team. Read-only here. Lives under the climate-aggregates
+# tree but pinned to its own LSAE_POP_RUN_DATE so it advances independently of
+# the climate-covariate vintage (different upstream pipelines, different cadences).
+LSAE_POP_PATH = (
+    Path("/mnt/team/rapidresponse/pub/climate-aggregates")
+    / LSAE_POP_RUN_DATE / "results" / LSAE_HIERARCHY / "population.parquet"
+)
 
 
 # Gridded population by block, for use in urban pixel generation. Also produced by the
@@ -77,15 +192,9 @@ MALARIA_SUITABILITY_VARIANTS = [
     for shift in MALARIA_SUITABILITY_SHIFTS
 ]
 MALARIA_SUITABILITY_VARIANT: str = "mordecai_0_0"
-# When the 14-variant run lands, update this to the new run date.
-# While equal to CLIMATE_COVARIATE_RUN_DATE, falls back to the standard filename.
-MALARIA_SUITABILITY_RUN_DATE: str = CLIMATE_COVARIATE_RUN_DATE
-
 
 def get_malaria_suitability_path(variant: str, ssp_scenario: str, lsae_hierarchy: str) -> str:
     base = Path("/mnt/team/rapidresponse/pub/climate-aggregates") / MALARIA_SUITABILITY_RUN_DATE / "results" / lsae_hierarchy
-    if MALARIA_SUITABILITY_RUN_DATE == CLIMATE_COVARIATE_RUN_DATE:
-        return str(base / f"malaria_suitability_{ssp_scenario}.parquet")
     return str(base / f"malaria_{variant}_suitability_{ssp_scenario}.parquet")
 
 # Age-specific FHS metadata (written by get_past_as_aa_fhs_outcomes.r, read-only here).
@@ -150,15 +259,62 @@ DEN_MODELING_READ_PATH     = _artifact_read(_A03_DEN_MODELING)
 MAL_PAST_INPUTS_READ_PATH  = _artifact_read(_A03_MAL_PAST_INPUTS)
 DEN_PAST_INPUTS_READ_PATH  = _artifact_read(_A03_DEN_PAST_INPUTS)
 
+# Dengue fit-location set (written by 06a; a modeling concern → under 03-modeling).
+_A03_DEN_FIT_LOCATIONS = _MODELING_STAGE / "dengue" / "fit_locations" / LSAE_HIERARCHY
+DEN_FIT_LOCATIONS_WRITE_PATH = _artifact_write(_A03_DEN_FIT_LOCATIONS)
+DEN_FIT_LOCATIONS_READ_PATH  = _artifact_read(_A03_DEN_FIT_LOCATIONS)
+
+# Dengue location-selection thresholds (A0-level all-age counts; strictly > ).
+# Exploratory defaults = 0.0 (any nonzero qualifies); tighten later.
+dengue_fit_mort_threshold  = 0.0
+dengue_fit_inc_threshold   = 0.0
+dengue_pred_mort_threshold = 0.0
+dengue_pred_inc_threshold  = 0.0
+
 # ── 04-forecasting_data artifact roots ───────────────────────────────────────
 _A04_MAL_FORECAST_LOCATIONS = _FORECASTING_STAGE / "malaria" / "prediction_locations" / LSAE_HIERARCHY
 _A04_MAL_FORECAST_INPUTS    = _FORECASTING_STAGE / "malaria" / "forecast_inputs"      / LSAE_HIERARCHY
+_A04_MAL_FORECAST_OUTPUTS   = _FORECASTING_STAGE / "malaria" / "forecast_outputs"     / LSAE_HIERARCHY
 
 MAL_FORECAST_LOCATIONS_WRITE_PATH = _artifact_write(_A04_MAL_FORECAST_LOCATIONS)
 MAL_FORECAST_LOCATIONS_READ_PATH  = _artifact_read(_A04_MAL_FORECAST_LOCATIONS)
 
+_A04_DEN_FORECAST_LOCATIONS = _FORECASTING_STAGE / "dengue" / "prediction_locations" / LSAE_HIERARCHY
+DEN_FORECAST_LOCATIONS_WRITE_PATH = _artifact_write(_A04_DEN_FORECAST_LOCATIONS)
+DEN_FORECAST_LOCATIONS_READ_PATH  = _artifact_read(_A04_DEN_FORECAST_LOCATIONS)
+
+_A04_DEN_FORECAST_INPUTS = _FORECASTING_STAGE / "dengue" / "forecast_inputs" / LSAE_HIERARCHY
+DEN_FORECAST_INPUTS_WRITE_PATH = _artifact_write(_A04_DEN_FORECAST_INPUTS)
+DEN_FORECAST_INPUTS_READ_PATH  = _artifact_read(_A04_DEN_FORECAST_INPUTS)
+
 MAL_FORECAST_INPUTS_WRITE_PATH = _artifact_write(_A04_MAL_FORECAST_INPUTS)
 MAL_FORECAST_INPUTS_READ_PATH  = _artifact_read(_A04_MAL_FORECAST_INPUTS)
+
+# Raked draw-level forecast predictions (written by forecast_malaria_admin_2s_rocket.r).
+MAL_FORECAST_OUTPUTS_WRITE_PATH = _artifact_write(_A04_MAL_FORECAST_OUTPUTS)
+MAL_FORECAST_OUTPUTS_READ_PATH  = _artifact_read(_A04_MAL_FORECAST_OUTPUTS)
+
+# ── 05-products artifact roots (finished forecast products) ───────────────────
+# One artifact node per forecast RUN, so each run versions and finalizes
+# independently: <cause>/<hierarchy>/<run_key>/<RUN_DATE>/ + current -> RUN_DATE.
+_PRODUCTS_STAGE   = MODEL_ROOT / "05-products"
+_A05_MAL_PRODUCTS = _PRODUCTS_STAGE / "malaria" / LSAE_HIERARCHY
+_A05_DEN_PRODUCTS = _PRODUCTS_STAGE / "dengue"  / LSAE_HIERARCHY
+
+
+def mal_products_root(run_key: str) -> Path:
+    """Artifact root for one malaria forecast run's finished products."""
+    return _A05_MAL_PRODUCTS / run_key
+
+
+def mal_products_write_path(run_key: str, run_date: str = None) -> Path:
+    """Dated write path for one malaria forecast run's finished products."""
+    return _artifact_write(mal_products_root(run_key), run_date)
+
+
+def mal_products_read_path(run_key: str) -> Path:
+    """current/ read path for one malaria forecast run's finished products."""
+    return _artifact_read(mal_products_root(run_key))
 
 # ── Stage-level paths (stages 04–10, not yet artifact-structured) ─────────────
 FORECASTING_DATA_PATH = _FORECASTING_STAGE / RUN_DATE
@@ -181,20 +337,33 @@ package_name = "idd_forecast_mbp"
 # hierarchies = ["lsae_1209", "gbd_2021", "lsae_1285", "gbd_2023"]
 hierarchies = [LSAE_HIERARCHY, "gbd_2023"]
 hierarchies = [LSAE_HIERARCHY]
-years = list(range(1970, 2101))
-past_years = list(range(1970, 2024))
-model_years = list(range(2000, 2101))
-future_years = list(range(2024, 2101))
+# Year-range constants. MODELING and FORECAST overlap on the bridge year(s)
+# intentionally: forecasts include the last observed year so observed values
+# can be linked to predicted values (verification, scaling, model-vs-data
+# plots). FUTURE is the strictly-future window with no observed-data overlap.
+#
+# Invariants (verified at module load below):
+#   MODELING_YEARS ∪ FUTURE_YEARS  = ALL_YEARS   (disjoint partition)
+#   MODELING_YEARS ∩ FUTURE_YEARS  = ∅
+#   FORECAST_YEARS \ MODELING_YEARS = FUTURE_YEARS
+MODELING_YEARS  = list(range(2000, 2024))  # 2000-2023 (24 yrs) — observed window; models are fit on this
+FORECAST_YEARS  = list(range(2023, 2101))  # 2023-2100 (78 yrs) — forecast output window; includes bridge year(s)
+FUTURE_YEARS    = list(range(2024, 2101))  # 2024-2100 (77 yrs) — strictly future; FORECAST_YEARS minus the bridge
+ALL_YEARS       = list(range(2000, 2101))  # 2000-2100 (101 yrs) — union of MODELING_YEARS and FUTURE_YEARS
+EXTENDED_YEARS  = list(range(1970, 2101))  # 1970-2100 (131 yrs) — wider window for rare pre-2000 GBD pulls
 
 # GBD Constants
+GBD_DATA_DATE = "20260713"
 gbd_constants = {
+        "gbd_location_set_id": 35,
+        "fhs_location_set_id": 39,
         "release_2021_id": 9,
         "release_2023_id": 16,
-        "como_2023_v": 1762,
-        "codcorrect_2023_v": 528,
-        "dalynator_2023_v": 102,
-        "burdenator_2023_v": 395,
-        "compare_2023_v": 8352  
+        "como_2023_v": 1762,        # Checked 2026/7/13
+        "codcorrect_2023_v": 528,   # Checked 2026/7/13
+        "dalynator_2023_v": 102,    # Checked 2026/7/13
+        "burdenator_2023_v": 395,   # Checked 2026/7/13
+        "compare_2023_v": 8352      # Checked 2026/7/13
 }
 # como_2023_v = 1591
 # codcorrect_2023_v = 461
@@ -249,13 +418,17 @@ cause_map = {
     }
 }
 
+# Malaria / dengue aggregate parquets are produced by pixel_hierarchy.py
+# and live under the GBD-release-tagged versioned root.
+# See pixel_read_path / pixel_write_path above.
+_PIXEL_AGG_LSAE = pixel_read_path(LSAE_HIERARCHY)
 malaria_variables = {
-    "pfpr": f"{LSAE_INPUT_PATH}/malaria_pfpr_mean_cc_insensitive.parquet",
-    "incidence": f"{LSAE_INPUT_PATH}/malaria_pf_inc_rate_mean_cc_insensitive.parquet",
-    "mortality": f"{LSAE_INPUT_PATH}/malaria_pf_mort_rate_mean_cc_insensitive.parquet",
+    "pfpr": f"{_PIXEL_AGG_LSAE}/malaria_pfpr_mean_cc_insensitive.parquet",
+    "incidence": f"{_PIXEL_AGG_LSAE}/malaria_pf_inc_rate_mean_cc_insensitive.parquet",
+    "mortality": f"{_PIXEL_AGG_LSAE}/malaria_pf_mort_rate_mean_cc_insensitive.parquet",
 }
 dengue_variables = {
-    "dengue_suitability": f"{LSAE_INPUT_PATH}/dengue_suitability_mean_cc_insensitive.parquet"
+    "dengue_suitability": f"{_PIXEL_AGG_LSAE}/dengue_suitability_mean_cc_insensitive.parquet"
 }
 
 modeling_measure_map = {
@@ -448,21 +621,21 @@ age_type_map = {
 ssp_scenario_map = {
     "ssp126": {
         "name": "RCP2.6",
-        "rcp_scenario": 2.6,
+        "rcp_scenario": "rcp26",
         "color": "#046C9A",
         "dhs_scenario": 66,
         "dhs_vbd_scenario": 75
     },
     "ssp245": {
         "name": "RCP4.5",
-        "rcp_scenario": 4.5,
+        "rcp_scenario": "rcp45",
         "color": "#E58601",
         "dhs_scenario": 0,
         "dhs_vbd_scenario": 0
     },
     "ssp585": {
         "name": "RCP8.5",
-        "rcp_scenario": 8.5,
+        "rcp_scenario": "rcp85",
         "color": "#A42820",
         "dhs_scenario": 54,
         "dhs_vbd_scenario": 76
@@ -472,19 +645,19 @@ ssp_scenario_map = {
 ssp_scenarios = {
     "ssp126": {
         "name": "RCP2.6",
-        "rcp_scenario": 2.6,
+        "rcp_scenario": "rcp26",
         "color": "#046C9A",
         "dhs_scenario": 66
     },
     "ssp245": {
         "name": "RCP4.5",
-        "rcp_scenario": 4.5,
+        "rcp_scenario": "rcp45",
         "color": "#E58601",
         "dhs_scenario": 0
     },
     "ssp585": {
         "name": "RCP8.5",
-        "rcp_scenario": 8.5,
+        "rcp_scenario": "rcp85",
         "color": "#A42820",
         "dhs_scenario": 54
     }

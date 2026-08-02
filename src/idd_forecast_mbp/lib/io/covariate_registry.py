@@ -2,7 +2,7 @@
 
 One entry per covariate column name → CovariateSpec describing what it is,
 where its source lives, and how the builder should read it. The builder in
-02_data_prep/08_build_malaria_forecast_inputs.py dispatches on `kind` to
+02_data_prep/08a_build_malaria_forecast_inputs.py dispatches on `kind` to
 pick the right reader; the rest of the fields are documentation that lets
 a reader of this file see at a glance where each variable comes from.
 
@@ -19,6 +19,7 @@ from typing import Literal
 
 Kind = Literal[
     "climate_draw",     # draw-varying, ssp-dependent (loc, year, draw)
+    "climate_mean",     # ssp-dependent climate, collapsed to the ensemble mean (loc, year)
     "shared_scalar",    # non-draw, scalar per (loc, year)
     "flooding",         # non-draw, ssp-dependent, scalar per (loc, year)
     "suitability",      # draw-varying, ssp-dependent, single variant
@@ -30,6 +31,7 @@ SourceKind = Literal["external", "made_in_repo"]
 
 DIMS_BY_KIND: dict[str, tuple[str, ...]] = {
     "climate_draw":  ("location_id", "year_id", "draw"),
+    "climate_mean":  ("location_id", "year_id"),
     "shared_scalar": ("location_id", "year_id"),
     "flooding":      ("location_id", "year_id"),
     "suitability":   ("location_id", "year_id", "draw"),
@@ -116,6 +118,20 @@ COVARIATE_REGISTRY: dict[str, CovariateSpec] = {
         for var, desc in _CLIMATE_SPECS.items()
     },
 
+    # mean_low_temperature: SINGLE-REALIZATION override of the climate_draw entry
+    # above (later key wins). Stored as the ensemble mean over climate draws, so
+    # it is loc x year (not loc x year x draw) — no draw-varying array added to the
+    # forecast nc / rocket. Delete this entry to revert to draw-varying.
+    "mean_low_temperature": CovariateSpec(
+        description="Annual mean daily-low temperature (°C); rapidresponse. "
+                    "Stored as the ensemble MEAN over climate draws (loc x year).",
+        kind="climate_mean",
+        source_kind="external",
+        source_path_attr=_CLIMATE_PATH_ATTR,
+        source_filename=_CLIMATE_FILENAME.format(var="mean_low_temperature", ssp_scenario="{ssp_scenario}"),
+        ssp_dependent=True,
+    ),
+
     # Suitability — draw-varying, single variant chosen at builder runtime.
     "malaria_suitability": CovariateSpec(
         description="Malaria temperature suitability (raw days; R derives logit). "
@@ -126,6 +142,21 @@ COVARIATE_REGISTRY: dict[str, CovariateSpec] = {
         source_kind="external",
         source_path_attr=None,
         source_filename=None,
+        ssp_dependent=True,
+    ),
+
+    # Dengue temperature suitability — draw-varying, SAME climate-aggregates layout as
+    # the climate vars above (plain per-draw wide parquet; no variant selector, unlike
+    # malaria_suitability). Registered as climate_draw so 08b reads it via the climate path.
+    "dengue_suitability": CovariateSpec(
+        description="Dengue temperature suitability (draw-varying; raw index, "
+                    "predict-time derives any transform). Rapidresponse "
+                    "climate-aggregates: CLIMATE_AGGREGATES_PATH/{lsae}/"
+                    "dengue_suitability_{ssp_scenario}.parquet.",
+        kind="climate_draw",
+        source_kind="external",
+        source_path_attr=_CLIMATE_PATH_ATTR,
+        source_filename=_CLIMATE_FILENAME.format(var="dengue_suitability", ssp_scenario="{ssp_scenario}"),
         ssp_dependent=True,
     ),
 
@@ -240,5 +271,19 @@ DEFAULT_MALARIA_FORECAST_COVARIATES: tuple[str, ...] = (
     "weighted_1km_urban_threshold_300.0_simple_mean",
     "people_flood_days_per_capita",
     "malaria_suitability",
+    "mean_low_temperature",   # single-realization (climate_mean); used by formulations f1-f4
+    "A0_location_id",
+)
+
+
+# Default covariate set for the dengue forecast-input builder (08b). Matches the
+# pyGAM dengue explorer's predictors: base-incidence climate/urban/flood + gdppc (CFR)
+# + the static A0 lookup. dengue_suitability + relative_humidity are draw-varying.
+DEFAULT_DENGUE_FORECAST_COVARIATES: tuple[str, ...] = (
+    "dengue_suitability",
+    "relative_humidity",
+    "weighted_1km_urban_threshold_300.0_simple_mean",
+    "people_flood_days_per_capita",
+    "gdppc_mean",
     "A0_location_id",
 )
