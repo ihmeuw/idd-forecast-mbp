@@ -1,4 +1,4 @@
-"""Smoke + merge-correctness tests for 08_build_malaria_forecast_inputs.py.
+"""Smoke + merge-correctness tests for 08a_build_malaria_forecast_inputs.py.
 
 This is not a strict regression test against historical goldens (08 is a
 new script, no prior version to compare against). Instead:
@@ -10,7 +10,7 @@ new script, no prior version to compare against). Instead:
      to catch wiring mistakes — wrong SSP filter, DAH not broadcast,
      DAH-Constant formula bug, wrong draw column, wrong A0 mapping.
 
-Run with: pytest -m slow --no-cov tests/02_data_prep/test_08_build_malaria_forecast_inputs.py
+Run with: pytest -m slow --no-cov tests/02_data_prep/test_08a_build_malaria_forecast_inputs.py
 """
 import importlib.util
 from pathlib import Path
@@ -40,7 +40,7 @@ EXPECTED_VARS = {
 
 SCRIPT_PATH = (
     Path(__file__).parent.parent.parent
-    / "src/idd_forecast_mbp/02_data_prep/08_build_malaria_forecast_inputs.py"
+    / "src/idd_forecast_mbp/02_data_prep/08a_build_malaria_forecast_inputs.py"
 )
 
 
@@ -90,7 +90,7 @@ def test_dims(ds):
     assert set(ds.dims) >= {"location_id", "year_id", "draw", "dah_scenario"}
     assert ds.sizes["draw"] == 100
     assert ds.sizes["dah_scenario"] == 2
-    assert ds.sizes["year_id"] == len(mbpc.model_years)
+    assert ds.sizes["year_id"] == len(mbpc.ALL_YEARS)
     assert ds.sizes["location_id"] > 0
 
 

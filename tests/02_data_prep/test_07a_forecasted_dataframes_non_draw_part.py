@@ -1,11 +1,11 @@
-"""Regression tests for 07_forecasted_dataframes_non_draw_part.py.
+"""Regression tests for 07a_forecasted_dataframes_non_draw_part.py.
 
 Strategy: call main() with lsae_1209 golden inputs, write to tmp_path, compare
 all 6 output parquets (3 SSP scenarios × 2 causes) against golden files.
 
 ~4.8M rows per file: full exact comparison.
 
-Run with: pytest -m slow --no-cov tests/02_data_prep/test_07_forecasted_dataframes_non_draw_part.py
+Run with: pytest -m slow --no-cov tests/02_data_prep/test_07a_forecasted_dataframes_non_draw_part.py
 """
 import importlib.util
 from pathlib import Path
@@ -36,7 +36,7 @@ GOLDEN_FORECASTING_ROOT = Path(
 
 SCRIPT_PATH = (
     Path(__file__).parent.parent.parent
-    / "src/idd_forecast_mbp/02_data_prep/07_forecasted_dataframes_non_draw_part.py"
+    / "src/idd_forecast_mbp/02_data_prep/07a_forecasted_dataframes_non_draw_part.py"
 )
 
 SSP_SCENARIOS = ["ssp126", "ssp245", "ssp585"]
@@ -44,7 +44,7 @@ SSP_SCENARIOS = ["ssp126", "ssp245", "ssp585"]
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 def _load_main():
-    spec = importlib.util.spec_from_file_location("07_forecasted_dataframes_non_draw_part", SCRIPT_PATH)
+    spec = importlib.util.spec_from_file_location("07a_forecasted_dataframes_non_draw_part", SCRIPT_PATH)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module.main
