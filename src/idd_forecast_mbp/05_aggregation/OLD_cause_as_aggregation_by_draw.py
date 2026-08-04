@@ -1,0 +1,143 @@
+import xarray as xr # type: ignore
+from pathlib import Path
+import numpy as np # type: ignore
+from affine import Affine # type: ignore
+from typing import cast
+import numpy.typing as npt # type: ignore
+import pandas as pd # type: ignore
+from typing import Literal, NamedTuple
+import itertools
+from rra_tools.shell_tools import mkdir # type: ignore
+from idd_forecast_mbp import constants as mbpc
+from idd_forecast_mbp.lib.io.parquet import read_parquet_with_integer_ids, write_parquet
+from idd_forecast_mbp.lib.io.netcdf import read_netcdf_with_integer_ids, write_netcdf, convert_with_preset
+from idd_forecast_mbp.lib.processing.aggregation import aggregate_to_parent
+import argparse
+
+parser = argparse.ArgumentParser(description="Add DAH Sceanrios and create draw level dataframes for forecating malaria")
+
+# Define arguments
+parser.add_argument("--cause", type=str, required=True, help="Cause name (e.g., 'malaria')")
+parser.add_argument("--measure", type=str, required=False, default="mortality", help="measure (e.g., 'mortality', 'incidence')")
+parser.add_argument("--ssp_scenario", type=str, required=True, help="SSP scenario (e.g., 'ssp126', 'ssp245', 'ssp585')")
+parser.add_argument("--dah_scenario", type=str, required=False, help="DAH scenario (e.g., 'Baseline')")
+parser.add_argument("--draw", type=str, required=True, help="Draw number (e.g., '001', '002', etc.)")
+# parser.add_argument("--vaccinate", type=str, required=True, default='None', help="Vaccine status (e.g., 'True' or 'False')")
+parser.add_argument("--hold_variable", type=str, required=True, default='None', help="Hold variable (e.g., 'gdppc', 'suitability', 'urban') or None for primary task")
+parser.add_argument("--run_hold_variables", type=bool, required=False, default=False, help="Whether to run hold variables")
+parser.add_argument("--run_date", type=str, required=True, default='2025_07_08', help="Run date in format YYYY_MM_DD (e.g., '2025_06_25')")
+
+# Parse arguments
+args = parser.parse_args()
+
+cause = args.cause
+measure = args.measure
+ssp_scenario = args.ssp_scenario
+dah_scenario = args.dah_scenario
+draw = args.draw
+vaccinate = 'None'
+hold_variable = args.hold_variable
+run_date = args.run_date
+
+measure_map = mbpc.measure_map
+
+PROCESSED_DATA_PATH = mbpc.MODEL_ROOT / "02-processed_data"
+FORECASTING_DATA_PATH = mbpc.MODEL_ROOT / "04-forecasting_data"
+UPLOAD_DATA_PATH = mbpc.MODEL_ROOT / "05-upload_data"
+
+if cause == "malaria":
+    if hold_variable == 'None':
+        forecast_ds_path = f"{FORECASTING_DATA_PATH}/as_{cause}_measure_{measure}_ssp_scenario_{ssp_scenario}_dah_scenario_{dah_scenario}_draw_{draw}_with_predictions.nc"
+        processed_forecast_ds_path = f"{UPLOAD_DATA_PATH}/upload_folders/{run_date}/full_as_{cause}_measure_{measure}_ssp_scenario_{ssp_scenario}_dah_scenario_{dah_scenario}_draw_{draw}_with_predictions.nc"
+    else:
+        forecast_ds_path = f"{FORECASTING_DATA_PATH}/as_{cause}_measure_{measure}_ssp_scenario_{ssp_scenario}_dah_scenario_{dah_scenario}_draw_{draw}_with_predictions_hold_{hold_variable}.nc"
+        processed_forecast_ds_path = f"{UPLOAD_DATA_PATH}/upload_folders/{run_date}/full_as_{cause}_measure_{measure}_ssp_scenario_{ssp_scenario}_dah_scenario_{dah_scenario}_draw_{draw}_with_predictions_hold_{hold_variable}.nc"
+else:
+    if hold_variable == 'None':
+        if vaccinate == 'None':
+            forecast_ds_path = f"{FORECASTING_DATA_PATH}/as_{cause}_measure_{measure}_ssp_scenario_{ssp_scenario}_draw_{draw}_with_predictions.nc"
+            processed_forecast_ds_path = f"{UPLOAD_DATA_PATH}/upload_folders/{run_date}/full_as_{cause}_measure_{measure}_ssp_scenario_{ssp_scenario}_draw_{draw}_with_predictions.nc"
+        else:
+            forecast_ds_path = f"{FORECASTING_DATA_PATH}/as_{cause}_measure_{measure}_ssp_scenario_{ssp_scenario}_no_vaccinate_draw_{draw}_with_predictions.nc"
+            processed_forecast_ds_path = f"{UPLOAD_DATA_PATH}/upload_folders/{run_date}/full_as_{cause}_measure_{measure}_ssp_scenario_{ssp_scenario}_no_vaccinate_draw_{draw}_with_predictions.nc"
+    else:
+        if vaccinate == 'None':
+            forecast_ds_path = f"{FORECASTING_DATA_PATH}/as_{cause}_measure_{measure}_ssp_scenario_{ssp_scenario}_draw_{draw}_with_predictions_hold_{hold_variable}.nc"
+            processed_forecast_ds_path = f"{UPLOAD_DATA_PATH}/upload_folders/{run_date}/full_as_{cause}_measure_{measure}_ssp_scenario_{ssp_scenario}_draw_{draw}_with_predictions_hold_{hold_variable}.nc"
+        else:
+            forecast_ds_path = f"{FORECASTING_DATA_PATH}/as_{cause}_measure_{measure}_ssp_scenario_{ssp_scenario}_no_vaccinate_draw_{draw}_with_predictions_hold_{hold_variable}.nc"
+            processed_forecast_ds_path = f"{UPLOAD_DATA_PATH}/upload_folders/{run_date}/full_as_{cause}_measure_{measure}_ssp_scenario_{ssp_scenario}_no_vaccinate_draw_{draw}_with_predictions_hold_{hold_variable}.nc"
+
+# Hierarchy path
+hierarchy_df_path = f'{PROCESSED_DATA_PATH}/full_hierarchy_2023_lsae_1209.parquet'
+hierarchy_df = read_parquet_with_integer_ids(hierarchy_df_path)
+
+as_merge_variables = mbpc.as_merge_variables
+
+def process_forecast_data(forecast_ds_path, measure, hierarchy_df):
+    """
+    Process forecast data, adding necessary columns and formatting.
+    
+    Parameters:
+    -----------
+    ssp_scenario : str
+        SSP scenario name
+    dah_scenario : str
+        DAH scenario name
+    draw : str
+        Draw identifier
+    hierarchy_df : pandas.DataFrame
+        Hierarchy dataframe for location information
+    Returns:
+    --------
+    pandas.DataFrame
+        Full hierarchy forecast dataframe with all necessary columns and aggregations applied.
+    """
+    ds = read_netcdf_with_integer_ids(forecast_ds_path)
+    df = ds.to_dataframe().reset_index()
+    df = df[df["year_id"] >= 2022]
+    short = measure_map[measure]["short"]
+    df = df.rename(columns={col: col.replace(f'{cause}_{short}_', '') for col in df.columns if f'{cause}_{short}_' in col})
+    drop_cols = [col for col in df.columns if 'rate' in col or 'pop' in col]
+    df = df.drop(columns=drop_cols)
+    df = df[as_merge_variables + ['count_pred']]
+
+    df = df.merge(hierarchy_df[["location_id", "level"]], on="location_id", how="left")
+
+    child_df = df.copy()
+
+    for level in reversed(range(1, 6)):
+        print(f"Processing level {level}...")
+        parent_df = aggregate_to_parent(child_df, hierarchy_df, 'count_pred', preserve_age_sex=True)
+        parent_df = parent_df.merge(hierarchy_df[["location_id", "level"]], on="location_id", how="left")
+        df = pd.concat([df, parent_df], ignore_index=True)
+        child_df = parent_df.copy()
+
+    df = df.drop(columns=['level'])
+    return df
+
+# Process the forecast data
+if cause == "malaria":
+    print(f"Running for measure: {measure}, ssp_scenario: {ssp_scenario}, dah_scenario: {dah_scenario}, draw: {draw}")
+else:
+    print(f"Running for measure: {measure}, ssp_scenario: {ssp_scenario}, vaccinate: {vaccinate}, draw: {draw}")
+
+full_hierarchy_forecast_df = process_forecast_data(forecast_ds_path, measure, hierarchy_df)
+
+full_hierarchy_forecast_ds = convert_with_preset(
+    full_hierarchy_forecast_df,
+    preset='as_variables',
+    variable_dtypes={
+        'count_pred': 'float32',
+    },
+    validate_dimensions=False  # Skip validation since we may have sparse data after aggregation
+)
+
+write_netcdf(
+    full_hierarchy_forecast_ds, 
+    processed_forecast_ds_path,
+    compression=True,
+    compression_level=4,
+    chunking=True,
+    max_retries=3
+)
