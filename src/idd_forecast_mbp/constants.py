@@ -319,6 +319,34 @@ def mal_products_read_path(run_key: str) -> Path:
 # ── Stage-level paths (stages 04–10, not yet artifact-structured) ─────────────
 FORECASTING_DATA_PATH = _FORECASTING_STAGE / RUN_DATE
 UPLOAD_DATA_PATH      = _UPLOAD_STAGE      / RUN_DATE
+
+# ── Previous-submission comparators (read-only) ───────────────────────────────
+# Runs that current work is compared against. Centralised here so stage scripts
+# carry no absolute paths; bump the dates when a new comparator supersedes these.
+_UPLOAD_FOLDERS = _UPLOAD_STAGE / "upload_folders"
+FIRST_SUBMISSION_UPLOAD_DATE = "2025_08_28"   # first submission = burden comparator
+PREVIOUS_COVARIATE_UPLOAD_DATE = "2025_08_11" # arm carrying cov_ds_*.nc
+
+
+def previous_upload_path(upload_date: str) -> Path:
+    """One previous-run arm directory under 05-upload_data/upload_folders/."""
+    return _UPLOAD_FOLDERS / upload_date
+
+
+#: Default burden comparator: the first-submission run directory.
+FIRST_SUBMISSION_RUN_PATH = previous_upload_path(FIRST_SUBMISSION_UPLOAD_DATE)
+#: Default covariate comparator: previous-run covariate netCDF (no draw dimension).
+PREVIOUS_COVARIATE_NC = (
+    previous_upload_path(PREVIOUS_COVARIATE_UPLOAD_DATE) / "cov_ds_Baseline.nc"
+)
+
+# Source for the scenario-varying GDP per capita forecasts (external, read-only).
+GDPPC_SOURCE_PATH = (
+    Path("/mnt/share/resource_tracking/forecasting/poverty")
+    / "climate_2025_income_distribution_forecasts"
+    / "V5_consumption_forecasting_admin2_scenarios"
+    / "LSAEadmin2_gdppc_mean_forecasts_scenarios_2010PPP.csv"
+)
 VISUALIZATION_PATH    = _VIZ_STAGE         / RUN_DATE
 FIGURES_PATH          = _FIGURES_STAGE     / RUN_DATE
 MANUSCRIPT_PATH       = _MANUSCRIPT_STAGE  / RUN_DATE
