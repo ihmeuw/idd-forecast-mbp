@@ -87,7 +87,10 @@ def finalize_all_artifacts(run_date: str = mbpc.RUN_DATE) -> None:
         mbpc._A02_HIERARCHY,
         mbpc._A02_POPULATION,
         mbpc._A02_DAH,
+        mbpc._A02_GDPPC,
+        mbpc._A02_LDIPC,
         mbpc._A02_MED_CONSUMPPC,
+        mbpc._A02_URBAN,
         mbpc._A02_MAL_RAKED_AA,
         mbpc._A02_MAL_RAKED_AS,
         mbpc._A02_DEN_RAKED_AA,
@@ -96,6 +99,10 @@ def finalize_all_artifacts(run_date: str = mbpc.RUN_DATE) -> None:
         mbpc._A03_DEN_MODELING,
         mbpc._A03_MAL_PAST_INPUTS,
         mbpc._A03_DEN_PAST_INPUTS,
+        mbpc._A04_MAL_FORECAST_LOCATIONS,
+        mbpc._A04_MAL_FORECAST_INPUTS,
+        mbpc._A04_MAL_FORECAST_OUTPUTS,
+        mbpc._FORECASTING_STAGE,
     ]
     print(f"Finalizing run {run_date}:")
     for root in artifact_roots:

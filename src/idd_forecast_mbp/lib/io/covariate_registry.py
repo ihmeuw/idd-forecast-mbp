@@ -282,6 +282,10 @@ DEFAULT_MALARIA_FORECAST_COVARIATES: tuple[str, ...] = (
 DEFAULT_DENGUE_FORECAST_COVARIATES: tuple[str, ...] = (
     "dengue_suitability",
     "relative_humidity",
+    # Draw-varying, so it adds a full (location x year x draw) array and grows each
+    # nc by roughly half. Needed by the mort_then_inc formulations, whose mortality
+    # model carries precipitation.
+    "total_precipitation",
     "weighted_1km_urban_threshold_300.0_simple_mean",
     "people_flood_days_per_capita",
     "gdppc_mean",

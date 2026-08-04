@@ -20,6 +20,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from idd_forecast_mbp import constants as mbpc
 from idd_forecast_mbp.lib.io.parquet import write_parquet
 from idd_forecast_mbp.lib.processing._helpers import make_aa_df_square, prep_df
 from idd_forecast_mbp.lib.utils.transforms import logit
@@ -36,6 +37,7 @@ def rake_level(
     problematic_rules: dict,
     hierarchy_df: pd.DataFrame,
     level: int,
+    year_range: list[int] | None = None,
 ) -> pd.DataFrame:
     """Rake one hierarchy level to match its parent level using count-based ratio raking.
 
@@ -65,8 +67,16 @@ def rake_level(
     Note: level_df must contain a 'set_by_gbd' boolean column. Rows where
     set_by_gbd is True are left unchanged regardless of raking factors.
 
+    year_range:
+        Years to bound the output to. Defaults to mbpc.MODELING_YEARS. Pass an
+        explicit list to use a different window (e.g. forecast raking).
+
     # Extracted from: rake_and_aggregate_functions.py:85
     """
+    if year_range is None:
+        year_range = mbpc.MODELING_YEARS
+    level_df    = level_df[level_df["year_id"].isin(year_range)].copy()
+    level_m1_df = level_m1_df[level_m1_df["year_id"].isin(year_range)].copy()
     level_m1_df = level_m1_df.rename(columns={
         count_variable: f'parent_{count_variable}',
         'location_id': 'parent_id',
@@ -198,6 +208,7 @@ def rake_aa_count_lsae_to_gbd(
     problematic_rules: dict,
     aa_full_count_df_path: str | Path | None = None,
     return_full_df: bool = False,
+    year_range: list[int] | None = None,
 ) -> pd.DataFrame | None:
     """Rake LSAE all-age counts to match GBD all-age counts at levels 4 and 5.
 
@@ -226,8 +237,17 @@ def rake_aa_count_lsae_to_gbd(
     return_full_df:
         If True, return the raked DataFrame. If False (default), return None.
 
+    year_range:
+        Years to bound the output to. Defaults to mbpc.MODELING_YEARS. Pass an
+        explicit list to use a different window.
+
     # Extracted from: rake_and_aggregate_functions.py:212
     """
+    if year_range is None:
+        year_range = mbpc.MODELING_YEARS
+    aa_gbd_count_df  = aa_gbd_count_df[aa_gbd_count_df["year_id"].isin(year_range)].copy()
+    aa_lsae_count_df = aa_lsae_count_df[aa_lsae_count_df["year_id"].isin(year_range)].copy()
+
     aa_gbd_count_df = prep_df(aa_gbd_count_df, hierarchy_df)
     aa_gbd_count_0_to_3_df = aa_gbd_count_df[aa_gbd_count_df['level'] <= 3].copy()
     aa_lsae_count_df = prep_df(aa_lsae_count_df, hierarchy_df)
@@ -258,14 +278,16 @@ def rake_aa_count_lsae_to_gbd(
     level_4_df = aa_lsae_count_df[aa_lsae_count_df['level'] == 4].copy()
     level_4_df = make_aa_df_square(count_variable, level_4_df, hierarchy_df, 4, 4)
     level_4_df = rake_level(
-        count_variable, level_4_df, aa_gbd_level_3_df, problematic_rules, hierarchy_df, level=4
+        count_variable, level_4_df, aa_gbd_level_3_df, problematic_rules, hierarchy_df,
+        level=4, year_range=year_range,
     )
 
     # Rake level 5 to the raked level 4 (not original LSAE level 4)
     level_5_df = aa_lsae_count_df[aa_lsae_count_df['level'] == 5].copy()
     level_5_df = make_aa_df_square(count_variable, level_5_df, hierarchy_df, 5, 5)
     level_5_df = rake_level(
-        count_variable, level_5_df, level_4_df, problematic_rules, hierarchy_df, level=5
+        count_variable, level_5_df, level_4_df, problematic_rules, hierarchy_df,
+        level=5, year_range=year_range,
     )
 
     aa_full_count_df = pd.concat([

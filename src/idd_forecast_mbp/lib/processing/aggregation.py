@@ -241,6 +241,7 @@ def aggregate_to_parent(
     hierarchy_df: pd.DataFrame,
     count_variable: str,
     preserve_age_sex: bool = False,
+    extra_group_cols: list[str] | None = None,
 ) -> pd.DataFrame:
     """Aggregate count_variable to the parent level of each location.
 
@@ -256,6 +257,11 @@ def aggregate_to_parent(
     preserve_age_sex:
         False (default): AA variant — groups on [parent_id, year_id] only.
         True: AS variant — groups on [parent_id, year_id, age_group_id, sex_id].
+    extra_group_cols:
+        Additional columns to keep in the grouping (e.g. ['draw']). Appended to
+        the group keys so a draw (or any other) dimension is preserved through
+        the parent-sum instead of being collapsed. Sums stay within each distinct
+        value of the extra columns.
 
     # Extracted from: rake_and_aggregate_functions.py:284 (AA)
     #                 05_aggregation/cause_as_aggregation_by_draw.py:112 (AS)
@@ -270,6 +276,7 @@ def aggregate_to_parent(
         group_keys = ['parent_id', 'year_id', 'age_group_id', 'sex_id']
     else:
         group_keys = ['parent_id', 'year_id']
+    group_keys = group_keys + list(extra_group_cols or [])
 
     agg_df = (
         df.groupby(group_keys)[count_variable]
@@ -278,3 +285,142 @@ def aggregate_to_parent(
         .rename(columns={'parent_id': 'location_id'})
     )
     return agg_df
+
+
+def roll_up_hierarchy(
+    df: pd.DataFrame,
+    hierarchy_df: pd.DataFrame,
+    count_variable: str,
+    *,
+    preserve_age_sex: bool = False,
+    extra_group_cols: list[str] | None = None,
+    start_level: int = 5,
+) -> pd.DataFrame:
+    """Roll counts up from ``start_level`` to level 0, returning every level stacked.
+
+    Iteratively calls :func:`aggregate_to_parent`, so each higher level is the sum
+    of its children. Draw- (and any-extra-dim-) aware via ``extra_group_cols``; the
+    age/sex grid is preserved with ``preserve_age_sex=True``. The output contains the
+    original ``start_level`` rows plus one row per ancestor location at every level
+    above it — the count-space aggregation the finalize cores build on.
+
+    Only the ``start_level`` rows present in ``df`` contribute; a parent with no
+    children in ``df`` simply does not appear (callers that need the *complete*
+    hierarchy zero-fill the result against the full location set afterward — a
+    non-endemic location is a true zero, not a gap).
+
+    Parameters
+    ----------
+    df:
+        Counts at ``start_level`` (plus any extra/age-sex dims). A 'level' column
+        is not required; it is looked up from ``hierarchy_df`` if absent.
+    hierarchy_df:
+        Full hierarchy DataFrame (needs 'location_id', 'parent_id', 'level').
+    count_variable:
+        Name of the count column to sum.
+    preserve_age_sex / extra_group_cols:
+        Passed through to :func:`aggregate_to_parent` at every level.
+    start_level:
+        Level of the input rows (default 5, LSAE admin-2).
+    """
+    extra = list(extra_group_cols or [])
+    if 'level' not in df.columns:
+        df = df.merge(hierarchy_df[['location_id', 'level']], on='location_id', how='left')
+    current = df[df['level'] == start_level].drop(columns=['level'])
+
+    levels = [current]
+    child = current
+    for _ in range(start_level - 1, -1, -1):
+        child = aggregate_to_parent(
+            child, hierarchy_df, count_variable,
+            preserve_age_sex=preserve_age_sex, extra_group_cols=extra,
+        )
+        levels.append(child)
+
+    return pd.concat(levels, ignore_index=True)
+
+
+def roll_up_to_ancestors(
+    df: pd.DataFrame,
+    hierarchy_df: pd.DataFrame,
+    count_variables: str | list[str],
+    *,
+    extra_group_cols: list[str] | None = None,
+    preserve_age_sex: bool = False,
+) -> pd.DataFrame:
+    """Sum leaf counts into every ancestor, via ``path_to_top_parent``.
+
+    Use this instead of :func:`roll_up_hierarchy` whenever the input locations do
+    not all sit at one level. The FHS most-detailed set is the motivating case:
+    its 473 leaves span level 3 (193 countries with no subnational) and level 4
+    (280 subnationals). Iterating parent-wards from the finest level silently
+    drops the level-3 leaves, because they were never in the level-4 input.
+
+    Each leaf's count is added to every location on its ``path_to_top_parent``,
+    which includes the leaf itself, so the result carries the input rows and one
+    row per ancestor at every level above them.
+
+    Counts only. An aggregate *rate* is this count divided by that level's own
+    population — see :func:`make_rate_from_count`. Never sum a population up the
+    hierarchy to build a denominator: a location the forecast dropped contributes
+    nothing to its parent's count while still belonging to its parent's
+    population, and summing only the contributing children inflates the rate.
+
+    Parameters
+    ----------
+    df:
+        Counts at the leaf locations, keyed by 'location_id' and 'year_id' (plus
+        age/sex and any extra dims). Leaves may sit at mixed levels.
+    hierarchy_df:
+        Needs 'location_id' and 'path_to_top_parent' (comma-separated ancestor
+        ids, root first, self last).
+    count_variables:
+        Count column, or list of count columns, to sum.
+    extra_group_cols:
+        Additional dimensions to preserve through the sum — pass ``['draw']`` to
+        aggregate within each draw. Aggregating per draw and collapsing to
+        mean/lower/upper afterwards is required: summing children's quantiles
+        would assume perfect cross-location correlation.
+    preserve_age_sex:
+        Keep the age/sex grid rather than collapsing it.
+
+    Returns
+    -------
+    One row per (ancestor location, year, [age, sex], [extra dims]) with the
+    summed counts.
+    """
+    if isinstance(count_variables, str):
+        count_variables = [count_variables]
+    if 'path_to_top_parent' not in hierarchy_df.columns:
+        msg = "hierarchy_df must carry 'path_to_top_parent' to roll up to ancestors"
+        raise KeyError(msg)
+
+    paths = (
+        hierarchy_df.drop_duplicates('location_id')
+        .set_index('location_id')['path_to_top_parent']
+    )
+    missing = set(df['location_id'].unique()) - set(paths.index)
+    if missing:
+        msg = (f"{len(missing)} location_id(s) absent from the hierarchy, "
+               f"e.g. {sorted(missing)[:5]}")
+        raise KeyError(msg)
+
+    out = df.copy()
+    out['_ancestor'] = [
+        [int(x) for x in str(p).split(',')]
+        for p in paths.loc[out['location_id']].to_numpy()
+    ]
+    out = out.explode('_ancestor')
+
+    group_keys = ['_ancestor', 'year_id']
+    if preserve_age_sex:
+        group_keys += ['age_group_id', 'sex_id']
+    group_keys += list(extra_group_cols or [])
+
+    return (
+        out.groupby(group_keys, sort=False)[count_variables]
+        .sum()
+        .reset_index()
+        .rename(columns={'_ancestor': 'location_id'})
+        .astype({'location_id': 'int64'})
+    )
