@@ -1,0 +1,8 @@
+recorded_at,run_label,jobid,jobname,state,elapsed,totalcpu,maxrss_gb,reqmem,alloccpus
+2026-06-02 16:40:51,probe_setkey_4523_n5_10_20,47830517,mal_probe_n5,COMPLETED,00:03:09,08:21.909,28.8,100G,10
+2026-06-02 16:40:51,probe_setkey_4523_n5_10_20,47830518,mal_probe_n10,COMPLETED,00:04:43,23:07.235,36.2,100G,10
+2026-06-02 16:40:51,probe_setkey_4523_n5_10_20,47830519,mal_probe_n20,COMPLETED,00:06:26,39:48.124,39.3,100G,10
+2026-06-03 07:16:39,forecast_20260602_real,47891354,forecast_malaria_finalize,COMPLETED,00:00:05,00:01.254,0.1,4G,1
+2026-06-03 07:17:32,forecast_20260602_real,47891353_1,forecast_malaria,COMPLETED,00:30:59,04:26:36,43.4,60G,10
+2026-06-03 07:17:32,forecast_20260602_real,47891353_2,forecast_malaria,COMPLETED,00:28:49,04:16:15,47.5,60G,10
+2026-06-03 07:17:32,forecast_20260602_real,47891353_3,forecast_malaria,COMPLETED,00:29:15,03:36:42,41.9,60G,10
