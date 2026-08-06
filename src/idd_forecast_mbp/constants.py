@@ -316,6 +316,21 @@ def mal_products_read_path(run_key: str) -> Path:
     """current/ read path for one malaria forecast run's finished products."""
     return _artifact_read(mal_products_root(run_key))
 
+
+def den_products_root(run_key: str) -> Path:
+    """Artifact root for one dengue forecast run's finished products."""
+    return _A05_DEN_PRODUCTS / run_key
+
+
+def den_products_write_path(run_key: str, run_date: str = None) -> Path:
+    """Dated write path for one dengue forecast run's finished products."""
+    return _artifact_write(den_products_root(run_key), run_date)
+
+
+def den_products_read_path(run_key: str) -> Path:
+    """current/ read path for one dengue forecast run's finished products."""
+    return _artifact_read(den_products_root(run_key))
+
 # ── Stage-level paths (stages 04–10, not yet artifact-structured) ─────────────
 FORECASTING_DATA_PATH = _FORECASTING_STAGE / RUN_DATE
 UPLOAD_DATA_PATH      = _UPLOAD_STAGE      / RUN_DATE
