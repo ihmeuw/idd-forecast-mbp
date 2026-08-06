@@ -219,3 +219,56 @@ offset instead.
 **What I tried:** An 85-task idd-tools calibration probe (per-tier bundle sizes) to measure per-tier (a,b) and size the full run.
 **Why I stopped:** It ran at ~85-way concurrency vs the real run's 5000 -> NFS load-contention unrepresentative (isolated load 2.7s vs 42.6s under the probe's contention). The census (599278) already has real-scale contended cost, strictly better for sizing. The probe's real value was the idd-tools machinery TEST (10 gaps -> inbox). Feeding probe+census to fit_from_probe_history mixes two contention regimes (noisy `a`).
 **Refs:** `final_run_setup/probe_calibration.py`, `fit_from_probe.py`, `idd_tools_findings.md`.
+
+## 2026-08-04: Duan smearing as the explanation for dengue F4's 2023 shortfall
+**What I tried:** Attributing F4's global 2023 incidence of 20.34 M against 37.47 M observed to
+retransformation bias — log-scale least squares predicts the geometric mean, count aggregation
+needs the arithmetic mean — and correcting it with a smearing factor. The arithmetic is seductive:
+the measured incidence residual sigma = 1.106, so exp(sigma^2/2) = 1.84, and 20.34 x 1.84 = 37.4 M,
+which reproduces observed 2023 to within 0.1%.
+**Why I stopped:** It is a coincidence, and applying the correction would have broken a CORRECT
+result. F4's anchor is `Baseline(statistic="mean")` over 2014-2023, not a point anchor at 2023, so
+its target is the decade mean level and not the 2023 observation. Observed 2014-2023 mean global
+incidence is **19.60 M**; F4 predicts **20.34 M**, i.e. within 4% of exactly what it is specified to
+hit. 2023 was a genuine epidemic spike (next-highest year 2019 at 30.6 M, low 2018 at 9.3 M), which
+a window-mean anchor deliberately does not chase.
+**The discriminating test**, worth reusing: compare the prediction to the ANCHOR TARGET, never to
+observed-at-anchor-year. For a point anchor those coincide; for a window anchor they do not, and
+only the former is a claim the model makes.
+**Related but still open, NOT this dead end:** mortality is +21% above its own anchor target (61.6 k
+against a 2014-2023 mean of 50.9 k, with observed 2023 at 52.7 k). That is not smearing either — the
+sign is wrong, since summing per-location geometric means biases an aggregate DOWN. Unexplained.
+**Provenance:** the smearing framing came from the malaria side's (correct) point that a point
+anchor divides out a constant multiplicative bias while a window-mean anchor does not, so dengue is
+structurally exposed where malaria is not. That asymmetry stands; it just is not what is happening
+here.
+**Refs:** `.claude/DENGUE_CONSULT_REPLY.md` Round 2; `.claude/DENGUE_CONSULT_ROUND3.md`.
+
+## 2026-08-04: Modelling cross-cause variation as a structural property of the causes
+**What I tried:** Three successive abstractions for the fact that malaria has DAH scenarios and
+dengue has time-decay functions. First `has_dah: bool` on `CauseSpec`. When the dengue side pointed
+out that dengue's 4-value decay axis sits exactly where DAH does, `AxisSpec`
+(name / values / filename_token). When a burden-filter question then arose, an `EligibilityRule`
+type with `kind: positivity | threshold | inert`, a `requires_positive_population` precondition, a
+`population_sensitive` property and a manifest assertion firing on refit × population-touching
+transforms.
+**Why I stopped:** all three were the same mistake at rising levels of sophistication — a real
+observation promoted into a structural type when it was only ever a parameter. DAH and decay are
+both covariates with alternative supplied futures, which is a property of a RUN, not of a cause;
+covariate holds are the same mechanism with a trivial trajectory. `EligibilityRule` was machinery
+for a failure mode that exists in neither cause: malaria's `INC_COUNT_THRESHOLD` is 0 so its filter
+is inert on a non-negative count, and dengue's is a positivity test, so no population rescaling can
+move either boundary. The tell each time was that the new abstraction looked MORE general than its
+predecessor while encoding the identical category error — which is why it survived two rounds of
+review by both sides before Bobby named it.
+**What survives, and it is all that was ever needed:** covariate trajectories in the run manifest;
+a burden filter that is a column plus a threshold plus a strictness bool (the only difference
+between the two causes' rules); `absent_means_zero` for the fill rule, which is the one with a real
+consumer consequence. The findings underneath — threshold-vs-positivity as the discriminator, and
+the 162 admin-2 units with population exactly 0 that break a positivity rule's precondition at
+malaria's grain — stand as recorded facts. They just did not justify a type system.
+**Also recorded, same session, same shape:** the malaria side's own "live trap" (that refitting
+under a population hold would move the eligibility boundary) was overstated — it is dormant,
+because the threshold is 0. It arms only if someone sets it above zero.
+**Refs:** `.claude/DENGUE_CONSULT_REPLY.md` RETRACTION section; `DENGUE_CONSULT_ROUND3.md`;
+`lib/cause_spec.py` module docstring, which records the rule so it is not re-derived from scratch.

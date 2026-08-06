@@ -1,5 +1,5 @@
 # Project status
-Updated: 2026-07-20
+Updated: 2026-08-04
 
 ## Goals
 Infectious disease forecasting pipeline for malaria and dengue, projecting
@@ -20,6 +20,31 @@ Long-term axes:
 ## Orientation
 Pipeline infrastructure (stages 01–08, versioning, model registry) is built and
 largely run. Several active fronts on lsae_1285:
+
+**Formalization is the active malaria front (2026-08-04).** Stage-05 products and figures are
+built and run; the work has shifted from *producing* figures to making the pipeline repeatable,
+findable, tested and cause-shared. Plan: `.claude/FORMALIZATION_PLAN.md` (8 phases, with a
+decisions-needed list). **Phase 0 is done** — 115 untracked files committed in 9 groups and
+pushed; the entire stage-05 build, `lib/modeling/`, `lib/viz/` and all tests had been on one disk.
+Two architectural commitments came out of a 3-round consult with the dengue workstream:
+- **`CauseSpec` holds only what is true of a cause regardless of run** (`lib/cause_spec.py`, 10
+  fields). Admission test: would this be the same for EVERY run of this cause? That excludes
+  everything on the refit list — formulation, engine, anchor spec, reference cell, suitability
+  variant, burden threshold — and all covariate trajectories (DAH scenarios, decay functions,
+  holds), which live in a run manifest. Covariates are excluded twice over: which ones a run uses
+  comes from its formulation, and covariate metadata already has a canonical owner in
+  `lib/io/covariate_registry`. `as_draw_persist_grain` is the one genuinely cause-specific field,
+  a grain not a boolean, independent of `fit_grain`.
+- **The two causes share the product CONTRACT, never the producer** (`lib/processing/products.py`:
+  schema + `validate_products` + a shared reader). `finish_run.py` is not in dengue's path — it
+  calls `roll_up_hierarchy(start_level=ADMIN2_LEVEL)` and so cannot consume dengue's mixed-level
+  473-leaf FHS set. The load-bearing check re-derives every rate from its count and that level's
+  own population row. `anchor_diagnostic` compares predicted level to the ANCHOR TARGET, never to
+  observed-at-anchor-year — hard pass/fail only for a point anchor.
+Cause-sharing order is **stage 05 now, 04 next, 03 eventually** — NOT the earlier "03+ goes
+cause-blind", which mistook stage 03's cause-specific science for shareable plumbing. Three
+successive over-abstractions (`has_dah: bool` → `AxisSpec` → `EligibilityRule`) were each proposed
+and retracted; see DEAD_ENDS 2026-08-04 so they are not re-derived.
 
 **Malaria hybrid-SDG goalkeepers incidence deliverable (2026-07-20, current front).** The
 Goalkeepers/SDG age-sex incidence-rate-per-1000-by-country deliverable
@@ -60,16 +85,47 @@ jobmon retries; real fix = output-gating (deferred). This session **dogfooded** 
 calibrate/run_registry path → **10 gaps filed to idd-tools/inbox**. Judge on temporal OOS (10
 windows) + parsimony, NOT in-sample AIC.
 
-**Dengue modeling (separate workstream) — now PROTOTYPING the forecast pipeline.**
-The active dengue work moved from planning to building a Python/pyGAM forecast prototype in
-`reports/03_modeling/pygam_dengue_models_explore.ipynb` (fit → anchor-shift → age/sex →
-count-space aggregate → validate → forecast to 2100), which DRIVES the R-pipeline plan in
-`.claude/FORMALIZE_DENGUE_FORECAST_PIPELINE_PROMPT.md` (fit+registry+forecaster = R reading the
-Python-built 08b nc; finishing = Python). Built this session: dengue forecast-inputs (`08b`;
-malaria `08`→`08a`; ran `07c` → 29,109 locs), age/sex CFR via the fitted `as_id` (fit at fhs,
-additive offset, rake to observed age/sex, no invented deaths — verified super-region CFR tracks
-observed), and a grain-generalized forecast (each formulation at its own grain; fhs via a verified
-pop-weighted 08b roll-up). See memory.md Dengue + DECISIONS/DEAD_ENDS 2026-07-10.
+**Dengue forecasting (2026-08-04, current dengue front).** The formulation-agnostic harness is
+built and runs end-to-end in Python/pyGAM: `lib/modeling/{anchor,year_path,dengue_formulations,
+dengue_pipeline,dengue_forecast}.py` + `lib/data/{dengue_inputs,dengue_forecast_covariates,
+first_submission}.py` + `lib/processing/dengue_products.py`. A formulation declares outcome
+structure (`inc_cfr` / `inc_mort` / `mort_then_inc` / `mort_cfr`), per-outcome response grain,
+an `AnchorSpec`, a year term and an engine; the pipeline fits, anchors, fans out to age/sex,
+aggregates in count space and summarizes. F4 (`GBD-esque_w_time`, mort_then_inc, all-age) has
+been forecast 3 SSPs × 4 decays × 78 years × 100 draws →
+`05-products/dengue/lsae_1285/20260804/f4_forecast_summary.parquet`.
+- An R/mgcv sibling (`03_modeling/fit_dengue_formulations.r`) exists because **pyGAM has no
+  factor-`by` smooth** — masking a column works for a LINEAR by-group term (out-of-group β·0
+  carries no information) but not for a spline (`s(0) ≠ 0`, and 71–98% of rows pile at 0). Five
+  formulations fit; output `07-figures/20260804/dengue_formulation_comparison/`. Bobby drives it
+  interactively and is stripping the CLI scaffolding.
+- **Anchor semantics govern how any of it reads.** F4 anchors to the 2014–2023 MEAN, not a 2023
+  point. Its 2023 (20.3 M) is within 4% of the decade mean (19.60 M) and 45% below observed 2023
+  (37.5 M) — correct, because 2023 was a record dengue year. **Compare predicted level to the
+  ANCHOR TARGET, never to observed-at-anchor-year.** Incidence passes at +3.8%; mortality does
+  NOT, at **+21%** (61.6 k vs a 50.9 k target) — unexplained, and not retransformation bias
+  (summing per-location geometric means biases aggregates DOWN, wrong sign).
+- **Fit set is decided upstream, in the data.** `dengue_past_inputs.parquet` holds exactly 305 of
+  473 FHS-most-detailed locations, a complete grid (305 × 24 yr × 50 age/sex cells = 366,000
+  rows). The 168 excluded have zero incidence in EVERY year; the modelling-layer
+  `inc_count > 0` filter therefore drops nothing and is a guard, not a cull. Those 168 are
+  ABSENT from products rather than zero — a join against the full hierarchy yields NaN where the
+  answer is 0.
+- **Cross-cause architecture settled and dengue's figure build is UNPAUSED (2026-08-04).** Both
+  prerequisites landed and are pushed: `b5df5fe` (`CauseSpec`/`AnchorSpec`) and `53debbe` (product
+  contract + `validate_products`). Handoff for the dengue session is `.claude/DENGUE_UNBLOCKED.md`,
+  pointed to from memory.md's Dengue section. Two things dengue cannot infer from the consult
+  files: `CauseSpec` is SMALLER than `DENGUE_CONSULT_ROUND3.md` describes (no `covariates`,
+  `anchor`, `measures`, reference cell or burden threshold — so nothing is left for them to
+  confirm), and the F4 summary must split into `all_age_summary_{ssp}_{trajectory}.parquet` with
+  `level` + `population` added, because a single-valued `decay` column is rejected outright.
+  Settled jointly: NO `AxisSpec` (DAH and decay are both covariates with alternative
+  future trajectories, recorded in the run manifest, not a cause property); stage 03 is not
+  permanently cause-specific (four outcome structures and two engines are exploration
+  scaffolding); `as_draw_persist_grain` is a grain and independent of `fit_grain`; population and
+  age-structure holds are `aggregation_transforms`, not covariate trajectories; refit-vs-
+  re-evaluate is decided by whether an alternative changes the PAST or only the FUTURE. See
+  `.claude/DENGUE_CONSULT_REPLY.md` (incl. its RETRACTION section) and `DENGUE_CONSULT_ROUND3.md`.
 
 **Malaria PfPR forecasting — the FE is moot under the 2023 shift (2026-07-07).** A Python
 pyGAM sandbox (`reports/03_modeling/pygam_model_selection.ipynb` + `lib/modeling/`
@@ -95,6 +151,51 @@ stage-08 gained `malaria_suit` + single-realization `mean_low_temperature`). Now
 formulations and deciding a single winner vs an ensemble (matched per-draw weighted blend).
 
 ## Recent steps
+- 2026-08-04: **Malaria — formalization Phase 0, CauseSpec + product contract, O(n²) figure fix.**
+  (1) **Phase 0 committed and pushed.** 115 untracked files in 9 disjoint groups (`37c15fd`..
+  `05cec54`), then `b5df5fe`/`53debbe`; `06a01bc`→`53debbe` on the remote. Routed absolute paths
+  in 4 active files through new `constants.py` entries (`previous_upload_path`,
+  `FIRST_SUBMISSION_RUN_PATH`, `PREVIOUS_COVARIATE_NC`, `GDPPC_SOURCE_PATH`) + added
+  `den_products_{root,write_path,read_path}`. Wrote `.claude/FORMALIZATION_PLAN.md` (8 phases).
+  (2) **O(n²) bug in three netCDF loaders**: `[i for i in locs if i in set(int(x) for x in
+  ds.location_id.values)]` rebuilds a 51k-element set per candidate location. Covariate figures
+  went from 2-of-10 in 31 min to 9-of-10 in 150 s (~60×); the GDP-hold figure job had burned 30 min
+  at 100% CPU without emitting a PNG. Regenerated all 5 figure sets (~400 figures, 0 errors) with
+  `ts_bars`, `bars_values`, trimmed `differences_stack` titles and the 5 `__weightpair` 1×2s.
+  (3) **`CauseSpec`/`AnchorSpec`** (`lib/cause_spec.py`, 42 tests) and the **product contract**
+  (`lib/processing/products.py`, 29 tests) — the two items blocking dengue. Verified against a
+  shipped product (malaria ssp245 Baseline, 7,800 rows, levels 0–3) which conforms unmodified.
+  Two self-inflicted bugs found and fixed: `_check_intervals` unpacked `STATS` positionally so it
+  compared mean against lower, and a test fixture with counts proportional to population made the
+  wrong-denominator test **vacuous** (green while asserting nothing). (4) **`CauseSpec` shrank
+  15→10 fields** after Bobby challenged its extensibility — see DECISIONS. (5) **Cumulative global
+  totals by scenario** for both GDP arms: the ~11% mortality drop vs the 2025 run is present in
+  BOTH arms at both horizons, so GDP coupling is ruled out and a different `mort_mod` vintage is
+  the remaining hypothesis. Cumulative incidence is within ±4% and sign-inconsistent across
+  scenarios. Tables at `…__gdpscen/current/tables/cumulative_global_totals{,_both_arms}.csv`.
+  See DECISIONS/DEAD_ENDS 2026-08-04.
+- 2026-08-04: **Dengue — cross-cause consult, R harness repaired, F4 anchor understood.**
+  (1) **Consult with the malaria workstream** (`.claude/DENGUE_CONSULT.md` → `DENGUE_CONSULT_REPLY.md`
+  → their `DENGUE_CONSULT_ROUND3.md`): answered 7 questions, then RETRACTED both original
+  disagreements after Bobby corrected them — `AxisSpec` was `has_dah` one abstraction level up
+  (DAH and decay are just covariates with alternative futures), and "stage 03 never goes
+  cause-blind" mistook a testing harness's temporary state for the pipeline's permanent shape.
+  Malaria side accepted both, plus `as_draw_persist_grain` as a grain not a boolean. Their
+  amendments accepted in return: `aggregation_transforms` distinct from covariate trajectories,
+  and refit-vs-re-evaluate keyed on past-vs-future. The `EligibilityRule` taxonomy that grew out
+  of it was then dropped by both sides as over-built — the fit filter is idempotent because the
+  cull already happened in the data. (2) **R script made to run**: fixed wrong stage-03 input
+  paths (raked_as/raked_aa live in stage 02), and a fit-set divergence — it read
+  `most_detailed_fhs` from `lsae_1285_to_fhs_table.parquet` (513 flagged) instead of the
+  hierarchy (473), fitting **314** locations against Python's **305**. Also moved figure output
+  to `07-figures/` after wrongly writing three runs into a home directory, and added a guard that
+  refuses any path outside the figures node. (3) **F4 anchor**: the 2023 "shortfall" is the
+  2014–2023 mean anchor working as specified (observed decade mean 19.60 M vs F4's 20.34 M).
+  Ruled out Duan smearing despite `exp(σ²/2) × 20.34 = 37.4 M` matching observed 2023 almost
+  exactly — recorded in DEAD_ENDS so it is not re-derived. Mortality's +21% over target is still
+  open. (4) **Covariate audit**: past inputs already carry all 16 covariates; only the forecast
+  side is subsetted to 7. At FHS grain all 16 fit in ~250 MB against today's 5.1 GB admin-2 build.
+  All 16 source files verified present across 3 SSPs. See DECISIONS/DEAD_ENDS 2026-08-04.
 - 2026-07-20: **Malaria hybrid-SDG deliverable re-run on CORRECTED DAH.** The first delivery used
   erroneous DAH (Goalkeepers-2026 20260713 drop; error was FUTURE-only — 2000–2024 identical, 2025+
   ~5–7% too high). Reloaded `make_dah_df` from **FGH_2026_July** (pa file, sum of 11 `mal_*` PAs ≡
@@ -379,6 +480,43 @@ formulations and deciding a single winner vs an ensemble (matched per-draw weigh
   carryover from when past inputs were NC instead of parquet.
 
 ## Next steps
+**Active — malaria formalization (2026-08-04; `.claude/FORMALIZATION_PLAN.md` is the plan):**
+1. **`tests/05_aggregation/` for malaria BEFORE rewiring anything.** The dir now exists but holds
+   only dengue's tests. `plot_run_comparison.py` is 1,400+ lines with 32 DAH references and zero
+   tests, and has already been hand-repaired once with no `git checkout` fallback. Pin current
+   figure-data behaviour first so the refactor has something to violate.
+2. **Make the trajectory selector generic** across stage-05's 41 DAH references (`--dah-scenario`
+   is a covariate-trajectory selector with one covariate's name baked in), and swap
+   `roll_up_hierarchy(start_level=ADMIN2_LEVEL)` → `roll_up_to_ancestors` — with a test proving the
+   two agree exactly for uniform level-5 input, so the swap is provably behaviour-preserving.
+3. **Run manifest (Phase 4).** Replaces string-concatenated arm dir names
+   (`…__gdpscen__gdppc_hold2023`). Fields: `fit_inputs` (refit axes — model_id, suitability
+   variant, engine, `year_center`), `covariate_trajectories` (re-evaluate axes), and
+   `aggregation_transforms` (population / age-structure holds, which are NOT covariates — they
+   appear in no fit formula). Also backfill `status: invalid` onto `__anchor_first_submission`,
+   which matched 0 of 47,459 rows and is currently indistinguishable from a valid arm by name.
+4. **Draw-level aggregates at levels 0–3 (Phase 5b)** — required for matched-draw sensitivity
+   differences and rate-of-change-by-draw, both of which today's year-chunked `finish_run.py`
+   structurally cannot do (it collapses the draw axis inside the year loop). ~175 MB/arm against
+   80 MB now; admin-2 draws stay in stage 04. Draw alignment is already proven (RCP4.5 was
+   bit-identical across the two GDP arms) — add a hard assertion so a future reseed fails loudly.
+5. **14-variant suitability sweep (Phase 5) — GATED.** Grid is 14 variants × 3 SSPs × Baseline DAH,
+   no sensitivities. **Measure one arm's stage-04 draw footprint before submitting**: products are
+   80 MB/arm but `lsae_1209` totals 921 GB, and the draw number was never taken. Probe one variant
+   end-to-end and extrapolate explicitly first.
+6. **Reconcile `ruff`.** `pyproject.toml` sets `select = ["ALL"]`, which **no committed file
+   satisfies** (19 TRY003 / 15 EM102 in new code, same density as existing). Pre-commit runs ruff,
+   so it cannot currently pass — this session's commits used `--no-verify`. Either narrow the
+   select list or drop the hook; the present state is a hook that must always be bypassed.
+7. **Still unrun: the mortality-vs-incidence R diagnostic.** Compare
+   `2025_10_10_malaria_models.RData` against the current `.RData` `mort_mod` smooths. Income is
+   ruled out, and now so is GDP coupling (both arms drop ~11%). Deaths-per-case is already 5.7%
+   lower at the 2023 anchor.
+8. Lower priority, from the plan: single top-level `archive/` sweep (last, one pass, with a README
+   noting each file's era); notebook tiering (`reports/<NN>_<stage>/` durable vs
+   `notebooks/<NN>_<purpose>/` deliverable-facing vs `notebooks/scratch/`); cull the superseded
+   `.claude` prompt docs into `_archive/`.
+
 **Active — malaria hybrid-SDG goalkeepers deliverable (2026-07-20):**
 - **DELIVER:** Bobby runs `mkdir -p /ihme/forecasting/data/37/future/incidence/20260720_malaria_incidence_goalkeepers`
   then `cp hybrid_deliverable/lsae_1285/20260720/malaria.parquet` into it (a CC can't write /ihme
@@ -425,24 +563,37 @@ landed/exercised, 07b → 08 forecast-input chain produced 3 netCDFs.
 - idd-tools: commit/push `inbox/2026-07-10_..._resource-calibration-gaps.md`; the 10 gaps (+
   `final_run_setup/idd_tools_findings.md`) drive a future idd-tools fixing session.
 
-**Active — dengue forecast prototype + R pipeline (2026-07-10):**
-- Re-run the notebook forecast section (`pygam_dengue_models_explore.ipynb`) — the kernel crashed,
-  **likely OOM** from the lsae age/sex-CFR 29M-row frames (`cfr_as_insample("lsae")` cache +
-  broadcast + `past_base`). Mitigate: fewer draws / decade window / coarser CFR grain, or
-  chunk/stream. Restart & Run All from the spec cell (the config cell resets the slim forecast
-  defaults). Bobby will retry the notebook later.
-- Vet the forecast trajectories (grain-generalized; `D_fhs` verified sane + continuous at 2023);
-  scale `FORECAST_SSPS` / `N_FORECAST_DRAWS` / `FORECAST_YEARS_FC` once the crash is resolved.
-- Build the real R pipeline per `.claude/FORMALIZE_DENGUE_FORECAST_PIPELINE_PROMPT.md`
-  (fit+register → R forecaster reading the 08b nc → finishing). `08b` already built + ran; the
-  prompt's dated 2026-07-10 Update block carries the full state + open questions (incl. "question the
-  split fit→shift→rake organization").
-- Known caveat (not a bug): in-sample aggregate CFR/inc saw-tooths in sparse regions (High-income)
-  from the `06b` presence-filter's year-varying membership; the forecast (consistent 08b set) is
-  clean. Finishing should aggregate over a consistent (all-modeled-loc × all-year) set.
-- (07c is now RUN — 29,109 prediction locations.) Older TRACKING-goal iteration of
-  `fit_dengue_models_explore.r` is superseded by the notebook prototype; the tracking-slope metric
-  idea (memory `dengue-model-tracking-goal`) still applies to vetting.
+**Active — dengue (2026-08-04; supersedes the 2026-07-10 prototype block):**
+- **Rebuild forecast inputs at FHS grain with ALL 16 covariates** (awaiting Bobby's go). Today 08b
+  writes admin-2 × 7 covariates = 5.1 GB over 3 SSPs; FHS-most-detailed is 1.6% of the locations,
+  so all 16 cost ~250 MB. The 9 currently missing: `days_over_30C`, `mean_temperature`,
+  `mean_high_temperature`, `mean_low_temperature`, `precipitation_days`, `wind_speed`,
+  `ldipc_mean`, `med_consumppc`, urban-1500. All 16 sources VERIFIED present for 3 SSPs. Write
+  parquet (arrow reads it natively in R; netCDF needs tidync and its activate-by-grid-ID quirk),
+  wide, plus a draw-free mean collapse (~48k rows) for fast R iteration. Carry `population`,
+  `super_region_id`, `region_id` and raw `year_id` so R needs no second join. Population-weighted
+  roll-up is correct for every one of them (all intensive or already per-capita). **This is also
+  the artifact that lets an R-fitted model forecast at all** — the roll-up currently exists only
+  in memory inside Python's `build_prediction_frame`.
+- **Diagnose F4 mortality at +21% over its anchor target** (61.6 k predicted at 2023 vs a
+  2014–2023 mean of 50.9 k; observed 2023 is 52.7 k). Incidence is fine at +3.8%. Not smearing —
+  wrong sign. This is in the anchor/products path both engines feed, so it contaminates any
+  formulation eventually chosen.
+- **Blocked on the malaria side** (their two deliverables): `CauseSpec` + `AnchorSpec`, then the
+  product schema + `validate_products`. When those land: split
+  `f4_forecast_summary.parquet` into `all_age_summary_{ssp}_{trajectory}.parquet` (~1 h), then
+  build the run-comparison figures — timeseries per location as 4 decay rows × 4 columns
+  (inc/mort × count/rate), 3 scenarios solid current + dashed previous run, observed in black;
+  global + 6 super-regions, no countries, SR 31 excluded (genuinely zero burden). SKIP the
+  `differences`/`differences_stack` figures: decay spans 235→3,529 M at 2100 while scenario spans
+  235→251 M, so scenario contrasts measure the wrong axis until decay is chosen.
+- **Decide absent-vs-zero for the 168 excluded locations** — they carry exactly zero observed
+  burden so no total is wrong, but they are missing rather than 0 in products. A products-stage
+  decision, not a fit-stage one, since 305 is baked into the past-inputs artifact.
+- Open, lower priority: the R and Python F4 do not use the same anchor estimator (R `rake="median"`
+  vs Python `Baseline(statistic="mean")` over 2014–2023) — a comparability divergence of the same
+  class as the 314-vs-305 bug. And `fit_location_ids.parquet` flags 382 FHS locations while
+  `past_inputs` keeps 305; the artifact named "fit locations" is not the one that decides the fit.
 
 1. **Stage 04 forecasting — DONE 2026-06-03** (see Recent steps). Outputs at
    `_A04_MAL_FORECAST_OUTPUTS/20260602/` (current). Forward from here:

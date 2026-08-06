@@ -1068,3 +1068,101 @@ response. Re-measure burden-weighted before drawing any conclusion.
 population-weighted over all admin-2 and understates changes concentrated in endemic areas. Add
 burden weighting before quoting any of them.
 **Revisit if:** the fitted formulas change such that GDP enters only linearly.
+
+## 2026-08-04: No `AxisSpec` — DAH and decay are covariates with alternative futures
+**Decision:** The shared `CauseSpec` gets NO `has_dah` boolean and NO `secondary_axis`/`AxisSpec`
+field. Malaria's DAH scenarios and dengue's time-decay functions are the same generic thing: *a
+covariate may have alternative future trajectories, and a run may be executed across them.* A hold
+is that mechanism with a trivial trajectory. The variation is recorded in the RUN MANIFEST
+(which already carries holds and couplings), never in the cause spec.
+**Why:** `has_dah: bool` encoded "malaria has a thing dengue lacks", which is exactly the
+malaria-shaped thinking the cross-cause consult existed to catch. The dengue side's proposed
+`AxisSpec` was the same error one abstraction level up — it only looked more general, and it still
+treated a covariate property as a property of the cause. Bobby's correction: DAH is a covariate
+that has several supplied future trajectories; decay is the *time* covariate with a transformation
+applied. Neither is structural. Whether a trajectory ships as a deliverable arm (all DAH scenarios
+are delivered and compared) or is a single choice plus a sensitivity (decay) is per-run config.
+**Two amendments that survive from the malaria side:** (a) population and age-structure holds are
+`aggregation_transforms`, NOT covariate trajectories — neither appears in any fit formula for
+either cause, so a hold changes the rate→count denominator and post-hoc fan-out but does not mean
+the forecast was evaluated on a different future; (b) refit-vs-re-evaluation is decided by whether
+an alternative changes the PAST (suitability variant → coefficients move → refit, new run dir) or
+only the FUTURE (DAH, decay → fit untouched → extra arms in one dir). That test is mechanical and
+checkable before running anything.
+**Also settled:** stage 03 is NOT permanently cause-specific — dengue's four outcome structures and
+two fitting engines are exploration scaffolding, and one of each will be chosen; `fit_grain`
+remains a real difference but as a PARAMETER (malaria admin-2, dengue FHS-most-detailed), which is
+an argument for parameterising `roll_up_hierarchy`'s hardcoded `start_level=ADMIN2_LEVEL`, not for
+forking; `as_draw_persist_grain` is a grain and independent of `fit_grain`, because a boolean named
+for admin-2 makes dengue's real requirement (age/sex draws at FHS) unnameable.
+**Revisit if:** a cause acquires variation that genuinely cannot be expressed as a covariate
+trajectory or an aggregation transform.
+
+## 2026-08-04: Dengue fit grain reads `most_detailed_fhs` from the hierarchy, not the mapping table
+**Decision:** `fit_dengue_formulations.r` takes the FHS-most-detailed flag from
+`full_hierarchy_2023_lsae_1285.parquet`, matching `lib/data/dengue_inputs.py`. Never from
+`lsae_1285_to_fhs_table.parquet`.
+**Why:** the mapping table flags **513** locations against the hierarchy's **473** — a superset with
+40 extras, nothing missing the other way. Reading it there inflated the anchor-eligible set from
+305 to 338 and left the R script fitting **314** locations where the Python fits **305**. The whole
+purpose of the R script is a like-for-like mgcv/scam comparison against pyGAM, so any divergence in
+which rows enter the fit makes the comparison meaningless. Related, still open: the two engines also
+disagree on the anchor estimator (R `rake="median"` vs Python `Baseline(statistic="mean")` over
+2014–2023).
+**Revisit if:** the mapping table becomes the authoritative source for FHS membership, in which case
+`dengue_inputs.py` moves too — they must not diverge again.
+
+## 2026-08-04: CauseSpec holds only run-invariant facts; everything else is a run property
+**Decision:** A field belongs in `CauseSpec` (`lib/cause_spec.py`) only if it would be the same for
+EVERY run of that cause. That admits ten fields: name, cause_id, `fit_grain`, `burden_column`,
+`absent_means_zero`, the three artifact paths, `products_read_path`, and `as_draw_persist_grain`.
+It EXCLUDES covariates, `anchor`, `measures`, `reference_age_group_id`/`reference_sex_id` and the
+burden threshold — all of which move to the run spec. `AnchorSpec`, `MeasureStructure` and
+`BurdenFilter` survive as types that a run instantiates.
+**Why:** anything on the refit list varies per run by definition, since changing it is what forces
+a refit — and the dengue side had itself classified formulation, engine, anchor spec and reference
+cell as refit axes, so putting three of them in `CauseSpec` contradicted the agreed test.
+Covariates are excluded twice over: which ones a run uses comes from its formulation (malaria's
+model selection exists precisely to vary that), and covariate metadata already has a canonical
+owner in `lib/io/covariate_registry.COVARIATE_REGISTRY`, so a second copy would go stale.
+Enumerating 14 suitability variants in a frozen tuple is self-evidently wrong. The test is also
+what keeps the class extensible: adding a covariate or a variant never requires editing it. Two
+guardrail tests enforce this by asserting no field name matches a covariate-future or a refit axis.
+`as_draw_persist_grain` is a grain rather than a boolean because `persist_as_draws_admin2: bool`
+made admin-2 the implicit default and left dengue's real requirement (age/sex draws at FHS grain)
+unnameable — the honest value would have been `False`, reading as "dengue needs no age/sex draws".
+**Revisit if:** a cause acquires variation expressible neither as a covariate trajectory, an
+aggregation transform, nor a run-spec field.
+
+## 2026-08-04: Share the product CONTRACT, not the producer
+**Decision:** malaria's `finish_run.py` is NOT in dengue's path. The shared artifacts are the
+product schema, `validate_products` (called by BOTH producers) and a shared reader, in
+`lib/processing/products.py`. Product filename is
+`all_age_summary_{ssp}_{trajectory}.parquet`, with `level` and `population` required columns.
+**Why:** the fork risk was always `plot_run_comparison.py`, and a shared schema plus reader removes
+it without either side adopting the other's 780 lines. `finish_run.py` also literally cannot
+consume dengue's leaf set — it calls `roll_up_hierarchy(start_level=ADMIN2_LEVEL)`, hardwired to a
+uniform single level, while dengue's 473 FHS leaves span levels 3 and 4 (which is what
+`roll_up_to_ancestors` exists for). A contract with no enforcement drifts, hence a shared validator
+rather than a schema document. Its load-bearing check re-derives every rate from its count and that
+level's own population row, catching the whole family of denominator errors — summed children's
+populations, or a population-weighted average of children's rates — that leave a file looking
+correct. The `{trajectory}` token replaced `{axis_value}` when `AxisSpec` was withdrawn; the
+one-file-per-arm layout is unchanged and is required by the house rule against storing a redundant
+constant column.
+**Revisit if:** the two producers' outputs converge enough that one implementation is genuinely
+cheaper than two conforming ones.
+
+## 2026-08-04: The anchor check compares predicted level to the anchor TARGET
+**Decision:** `anchor_diagnostic` compares the prediction at `max(anchor.years)` against the
+anchor's own target — observed at that year for a point anchor, the window mean for a window-mean
+anchor. Hard pass/fail applies only when `AnchorSpec.reproduces_observed` is True; otherwise the
+artifact is a diagnostic carrying a `flagged` threshold (default 10% aggregate).
+**Why:** "does the run reproduce observed at the anchor year" is meaningful only for a point
+anchor. Dengue's F4 sits within 4% of its 2014–2023 observed mean and 45% below observed 2023,
+because 2023 was an epidemic spike a decade mean deliberately does not chase. Checked the wrong
+way a correct run is condemned — and, worse, a genuinely broken one can pass. Malaria keeps the
+hard check, since its anchor is a point anchor and any deviation there IS a bug. F4's incidence
+passes at +4% and its mortality fails at +21%; anchor-year equality would have flagged both as
+catastrophic and distinguished nothing.
+**Revisit if:** an anchor kind appears that is neither a point nor a window mean.
