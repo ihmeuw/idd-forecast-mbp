@@ -18,20 +18,30 @@ pip install idd-forecast-mbp
 
 ## Development
 
-* Clone this repository
-* Requirements:
-  * [Poetry](https://python-poetry.org/)
-  * Python 3.10+
-* Create a virtual environment and install the dependencies
+Local dev uses a project `.venv` with a uv-managed interpreter — no conda
+anywhere in the Python story. uv owns the interpreter and every package
+(including installing idd-forecast-mbp itself editable — no `PYTHONPATH=src`).
+One-time setup:
 
 ```sh
-poetry install
+uv venv --python 3.12        # .venv on the uv-managed CPython
+uv sync --all-extras         # runtime + dev + notebooks extra
+.venv/bin/pre-commit install
 ```
 
-* Activate the virtual environment
+Resolution needs IHME artifactory access (`jobmon_installer_ihme` is a core
+dependency of this cluster-only pipeline repo), plus sibling clones of the
+local path dependencies `../climate-data` and `../idd-tools`.
+
+Run code via `.venv/bin/python` by absolute path (Slurm/jobmon scripts do
+exactly this — no activation of any kind); `source .venv/bin/activate` is
+optional for interactive shells.
+
+Day-to-day, re-sync after pulling or editing deps:
 
 ```sh
-poetry shell
+uv sync --inexact   # add/update declared deps, keep ad-hoc installs
+uv sync             # exact clean rebuild (env == lockfile)
 ```
 
 ### Testing

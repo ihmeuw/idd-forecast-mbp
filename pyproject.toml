@@ -7,22 +7,55 @@ readme = "README.md"
 authors = [
     {name = "Bobby Reiner", email = "bcreiner@uw.edu"},
 ]
-requires-python = ">=3.12"
+requires-python = ">=3.12,<4"
 dependencies = [
-    "click",
-    "numpy (>=2.2.5,<3.0.0)",
-    "geopandas (>=1.0.1,<2.0.0)",
-    "rra-tools (>=1.0.25,<2.0.0)",
-    "rasterio (>=1.4.3,<2.0.0)",
-    "ipykernel (>=6.29.5,<7.0.0)",
-    "xarray (>=2025.4.0,<2026.0.0)",
-    "scipy (>=1.15.2,<2.0.0)",
-    "netcdf4 (>=1.7.2,<2.0.0)",
-    "rasterra (>=0.6.2,<0.7.0)",
-    "climate-data @ file:///ihme/homes/bcreiner/repos/climate-data",
-    "openpyxl (>=3.1.5,<4.0.0)",
-    "seaborn",
-    "scikit-learn",
+    "click>=8.1",
+    "numpy>=2.2.5",
+    "geopandas>=1.0.1",
+    "rra-tools>=1.0.25",
+    "rasterio>=1.4.3",
+    "xarray>=2025.4.0",
+    "scipy>=1.15.2",
+    "netcdf4>=1.7.2",
+    "rasterra>=0.6.2",
+    "climate-data",
+    "openpyxl>=3.1.5",
+    "seaborn>=0.13",
+    "scikit-learn>=1.8",
+    "pygam>=0.12",
+    "pyreadr>=0.5.6",
+    "nbconvert>=7.17.1",
+    "cartopy>=0.25",
+    # -- previously undeclared but imported by src/ (declared 2026-08-09) --
+    "pandas>=2.2",
+    "matplotlib>=3.10",
+    "pyarrow>=23.0",
+    "pyyaml>=6.0",
+    "shapely>=2.1",
+    "h5py>=3.16",
+    # PyTables: pandas .to_hdf/.read_hdf runtime backend (lib/io/hdf5.py) —
+    # never imported directly, so invisible to import scans
+    "tables>=3.11",
+    "joblib>=1.5",
+    "tqdm>=4.67",
+    "pillow>=11.2",
+    "affine>=2.4",
+    "idd-tools>=0.1",
+    # cluster-only leaf pipeline: jobmon is a core dep (fleet pin)
+    "jobmon_installer_ihme==10.12.2",
+    # NOTE: db-queries (imported by 00_pull_raw_data/get_gbd_data.py) is
+    # deliberately NOT declared: its transitive ihme-rules sdist fails to
+    # build on Python 3.12, and it was never installed in this repo's env.
+]
+
+[project.optional-dependencies]
+# Imported only by notebooks/, not by library code.
+notebooks = [
+    "dask>=2026.1",
+    "psutil>=7.0",
+    "statsmodels>=0.14",
+    "sympy",
+    "pymupdf",
 ]
 
 [project.urls]
@@ -33,40 +66,42 @@ documentation = "https://bcreiner.github.io/idd-forecast-mbp"
 [project.scripts]
 my-cli = "idd_forecast_mbp.cli:main"
 
-[tool.poetry]
-packages = [
-    { include = "idd_forecast_mbp", from = "src" }
+[dependency-groups]
+dev = [
+    "mypy>=1.15",
+    "mkdocs-material>=9.6",
+    "pre-commit>=4.0",
+    "pytest>=8.3",
+    "ruff>=0.9.7",
+    "mkdocstrings[python]",
+    "mkdocs-table-reader-plugin",
+    "mkdocs-gen-files",
+    "mkdocs-literate-nav",
+    "mkdocs-section-index",
+    "pymdown-extensions",
+    "pytest-github-actions-annotate-failures",
+    "pytest-cov",
+    "python-kacl",
+    "ipykernel>=7",
 ]
-requires-poetry = ">=2.0"
 
-[tool.poetry.dependencies]
-python = ">=3.12, <4.0"
+# IHME-internal artifactory — required for jobmon_installer_ihme.
+# NOT explicit: internal packages pull internal-only TRANSITIVE deps, and uv
+# source pins cover direct deps only — explicit = true makes those transitives
+# unresolvable. As a non-explicit index uv consults ihme before default PyPI,
+# so internal names resolve here and public names fall through.
+[[tool.uv.index]]
+name = "ihme"
+url = "https://artifactory.ihme.washington.edu/artifactory/api/pypi/pypi-shared/simple"
 
-# We keep the dev dependencies here instead of in the project optional dependencies
-# so they're still installed by default with `poetry install`.
-# They won't be installed or shipped with the package. 
-climate-data = {develop = true}
-[tool.poetry.group.dev.dependencies]
-# Things we want to put a lower bound on
-mypy = "^1.15.0"
-mkdocs-material = "^9.6.0"
-pre-commit = "^4.0.0"
-pytest = "^8.3.0"
-ruff = "^0.9.7" 
-# Things we don't care about the version
-mkdocstrings = {extras = ["python"], version = "*"}
-mkdocs-table-reader-plugin = "*"
-mkdocs-gen-files = "*"
-mkdocs-literate-nav = "*"
-mkdocs-section-index = "*"
-pymdown-extensions = "*"
-pytest-github-actions-annotate-failures = "*"
-pytest-cov = "*"
-python-kacl = "*"
+[tool.uv.sources]
+jobmon_installer_ihme = { index = "ihme" }
+climate-data = { path = "../climate-data", editable = true }
+idd-tools = { path = "../idd-tools", editable = true }
 
 [build-system]
-requires = ["poetry-core>=2.0.0"]
-build-backend = "poetry.core.masonry.api"
+requires = ["uv_build>=0.11,<0.12"]
+build-backend = "uv_build"
 
 [tool.ruff]
 target-version = "py312" # The lowest supported version
