@@ -272,3 +272,59 @@ under a population hold would move the eligibility boundary) was overstated — 
 because the threshold is 0. It arms only if someone sets it above zero.
 **Refs:** `.claude/DENGUE_CONSULT_REPLY.md` RETRACTION section; `DENGUE_CONSULT_ROUND3.md`;
 `lib/cause_spec.py` module docstring, which records the rule so it is not re-derived from scratch.
+
+## 2026-08-11: hhh4 endemic-epidemic decomposition for annual dengue
+**What I tried:** Fitting the dengue endemic/outbreak split inside one likelihood with hhh4
+(`surveillance`) on India admin-1, annual 2000–2023 — the framework built for exactly this
+decomposition, chosen to eliminate the circular Pearson-residual flagger.
+**Why I stopped:** At annual frequency the epidemic term (λ × last year's count — a constant,
+always-on multiplier, no latent outbreak indicator) competes with the endemic trend for the same
+secular growth and wins: λ = 1.11–1.16, endemic share 1–3%, endemic intercepts on a flat ridge,
+unchanged by warm-starting from a saturated endemic optimum. The anti-circularity mechanism never
+engages and no time trend survives for the decay. Full reasoning in DECISIONS 2026-08-11 — do not
+re-derive; and do not propose bounding λ < 1 (that imposes the split by fiat, forfeiting the only
+advantage hhh4 had over robust labelling) or pre-detrending (re-introduces the circularity).
+**Refs:** lab repo `.claude/bakeoff_memo.md` §Candidate 1, `src/r/hhh4_arm.r`.
+
+## 2026-08-21: `--max-level` as a stand-in for the FHS grain
+**What I tried:** Selecting the dengue past-inputs location set with a hierarchy level cap
+(`--max-level 4`), on the assumption that "FHS grain" meant "levels 3–4".
+**Why I stopped:** It is not the same set. `level <= 4` gives 3,688 locations — the 473 FHS
+most-detailed plus 3,215 nodes that are either the aggregate national rows of subnationalised
+countries or admin-1 rows below the grain. The FHS most-detailed set straddles levels 3 and 4, so
+no level cut can express it; the selector has to be the `most_detailed_fhs` flag, which
+`lib/data/dengue_inputs.GRAIN_FLAG` already owned. The artifact this produced (`20260821`,
+4,425,600 rows) was 7.8× too large and entirely plausible-looking. Superseded by `20260821_v2`;
+the wrong dir is still on disk, unlinked.
+**Refs:** DECISIONS 2026-08-21 (grain flag); `06b_build_dengue_past_inputs.py --grain`.
+
+## 2026-08-21: Hand-rolled aggregation in the exploration notebook
+**What I tried:** Writing `aggregate_to` / plotting helpers directly in
+`reports/03_modeling/dengue_past_data_explore.ipynb` — exploding `path_to_top_parent`, summing
+counts into ancestors, and dividing by the summed child populations to get aggregate rates.
+**Why I stopped:** Both halves already existed and the reimplementation was wrong.
+`roll_up_to_ancestors` does the identical path-explosion and names the FHS 473 as its motivating
+case in its own docstring; `lib/viz/lines.timeseries_panel` is the line painter. Worse, the
+docstring I duplicated past carries the exact warning I then violated — never sum a population up
+the hierarchy to build a denominator — and `make_rate_from_count` exists to divide by the level's
+own population. The symptom showed up as a "curiosity" I reported without recognising it: summed
+leaves are 99.923% of the stored global population, so every global rate was 0.077% high. Same
+defect class as `validate_products`'s denominator check, which I had described that morning.
+**Refs:** DECISIONS 2026-08-21; `aggregate_outcomes_to_ancestors` + its
+`test_rate_uses_own_population_not_the_leaf_sum`.
+
+## 2026-08-21: "Filtering makes zero-burden locations visible" — retracted
+**What I tried:** Arguing that dropping the 168 zero-incidence locations from the fit frame made a
+problem VISIBLE, while letting them through as `rr = 0` would hide it — and that `rr = 0` risked
+silently discarding a nonzero all-age prediction.
+**Why I stopped:** Both halves are wrong, and Bobby said so. (1) Visibility is backwards: a
+location present in the output with zeros can be seen, counted and plotted; a location deleted from
+the frame leaves no trace at all — demonstrated by the 305-of-473 shortfall going unremarked for
+months. (2) The hazard cannot occur. All-age is anchored to the observed all-age value, which is
+zero precisely for those locations, so there is no nonzero all-age prediction to discard; zero
+all-age and zero age/sex are the same fact and the anchor keeps them consistent. Do not re-derive
+either argument. The genuine constraint that remains is different in kind: an anchor pinned to an
+observed zero can never produce a nonzero forecast, so those 168 project zero to 2100 whatever
+their covariates do — an anchor question, and the interesting one for climate-driven expansion.
+**Refs:** DECISIONS 2026-08-21; parked malaria `zero_burden_policy='impute'` idea in STATUS
+Parking lot (2026-07-07).

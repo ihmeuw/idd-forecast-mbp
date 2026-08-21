@@ -1166,3 +1166,98 @@ hard check, since its anchor is a point anchor and any deviation there IS a bug.
 passes at +4% and its mortality fails at +21%; anchor-year equality would have flagged both as
 catastrophic and distinguished nothing.
 **Revisit if:** an anchor kind appears that is neither a point nor a window mean.
+
+## 2026-08-10: Framework exploration runs in a new repo (idd-forecast-lab)
+**Decision:** The dengue endemic/outbreak/trend-projection framework bake-off (hhh4, Farrington/
+Noufaily, R-INLA, glmmTMB/brms/mvgam, MR-BRT flat-tail priors, EVT tails) lives in the new repo
+`idd-forecast-lab`, not here. idd-ssms also stays separate — mechanistic/state-space candidates go
+there; the lab evaluates statistical frameworks (boundary documented in the lab's README/CLAUDE.md).
+**Why:** This repo's venv-only scheme forbids mrtool (conda-Python-only), and exploration-weight R
+deps (INLA's own distribution channel, Stan toolchains, GitHub-only hhh4addon) don't belong in
+`environment-r.yml`. Comparison-harness pattern: only the winner ports back, with a minimal
+dependency footprint. Alternative considered: an in-repo sandbox with side-envs — rejected as a
+scheme violation ("one scheme per repo, never mixed").
+**Revisit if:** the lab recommends an architecture (port it into `03_modeling`), or the lab's R env
+diverges enough from `idd-forecast-mbp-r` that fit comparisons stop being apples-to-apples.
+
+## 2026-08-11: hhh4 (endemic-epidemic) rejected for dengue trend projection
+**Decision:** Candidate 1 of the framework bake-off — hhh4 / `surveillance` — is rejected for the
+dengue endemic+outbreak decomposition at ANNUAL frequency. Evidence table and script live in the
+lab repo: `.claude/bakeoff_memo.md` §Candidate 1, `src/r/hhh4_arm.r`.
+**Why:** hhh4's epidemic term is λ × last year's count — a constant, always-on multiplier with no
+latent outbreak indicator. With 24 annual points of strongly growing counts it and the endemic time
+trend are competing explanations of the same secular growth, and the MLE decisively prefers the AR:
+λ = 1.11–1.16 (super-critical), endemic share 1–3%, endemic intercepts −44…−87 with SEs ~1e4 (flat
+ridge). It survives warm-starting from a saturated 62-parameter endemic optimum with λ = 0.05
+(ΔAIC ≈ −170 still favors the degenerate basin), so the failure is structural, not an optimizer
+artifact. That kills both criteria the arm was chosen for: the anti-circularity mechanism never
+engages (no endemic baseline survives to protect from spikes), and no fitted time trend survives
+for the decay-to-flat machinery to operate on (λ > 1 is explosive under projection; λ forced below
+1 collapses toward an endemic level estimated as ~zero). Salvage kept: 2018 and 2020 confirmed
+model-side as the most-negative shared-residual years (COVID-era reporting — bears on terminal-slope
+trust for whatever wins), and endemic-only hhh4 reproduces the gam's trend structure, so a
+parametric NB engine is viable for the EM route. Replacement direction: a mixture with per-location
+outbreak PROBABILITY and per-location MAGNITUDE — EM soft-labelling (candidate 2b) + EVT on the
+excess ratio (candidate 5), which hhh4 structurally cannot express.
+**Revisit if:** sub-annual dengue surveillance becomes available — seasonality then separates the
+two components and outbreaks become multi-period episodes the epidemic term can legitimately own.
+The same small-T trend-vs-process competition is a live risk for any latent-AR arm (mvgam next).
+
+## 2026-08-21: Dengue past inputs cover the whole FHS set; 06a's gate becomes a flag
+**Decision:** `dengue_past_inputs.parquet` covers every FHS most-detailed location — all 473, all
+years, all age/sex cells, zeros stored as zeros (`20260821_v2`, 567,600 rows, no NaN in any of 32
+columns). 06a's A0 count gate is no longer applied as a filter; it travels as a `fit_eligible`
+column. 06b's per-location-year `all-age cases > 0` rule is off by default
+(`--require-nonzero-incidence` restores it).
+**Why:** A location with zero cases in every year is an OBSERVED zero, not missing data — the raked
+AS source carries exact zeros, no NaN, for all 50 of its cells, and the outcome frame already had
+all 473 dense. Absence was doing real damage: it made the absent-vs-zero question undecidable
+downstream (a join against the full hierarchy returned NaN where the answer is 0), hid the zero
+half of covariate space, and was invisible — the 305-of-473 shortfall sat unremarked for months
+precisely because deleted rows leave no trace, whereas a location present with zeros can be seen,
+counted and plotted. Keeping the gate as a flag rather than deleting it makes the old frame a
+recoverable SUBSET (`fit_eligible & inc_rate > 0` returns exactly 305, bit-identical on all 27
+shared columns) instead of a different object. Cost is trivial: 473 × 1200 rows, 15.4 MB.
+**Revisit if:** a future fit needs the artifact restricted at read time — that is what the flag is
+for, and it should stay a read-time filter, never a build-time cull.
+
+## 2026-08-21: Grain selection keys on the most-detailed FLAG, never a hierarchy level cut
+**Decision:** Any "which locations are at grain X" selection uses the hierarchy's
+`most_detailed_{fhs,lsae,gbd}` flag — via `lib/data/dengue_inputs.GRAIN_FLAG`, which already owned
+this mapping. `level <= N` is never a substitute.
+**Why:** The FHS most-detailed set straddles levels 3 AND 4 — 193 national rows for countries FHS
+does not subnationalise, 280 admin-1 rows for the ones it does — so no level cut can express it.
+`level <= 4` yields 3,688 locations: the 473 plus 3,215 nodes that are either aggregate parents of
+subnationalised countries or admin-1 rows below the grain. A first build made exactly this mistake
+and produced a 7.8×-too-large artifact that looked plausible. `roll_up_to_ancestors` exists for the
+same reason and says so in its docstring: iterating parent-wards from the finest level silently
+drops the level-3 leaves.
+**Revisit if:** never for FHS. If a new grain is added, add its flag to `GRAIN_FLAG` rather than
+reasoning about levels.
+
+## 2026-08-21: Aggregate rates divide by the level's own population; the RR filter comes out
+**Decision:** Aggregation to any hierarchy node goes through
+`lib/processing/aggregation.aggregate_outcomes_to_ancestors` — counts summed via
+`roll_up_to_ancestors`, then rates rebuilt by `make_rate_from_count` against **that level's own
+population row**. Covariates go through the new `roll_up_covariates_to_ancestors`
+(population-weighted, arbitrary ancestors). `make_rate_from_count` gained `join_cols` so it also
+serves the age/sex grain. Separately: `build_age_sex_rr`'s `base_location_ids` filter is to be
+REMOVED — left-join the RR, leave it NaN off-base, keep `base_location_ids` as a record not a gate.
+**Why (denominators):** A parent's population includes people no leaf contributed a count for, so a
+summed-children denominator inflates every aggregate rate — 0.077% for the FHS leaves against
+Global, more wherever coverage is patchier. This is the defect `validate_products` was written to
+reject, and a hand-rolled notebook aggregator reproduced it within hours of that validator being
+described. Composing the two steps in one function removes the chance to get it wrong.
+**Why (the RR filter):** It defends against nothing. Numerically, an unfiltered RR over all 473
+yields 8,400 NaN and **zero** ±inf (verified: every location with a zero reference cell has zero in
+all 50 cells, so the quotient is 0/0, never x/0) — and `broadcast_to_cells` already does
+`rr_inc_as.fillna(0.0)`. Semantically, the hazard of `rr = 0` silently discarding a nonzero all-age
+prediction cannot occur: the all-age prediction is anchored to observed all-age, which is zero for
+exactly those locations, so zero all-age and zero age/sex are the same fact and the anchor keeps
+them so. And under the default per-cell-anchor formulations `rr_inc_as` is never read at all —
+`broadcast_to_cells` runs only for all-age responses or the no-rake variant. Do NOT delete
+`attach_age_sex_rr` with it: it assigns `A0_af` and `as_id`, and the forecast must reuse the fit's
+exact `A0_af` codes or every country silently inherits another country's effect.
+**Revisit if:** a chosen formulation fits all-age and disaggregates — then the RR is load-bearing
+again, and locations with no observed pattern need one supplied (pooled/regional/global), which is
+a modelling decision, not a filter.

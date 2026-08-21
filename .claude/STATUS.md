@@ -1,5 +1,5 @@
 # Project status
-Updated: 2026-08-04
+Updated: 2026-08-21
 
 ## Goals
 Infectious disease forecasting pipeline for malaria and dengue, projecting
@@ -105,12 +105,39 @@ been forecast 3 SSPs × 4 decays × 78 years × 100 draws →
   ANCHOR TARGET, never to observed-at-anchor-year.** Incidence passes at +3.8%; mortality does
   NOT, at **+21%** (61.6 k vs a 50.9 k target) — unexplained, and not retransformation bias
   (summing per-location geometric means biases aggregates DOWN, wrong sign).
-- **Fit set is decided upstream, in the data.** `dengue_past_inputs.parquet` holds exactly 305 of
-  473 FHS-most-detailed locations, a complete grid (305 × 24 yr × 50 age/sex cells = 366,000
-  rows). The 168 excluded have zero incidence in EVERY year; the modelling-layer
-  `inc_count > 0` filter therefore drops nothing and is a guard, not a cull. Those 168 are
-  ABSENT from products rather than zero — a join against the full hierarchy yields NaN where the
-  answer is 0.
+- **The past frame is now the COMPLETE FHS set (2026-08-21).** `dengue_past_inputs.parquet`
+  (`20260821_v2`) holds all **473** FHS-most-detailed locations × 24 yr × 25 age × 2 sex =
+  **567,600 rows**, dense, no NaN in any of 32 columns, zeros stored as zeros. Previously it held
+  305: 06a's A0 count gate cost 91 locations and 06b's per-location-year `all-age cases > 0` rule
+  cost 77 more. Both are off; 06a's gate survives as a `fit_eligible` COLUMN, so
+  `fit_eligible & inc_rate > 0` reproduces the old frame from the new artifact (verified: exactly
+  305, and bit-identical on all 27 shared columns over the 366,000 overlapping rows). **A location
+  with zero cases every year is an observed zero, not missing data** — the raked source carries
+  exact zeros with no NaN for all 50 of its cells. Grain selection keys on the `most_detailed_fhs`
+  FLAG, never a level cut: the FHS set straddles levels 3 and 4.
+- **The remaining zero-dropping is in the FIT path, not the artifact.**
+  `load_dengue_inputs(grain="fhs")` still returns 305 locations, because `build_age_sex_rr` gates
+  its RR universe on `inc_count > 0` at the reference cell and `attach_age_sex_rr` then filters
+  `past` to it. That filter is unnecessary and slated for removal (DECISIONS 2026-08-21):
+  `broadcast_to_cells` already `fillna(0)`s the RR, `rr_inc_as` has no consumer at all under the
+  default per-cell-anchor formulations, and the one hazard that could justify it — a nonzero
+  all-age prediction being silently zeroed — cannot occur, because the all-age anchor for those
+  locations is itself zero. What must NOT be deleted along with it: `attach_age_sex_rr` also
+  assigns `A0_af` and `as_id`, and the forecast must reuse the fit's exact `A0_af` codes.
+- **The real constraint on the 168 is the ANCHOR, not any filter.** An anchor pinned to an observed
+  zero can never produce a nonzero forecast, so those locations project zero to 2100 whatever their
+  covariates do. That is the open question for climate-driven range expansion — same shape as the
+  parked malaria `zero_burden_policy='impute'` idea.
+- **The FHS forecast frame is DERIVED, not missing.** `lib/data/dengue_forecast_covariates.py`
+  defaults to `grain="fhs"` and population-weights the admin-2 netCDF up at read time, reproducing
+  observed past FHS covariates to ~1e-16. So "rebuild forecast inputs at FHS grain" is a
+  packaging/cost change (5.1 GB → ~250 MB, no roll-up per call), never a capability gap.
+- **Aggregation to any hierarchy node is now a lib primitive.**
+  `aggregate_outcomes_to_ancestors` (counts summed, rates from that level's OWN population),
+  `roll_up_covariates_to_ancestors` (population-weighted covariates to arbitrary ancestors), and
+  `make_rate_from_count(join_cols=…)` for age/sex grain. The 473 leaves reach 513 nodes (the 40
+  aggregates above the grain plus themselves). Note "Global" here means the sum of the 473, which
+  is 99.923% of the hierarchy's stored `location_id == 1` population.
 - **Cross-cause architecture settled and dengue's figure build is UNPAUSED (2026-08-04).** Both
   prerequisites landed and are pushed: `b5df5fe` (`CauseSpec`/`AnchorSpec`) and `53debbe` (product
   contract + `validate_products`). Handoff for the dengue session is `.claude/DENGUE_UNBLOCKED.md`,
@@ -126,6 +153,16 @@ been forecast 3 SSPs × 4 decays × 78 years × 100 draws →
   age-structure holds are `aggregation_transforms`, not covariate trajectories; refit-vs-
   re-evaluate is decided by whether an alternative changes the PAST or only the FUTURE. See
   `.claude/DENGUE_CONSULT_REPLY.md` (incl. its RETRACTION section) and `DENGUE_CONSULT_ROUND3.md`.
+- **The endemic/outbreak framework bake-off moved out (2026-08-10/11)** to the new repo
+  `idd-forecast-lab` (scaffolded, pushed; briefs in its `.claude/`): hhh4, robust outbreak
+  labelling, R-INLA, glmmTMB/brms/mvgam, MR-BRT flat-tail priors, EVT tails — scored on
+  non-circular decomposition, decay-to-flat projection, uncertainty propagation, and cost at
+  ~305 locations. Rationale: this repo's venv-only scheme forbids mrtool's conda Python, and
+  exploration-weight R deps (INLA, Stan, GitHub-only hhh4addon) don't belong in
+  `environment-r.yml`. mbp consumes only the eventual winner, ported into `03_modeling`.
+  **Candidate 1 (hhh4) is REJECTED as of 2026-08-11** (annual-frequency AR-vs-trend competition;
+  DECISIONS 2026-08-11); the front-runner is now a per-location outbreak MIXTURE — EM
+  soft-labelling for occurrence + EVT for magnitude.
 
 **Malaria PfPR forecasting — the FE is moot under the 2023 shift (2026-07-07).** A Python
 pyGAM sandbox (`reports/03_modeling/pygam_model_selection.ipynb` + `lib/modeling/`
@@ -151,6 +188,53 @@ stage-08 gained `malaria_suit` + single-realization `mean_low_temperature`). Now
 formulations and deciding a single winner vs an ensemble (matched per-draw weighted blend).
 
 ## Recent steps
+- 2026-08-21: **Dengue — past inputs widened to the full FHS set; ancestor aggregation moved into
+  lib.** (1) **`20260821_v2`: all 473 FHS most-detailed locations**, 567,600 rows, zero NaN across
+  32 columns, zeros kept, and the old 305-location frame reproduced bit-identically — recoverable
+  from the new artifact via the new `fit_eligible` flag. 06a untouched: its gate is now a flag, not
+  a filter. Verified the source universe rather than assuming it (2000–2023 × 25 ages × 2 sexes is
+  exactly what the raked AS frame carries, so nothing else was narrowed), and that covariates reach
+  all 473 — the 88 gdppc holes at admin-2 (76 of them Russian subunits) close under the
+  population-weighted roll-up. (2) **Two corrections to my own claims**: the FHS forecast frame is
+  produced at read time (~1e-16), so that STATUS next-step was packaging not a gap; and a first
+  build using `--max-level 4` was wrong — 3,688 locations, because the FHS grain straddles levels
+  3 and 4 and no level cut can express it. Superseded dir `20260821` left in place. (3) **Traced
+  the remaining drop** to `build_age_sex_rr`'s `base_location_ids` filter and established it is
+  unnecessary — see Orientation and DECISIONS. (4) **Built the exploration notebook, then rebuilt
+  it over lib** after it reimplemented `roll_up_to_ancestors` AND used summed-child populations as
+  rate denominators — the defect `validate_products` exists to reject, worth 0.077% on the global
+  rate. Added `aggregate_outcomes_to_ancestors`, `roll_up_covariates_to_ancestors`, `join_cols` on
+  `make_rate_from_count`; 21 tests, one of which caught pandas' groupby-sum silently skipping NaN
+  and reweighting the surviving children. (5) **Pre-commit is broken repo-wide**:
+  `.pre-commit-config.yaml` still calls `poetry run ruff`/`mypy` after the venv-only migration, so
+  three hooks fail with "Executable `poetry` not found" on any file. Commits `90d00d7`, `fa2e76f`,
+  `4147332`. See DECISIONS/DEAD_ENDS 2026-08-21.
+- 2026-08-11: **Dengue bake-off — candidate 1 (hhh4) REJECTED and ratified; front-runner reframed
+  as a mixture.** At annual frequency hhh4's lag-1 epidemic term and the endemic trend explain the
+  same secular growth, and the MLE prefers the AR (λ 1.11–1.16 super-critical, endemic share 1–3%,
+  endemic intercepts on a flat ridge, robust to warm-starting from a saturated endemic optimum) —
+  so the anti-circularity mechanism never engages AND no fitted time trend survives for the decay
+  to act on. Kept from the arm: 2018/2020 confirmed model-side as the most-negative shared-residual
+  years (COVID-era reporting; bears on terminal-slope trust for ANY winner), and endemic-only hhh4
+  reproduces the gam's trend structure (parametric NB is a viable EM engine). New direction
+  (Bobby's framing): per-location outbreak PROBABILITY + per-location MAGNITUDE = EM soft-labelling
+  (candidate 2b, posteriors a first-class product) + EVT/GPD on the excess ratio (candidate 5); 2a
+  (farringtonFlexible at frequency 1) is a mechanical test only. Lab output node declared:
+  `/mnt/team/idd/pub/forecast-lab`. Also corrected an invented "throwaway evaluation envs / delete
+  once the memo is written" policy in the lab's CLAUDE.md → cross-repo tool-env pattern (provision
+  once at user level, document in `~/.claude/tools/`, NEVER delete); rule logged to persistent
+  memory as `feedback_never_delete_envs.md`. See DECISIONS 2026-08-11.
+- 2026-08-10/11: **Dengue — framework bake-off spun out to `idd-forecast-lab`.** New repo
+  scaffolded via /scaffold-repo (pure-uv `.venv` + declared conda R env `idd-forecast-lab-r`),
+  pushed to ihmeuw. The bake-off brief (+ the MR-Tool eval as candidate 6, + a copy of
+  `dengue_formulations_handoff.md`) live in its `.claude/`. Readback surfaced four feasibility
+  flags (annual data vs hhh4's design, non-integer counts vs `sts`, conda availability of
+  hhh4addon/INLA, gap-free series) — recorded in the brief as verify-first items. Handoff prompt
+  delivered via /handoff; the lab session passed its orientation quiz and is green-lit (first
+  deliverable: the hhh4 control-list spec, text-only, hard stop before any code/env/install).
+  idd-ssms deliberately kept separate (mechanistic vs statistical boundary, documented in the
+  lab's README). In mbp: no code touched; `c29b24d` (venv migration, prior session) pushed at
+  wrap. See DECISIONS 2026-08-10.
 - 2026-08-04: **Malaria — formalization Phase 0, CauseSpec + product contract, O(n²) figure fix.**
   (1) **Phase 0 committed and pushed.** 115 untracked files in 9 disjoint groups (`37c15fd`..
   `05cec54`), then `b5df5fe`/`53debbe`; `06a01bc`→`53debbe` on the remote. Routed absolute paths
@@ -504,10 +588,14 @@ formulations and deciding a single winner vs an ensemble (matched per-draw weigh
    no sensitivities. **Measure one arm's stage-04 draw footprint before submitting**: products are
    80 MB/arm but `lsae_1209` totals 921 GB, and the draw number was never taken. Probe one variant
    end-to-end and extrapolate explicitly first.
-6. **Reconcile `ruff`.** `pyproject.toml` sets `select = ["ALL"]`, which **no committed file
-   satisfies** (19 TRY003 / 15 EM102 in new code, same density as existing). Pre-commit runs ruff,
-   so it cannot currently pass — this session's commits used `--no-verify`. Either narrow the
-   select list or drop the hook; the present state is a hook that must always be bypassed.
+6. **Fix pre-commit — it cannot execute at all (found 2026-08-21).** `.pre-commit-config.yaml`
+   still uses `entry: poetry run ruff check …` / `poetry run mypy .`, and poetry is gone after the
+   venv-only migration (`c29b24d`), so **ruff-format, ruff and mypy all fail with "Executable
+   `poetry` not found" on any file, repo-wide**. The file-hygiene hooks (docstring-first, debug
+   statements, EOF, whitespace, line endings) do pass. Fix the entries first (`uv run` / a direct
+   `.venv/bin` path); only THEN is the older debt reachable — `pyproject.toml` sets
+   `select = ["ALL"]`, which no committed file satisfies. Until both are done every commit needs
+   `--no-verify`.
 7. **Still unrun: the mortality-vs-incidence R diagnostic.** Compare
    `2025_10_10_malaria_models.RData` against the current `.RData` `mort_mod` smooths. Income is
    ruled out, and now so is GDP coupling (both arms drop ~11%). Deaths-per-case is already 5.7%
@@ -564,17 +652,30 @@ landed/exercised, 07b → 08 forecast-input chain produced 3 netCDFs.
   `final_run_setup/idd_tools_findings.md`) drive a future idd-tools fixing session.
 
 **Active — dengue (2026-08-04; supersedes the 2026-07-10 prototype block):**
-- **Rebuild forecast inputs at FHS grain with ALL 16 covariates** (awaiting Bobby's go). Today 08b
-  writes admin-2 × 7 covariates = 5.1 GB over 3 SSPs; FHS-most-detailed is 1.6% of the locations,
-  so all 16 cost ~250 MB. The 9 currently missing: `days_over_30C`, `mean_temperature`,
-  `mean_high_temperature`, `mean_low_temperature`, `precipitation_days`, `wind_speed`,
-  `ldipc_mean`, `med_consumppc`, urban-1500. All 16 sources VERIFIED present for 3 SSPs. Write
-  parquet (arrow reads it natively in R; netCDF needs tidync and its activate-by-grid-ID quirk),
-  wide, plus a draw-free mean collapse (~48k rows) for fast R iteration. Carry `population`,
-  `super_region_id`, `region_id` and raw `year_id` so R needs no second join. Population-weighted
-  roll-up is correct for every one of them (all intensive or already per-capita). **This is also
-  the artifact that lets an R-fitted model forecast at all** — the roll-up currently exists only
-  in memory inside Python's `build_prediction_frame`.
+- **Remove `build_age_sex_rr`'s location filter so the fit frame is all 473.** This is the one
+  thing still shrinking the data (DECISIONS 2026-08-21): left-join the RR and leave it NaN
+  off-base, keep `base_location_ids` on `DengueInputs` as a record rather than a gate. Do NOT
+  remove `attach_age_sex_rr` itself — it assigns `A0_af`/`as_id`, and the forecast must reuse the
+  fit's exact `A0_af` mapping. Then decide what a log-link fit does with the zeros: they still go
+  to `log(0) = -inf` and get dropped by the finite-row filter, so consuming them needs a
+  count-space/offset or hurdle component. Note 14,640 rows INSIDE the endemic 305 are zero cells
+  too — the zero question is not only about the 168.
+- **Repackage forecast inputs at FHS grain (optional, cost-only).** 08b writes admin-2 × 7
+  covariates = 5.1 GB over 3 SSPs; the FHS frame is derived from it at read time already
+  (~1e-16), so this saves ~20× the bytes and the per-call roll-up, not new capability. If done,
+  add the 9 missing covariates (`days_over_30C`, `mean_temperature`, `mean_high_temperature`,
+  `mean_low_temperature`, `precipitation_days`, `wind_speed`, `ldipc_mean`, `med_consumppc`,
+  urban-1500 — all sources verified present × 3 SSPs), write parquet wide plus a draw-free mean
+  collapse for R, and carry `population`/`super_region_id`/`region_id`/raw `year_id`. **Two live
+  snags**: `forecast_inputs/current` → `20260527` (6 covariates) while the newer `20260803`
+  (7, adds `total_precipitation`) is unlinked, and `DEN_FORECAST_INPUTS_WRITE_PATH` resolves to
+  `RUN_DATE` = `20260527`, so a rebuild without `IDD_RUN_DATE` set writes into the OLD dated dir.
+- **Widen the forecast/prediction location set if the fit goes to 473.** `07c` starts from the
+  A0-gated `dengue_prediction_location_ids` (29,109 admin-2 of 47,459), so today you could fit on
+  473 and still not predict on 473.
+- **`fit_dengue_formulations.r` now reads a different frame.** `current` moved under it: 473
+  locations, a new `fit_eligible` column, and no admin-2 rows. Bobby drives it interactively — do
+  not edit without asking, but it needs checking against the new artifact.
 - **Diagnose F4 mortality at +21% over its anchor target** (61.6 k predicted at 2023 vs a
   2014–2023 mean of 50.9 k; observed 2023 is 52.7 k). Incidence is fine at +3.8%. Not smearing —
   wrong sign. This is in the anchor/products path both engines feed, so it contaminates any
@@ -587,13 +688,20 @@ landed/exercised, 07b → 08 forecast-input chain produced 3 netCDFs.
   global + 6 super-regions, no countries, SR 31 excluded (genuinely zero burden). SKIP the
   `differences`/`differences_stack` figures: decay spans 235→3,529 M at 2100 while scenario spans
   235→251 M, so scenario contrasts measure the wrong axis until decay is chosen.
-- **Decide absent-vs-zero for the 168 excluded locations** — they carry exactly zero observed
-  burden so no total is wrong, but they are missing rather than 0 in products. A products-stage
-  decision, not a fit-stage one, since 305 is baked into the past-inputs artifact.
+- **Absent-vs-zero: RESOLVED for the past frame (2026-08-21)** — the 168 are present with explicit
+  zeros, so the decision is now decidable downstream instead of being pre-empted by their absence.
+  Still open on the PRODUCTS side: whether forecast products carry them as zeros or omit them.
+- **Zero-incidence rows with nonzero mortality**: 42,723 rows across 40 locations (Guam, Shanghai,
+  Bulgaria, Tibet, Qinghai, Heilongjiang, Bahrain, Jiangxi…), magnitudes 5e-9 to 1.1e-5 — dengue
+  deaths where there are no cases. An upstream raked-AS inconsistency, newly visible because those
+  locations used to be filtered out. CFR is NaN there by construction, but a mortality-first
+  formulation would see a finite `log_dengue_mort_rate` at zero incidence.
 - Open, lower priority: the R and Python F4 do not use the same anchor estimator (R `rake="median"`
   vs Python `Baseline(statistic="mean")` over 2014–2023) — a comparability divergence of the same
   class as the 314-vs-305 bug. And `fit_location_ids.parquet` flags 382 FHS locations while
   `past_inputs` keeps 305; the artifact named "fit locations" is not the one that decides the fit.
+- **Framework bake-off is external** — runs in `idd-forecast-lab`; nothing to do here until it
+  recommends an architecture, then port the winner into `03_modeling`.
 
 1. **Stage 04 forecasting — DONE 2026-06-03** (see Recent steps). Outputs at
    `_A04_MAL_FORECAST_OUTPUTS/20260602/` (current). Forward from here:
