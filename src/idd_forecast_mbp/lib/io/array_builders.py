@@ -15,26 +15,33 @@ def wide_to_array(
     path: str,
     location_ids: list[int],
     years: list[int],
+    draws: list[str] | None = None,
 ) -> np.ndarray:
     """Read wide-format climate parquet → float32 array of shape (n_loc, n_year, n_draw).
 
     Handles parquets where location_id/year_id are stored as the MultiIndex
     (draw columns '000'..'099' are the only data columns).
     Missing location×year combinations are filled with NaN.
+
+    ``draws`` defaults to all 100. Narrowing it is a memory decision, not a
+    cosmetic one: one variable read over the whole LSAE hierarchy is ~455 MB at
+    100 draws and ~4.5 MB at one, and a caller that only wants draw 000 would
+    otherwise materialise all 100 before discarding 99 of them.
     """
+    draw_cols = list(DRAWS if draws is None else draws)
     df = pd.read_parquet(
         str(path),
-        columns=DRAWS,
+        columns=draw_cols,
         filters=[('location_id', 'in', location_ids), ('year_id', 'in', years)],
     ).reset_index()
     full_idx = pd.MultiIndex.from_product(
         [location_ids, years], names=['location_id', 'year_id']
     )
     return (
-        df.set_index(['location_id', 'year_id'])[DRAWS]
+        df.set_index(['location_id', 'year_id'])[draw_cols]
         .reindex(full_idx)
         .values
-        .reshape(len(location_ids), len(years), len(DRAWS))
+        .reshape(len(location_ids), len(years), len(draw_cols))
         .astype(np.float32)
     )
 
@@ -194,10 +201,13 @@ def read_draw_climate(
     ssp_scenario: str,
     lsae_hierarchy: str,
     extra_vars: dict[str, str] | None = None,
+    draws: list[str] | None = None,
 ) -> dict[str, np.ndarray]:
     """Read all draw-varying climate variables → dict of (n_loc, n_year, n_draw) arrays.
 
     extra_vars: additional {var_name: path} entries beyond the standard set.
+    draws: draw columns to read; defaults to all 100. Every variable is held in
+        the returned dict simultaneously, so this multiplies across ~9 variables.
     """
     CLIMATE = mbpc.CLIMATE_AGGREGATES_PATH / lsae_hierarchy
     climate_vars = {
@@ -216,5 +226,5 @@ def read_draw_climate(
     arrays = {}
     for var_name, path in climate_vars.items():
         print(f"  {var_name}...")
-        arrays[var_name] = wide_to_array(path, location_ids, years)
+        arrays[var_name] = wide_to_array(path, location_ids, years, draws=draws)
     return arrays
