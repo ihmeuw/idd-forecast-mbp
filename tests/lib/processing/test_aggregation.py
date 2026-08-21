@@ -2,14 +2,18 @@
 Tests for lib/processing/aggregation.py
 """
 
+import numpy as np
 import pandas as pd
 import pytest
 
 from idd_forecast_mbp.lib.processing.aggregation import (
     aggregate_aa_count_lsae_to_gbd,
+    aggregate_outcomes_to_ancestors,
     aggregate_aa_rate_lsae_to_gbd,
     aggregate_level,
     aggregate_to_parent,
+    make_rate_from_count,
+    roll_up_covariates_to_ancestors,
     roll_up_hierarchy,
     roll_up_to_ancestors,
 )
@@ -488,3 +492,280 @@ def test_roll_up_to_ancestors_tolerates_duplicate_hierarchy_rows(
     doubled = pd.concat([mixed_level_hierarchy, mixed_level_hierarchy], ignore_index=True)
     got = _by_loc(roll_up_to_ancestors(mixed_level_counts, doubled, 'count'))
     assert got[1] == 18.0
+
+
+# ---------------------------------------------------------------------------
+# roll_up_covariates_to_ancestors + make_rate_from_count(join_cols=...)
+# ---------------------------------------------------------------------------
+
+class TestRollUpCovariatesToAncestors:
+    """Population-weighted covariate aggregation into every ancestor.
+
+    Fixture shape mirrors the real motivating case: two leaves at DIFFERENT levels
+    under one region, which is what breaks a level-by-level roll-up.
+    """
+
+    @staticmethod
+    def _hierarchy():
+        return pd.DataFrame({
+            "location_id":        [1, 100, 10, 11, 20],
+            "level":              [0,   2,  3,  4,  3],
+            "path_to_top_parent": ["1", "1,100", "1,100,10", "1,100,10,11", "1,100,20"],
+        })
+
+    @staticmethod
+    def _cov():
+        # leaf 11 (pop 300) and leaf 20 (pop 100) are the leaves we aggregate
+        return pd.DataFrame({
+            "location_id": [11, 20],
+            "year_id":     [2000, 2000],
+            "gdppc_mean":  [10.0, 50.0],
+        })
+
+    @staticmethod
+    def _pop():
+        return pd.DataFrame({
+            "location_id": [11, 20],
+            "year_id":     [2000, 2000],
+            "population":  [300.0, 100.0],
+        })
+
+    def test_weighted_not_plain_mean(self):
+        out = roll_up_covariates_to_ancestors(
+            self._cov(), self._hierarchy(), "gdppc_mean", self._pop())
+        region = out.loc[out.location_id == 100, "gdppc_mean"].iloc[0]
+        # (10*300 + 50*100) / 400 = 20.0 ; a plain mean would be 30.0
+        assert region == pytest.approx(20.0)
+        assert region != pytest.approx(30.0)
+
+    def test_leaves_pass_through_unchanged(self):
+        out = roll_up_covariates_to_ancestors(
+            self._cov(), self._hierarchy(), "gdppc_mean", self._pop())
+        assert out.loc[out.location_id == 11, "gdppc_mean"].iloc[0] == pytest.approx(10.0)
+        assert out.loc[out.location_id == 20, "gdppc_mean"].iloc[0] == pytest.approx(50.0)
+
+    def test_mixed_level_leaves_both_reach_the_ancestor(self):
+        """Leaf 11 is level 4 and leaf 20 is level 3; both must count."""
+        out = roll_up_covariates_to_ancestors(
+            self._cov(), self._hierarchy(), "gdppc_mean", self._pop())
+        # global sees both leaves, so it equals the region here
+        assert out.loc[out.location_id == 1, "gdppc_mean"].iloc[0] == pytest.approx(20.0)
+        assert set(out.location_id) == {1, 100, 10, 11, 20}
+
+    def test_intermediate_ancestor_sees_only_its_own_descendants(self):
+        out = roll_up_covariates_to_ancestors(
+            self._cov(), self._hierarchy(), "gdppc_mean", self._pop())
+        # location 10's only leaf is 11
+        assert out.loc[out.location_id == 10, "gdppc_mean"].iloc[0] == pytest.approx(10.0)
+
+    def test_multiple_covariates_at_once(self):
+        cov = self._cov().assign(temp=[25.0, 30.0])
+        out = roll_up_covariates_to_ancestors(
+            cov, self._hierarchy(), ["gdppc_mean", "temp"], self._pop())
+        row = out[out.location_id == 100].iloc[0]
+        assert row["gdppc_mean"] == pytest.approx(20.0)
+        assert row["temp"] == pytest.approx((25.0 * 300 + 30.0 * 100) / 400)
+
+    def test_age_sex_duplication_is_collapsed_before_weighting(self):
+        """Covariates are location-year; duplicated cells must not double-weight."""
+        dup = pd.concat([self._cov()] * 4, ignore_index=True)
+        out = roll_up_covariates_to_ancestors(
+            dup, self._hierarchy(), "gdppc_mean", self._pop())
+        assert out.loc[out.location_id == 100, "gdppc_mean"].iloc[0] == pytest.approx(20.0)
+
+    def test_nan_covariate_propagates_rather_than_being_skipped(self):
+        cov = self._cov().copy()
+        cov.loc[cov.location_id == 20, "gdppc_mean"] = np.nan
+        out = roll_up_covariates_to_ancestors(
+            cov, self._hierarchy(), "gdppc_mean", self._pop())
+        assert np.isnan(out.loc[out.location_id == 100, "gdppc_mean"].iloc[0])
+        # the unaffected branch is still fine
+        assert out.loc[out.location_id == 10, "gdppc_mean"].iloc[0] == pytest.approx(10.0)
+
+    def test_missing_population_raises(self):
+        pop = self._pop()
+        pop = pop[pop.location_id != 20]
+        with pytest.raises(ValueError, match="no population"):
+            roll_up_covariates_to_ancestors(
+                self._cov(), self._hierarchy(), "gdppc_mean", pop)
+
+    def test_missing_path_column_raises(self):
+        h = self._hierarchy().drop(columns=["path_to_top_parent"])
+        with pytest.raises(KeyError, match="path_to_top_parent"):
+            roll_up_covariates_to_ancestors(
+                self._cov(), h, "gdppc_mean", self._pop())
+
+    def test_location_absent_from_hierarchy_raises(self):
+        cov = pd.concat([self._cov(),
+                         pd.DataFrame({"location_id": [999], "year_id": [2000],
+                                       "gdppc_mean": [1.0]})], ignore_index=True)
+        pop = pd.concat([self._pop(),
+                         pd.DataFrame({"location_id": [999], "year_id": [2000],
+                                       "population": [1.0]})], ignore_index=True)
+        with pytest.raises(KeyError, match="absent from the hierarchy"):
+            roll_up_covariates_to_ancestors(
+                cov, self._hierarchy(), "gdppc_mean", pop)
+
+
+class TestMakeRateFromCountJoinCols:
+    """The age/sex grain must divide by the age/sex population, not the all-age one."""
+
+    @staticmethod
+    def _counts():
+        return pd.DataFrame({
+            "location_id":   [10, 10, 10, 10],
+            "year_id":       [2000] * 4,
+            "age_group_id":  [2, 2, 3, 3],
+            "sex_id":        [1, 2, 1, 2],
+            "inc_count":     [10.0, 20.0, 30.0, 40.0],
+        })
+
+    @staticmethod
+    def _as_pop():
+        return pd.DataFrame({
+            "location_id":   [10, 10, 10, 10],
+            "year_id":       [2000] * 4,
+            "age_group_id":  [2, 2, 3, 3],
+            "sex_id":        [1, 2, 1, 2],
+            "population":    [100.0, 200.0, 300.0, 400.0],
+        })
+
+    def test_age_sex_join_divides_by_the_matching_cell(self):
+        out = make_rate_from_count(
+            "inc_rate", "inc_count", self._counts(), self._as_pop(),
+            return_full_df=True,
+            join_cols=("location_id", "year_id", "age_group_id", "sex_id"))
+        assert out["inc_rate"].tolist() == pytest.approx([0.1, 0.1, 0.1, 0.1])
+
+    def test_default_join_is_unchanged_all_age_behaviour(self):
+        counts = pd.DataFrame({"location_id": [10], "year_id": [2000], "inc_count": [50.0]})
+        pop = pd.DataFrame({"location_id": [10], "year_id": [2000], "population": [1000.0]})
+        out = make_rate_from_count(
+            "inc_rate", "inc_count", counts, pop, return_full_df=True)
+        assert out["inc_rate"].iloc[0] == pytest.approx(0.05)
+
+    def test_all_age_population_on_age_sex_counts_is_the_bug_join_cols_prevents(self):
+        """Guard: the default join broadcasts one population across every cell."""
+        aa_pop = pd.DataFrame({"location_id": [10], "year_id": [2000], "population": [1000.0]})
+        wrong = make_rate_from_count(
+            "inc_rate", "inc_count", self._counts(), aa_pop, return_full_df=True)
+        assert wrong["inc_rate"].tolist() == pytest.approx([0.01, 0.02, 0.03, 0.04])
+        right = make_rate_from_count(
+            "inc_rate", "inc_count", self._counts(), self._as_pop(),
+            return_full_df=True,
+            join_cols=("location_id", "year_id", "age_group_id", "sex_id"))
+        assert right["inc_rate"].tolist() != pytest.approx(wrong["inc_rate"].tolist())
+
+    def test_zero_population_gives_zero_rate(self):
+        pop = self._as_pop().copy()
+        pop.loc[0, "population"] = 0.0
+        out = make_rate_from_count(
+            "inc_rate", "inc_count", self._counts(), pop, return_full_df=True,
+            join_cols=("location_id", "year_id", "age_group_id", "sex_id"))
+        assert out["inc_rate"].iloc[0] == 0.0
+
+
+class TestAggregateOutcomesToAncestors:
+    """Counts sum; rates come from the ancestor's OWN population, never the leaves' sum."""
+
+    @staticmethod
+    def _hierarchy():
+        return pd.DataFrame({
+            "location_id":        [1, 100, 11, 20],
+            "level":              [0,   2,  4,  3],
+            "path_to_top_parent": ["1", "1,100", "1,100,11", "1,100,20"],
+        })
+
+    @staticmethod
+    def _leaves():
+        return pd.DataFrame({
+            "location_id": [11, 20],
+            "year_id":     [2000, 2000],
+            "inc_count":   [10.0, 30.0],
+        })
+
+    @staticmethod
+    def _aa_pop():
+        """Region 100's own population (1000) EXCEEDS its leaves' sum (400)."""
+        return pd.DataFrame({
+            "location_id": [1, 100, 11, 20],
+            "year_id":     [2000] * 4,
+            "population":  [2000.0, 1000.0, 300.0, 100.0],
+        })
+
+    def test_counts_sum_into_the_ancestor(self):
+        out = aggregate_outcomes_to_ancestors(
+            self._leaves(), self._hierarchy(), {"inc_count": "inc_rate"}, self._aa_pop())
+        assert out.loc[out.location_id == 100, "inc_count"].iloc[0] == pytest.approx(40.0)
+
+    def test_rate_uses_own_population_not_the_leaf_sum(self):
+        """The regression this function exists to prevent."""
+        out = aggregate_outcomes_to_ancestors(
+            self._leaves(), self._hierarchy(), {"inc_count": "inc_rate"}, self._aa_pop())
+        got = out.loc[out.location_id == 100, "inc_rate"].iloc[0]
+        assert got == pytest.approx(40.0 / 1000.0)        # own population
+        assert got != pytest.approx(40.0 / 400.0)         # summed-children denominator
+
+    def test_leaf_rows_survive_and_use_their_own_population(self):
+        out = aggregate_outcomes_to_ancestors(
+            self._leaves(), self._hierarchy(), {"inc_count": "inc_rate"}, self._aa_pop())
+        assert out.loc[out.location_id == 11, "inc_rate"].iloc[0] == pytest.approx(10.0 / 300.0)
+
+    def test_multiple_outcomes(self):
+        leaves = self._leaves().assign(mort_count=[1.0, 3.0])
+        out = aggregate_outcomes_to_ancestors(
+            leaves, self._hierarchy(),
+            {"inc_count": "inc_rate", "mort_count": "mort_rate"}, self._aa_pop())
+        row = out[out.location_id == 100].iloc[0]
+        assert row["inc_rate"] == pytest.approx(40.0 / 1000.0)
+        assert row["mort_rate"] == pytest.approx(4.0 / 1000.0)
+        assert row["inc_count"] == pytest.approx(40.0)
+        assert row["mort_count"] == pytest.approx(4.0)
+
+    def test_preserve_age_sex_matches_population_per_cell(self):
+        leaves = pd.DataFrame({
+            "location_id":  [11, 11, 20, 20],
+            "year_id":      [2000] * 4,
+            "age_group_id": [2, 3, 2, 3],
+            "sex_id":       [1, 1, 1, 1],
+            "inc_count":    [1.0, 2.0, 3.0, 4.0],
+        })
+        as_pop = pd.DataFrame({
+            "location_id":  [100, 100, 11, 11, 20, 20],
+            "year_id":      [2000] * 6,
+            "age_group_id": [2, 3, 2, 3, 2, 3],
+            "sex_id":       [1] * 6,
+            "population":   [400.0, 800.0, 100.0, 200.0, 50.0, 100.0],
+        })
+        out = aggregate_outcomes_to_ancestors(
+            leaves, self._hierarchy(), {"inc_count": "inc_rate"}, as_pop,
+            preserve_age_sex=True)
+        a2 = out[(out.location_id == 100) & (out.age_group_id == 2)].iloc[0]
+        a3 = out[(out.location_id == 100) & (out.age_group_id == 3)].iloc[0]
+        assert a2["inc_count"] == pytest.approx(4.0)          # 1 + 3
+        assert a2["inc_rate"] == pytest.approx(4.0 / 400.0)   # age-2 population
+        assert a3["inc_count"] == pytest.approx(6.0)          # 2 + 4
+        assert a3["inc_rate"] == pytest.approx(6.0 / 800.0)   # age-3 population
+
+    def test_age_sex_rates_differ_from_using_all_age_population(self):
+        """Guard against the all-age denominator leaking into an age/sex call."""
+        leaves = pd.DataFrame({
+            "location_id":  [11, 11], "year_id": [2000, 2000],
+            "age_group_id": [2, 3], "sex_id": [1, 1], "inc_count": [1.0, 2.0],
+        })
+        as_pop = pd.DataFrame({
+            "location_id":  [11, 11, 100, 100], "year_id": [2000] * 4,
+            "age_group_id": [2, 3, 2, 3], "sex_id": [1] * 4,
+            "population":   [100.0, 200.0, 100.0, 200.0],
+        })
+        out = aggregate_outcomes_to_ancestors(
+            leaves, self._hierarchy(), {"inc_count": "inc_rate"}, as_pop,
+            preserve_age_sex=True)
+        rates = out[out.location_id == 11].sort_values("age_group_id")["inc_rate"].tolist()
+        assert rates == pytest.approx([0.01, 0.01])
+
+    def test_population_column_is_returned_for_audit(self):
+        out = aggregate_outcomes_to_ancestors(
+            self._leaves(), self._hierarchy(), {"inc_count": "inc_rate"}, self._aa_pop())
+        assert "population" in out.columns
+        assert out.loc[out.location_id == 100, "population"].iloc[0] == pytest.approx(1000.0)

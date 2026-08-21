@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 
 from idd_forecast_mbp.lib.io.parquet import write_parquet
@@ -187,11 +188,18 @@ def make_rate_from_count(
     aa_full_population_df: pd.DataFrame,
     aa_full_rate_df_path: str | Path | None = None,
     return_full_df: bool = False,
+    join_cols: tuple[str, ...] | list[str] = ("location_id", "year_id"),
 ) -> pd.DataFrame | None:
     """Divide count by population to produce a rate variable.
 
     Sets rate = 0 where population = 0 to avoid division by zero.
     Drops count_variable and level column from the result.
+
+    ``join_cols`` is the grain the population is matched at. It defaults to
+    all-age ``(location_id, year_id)``. Pass
+    ``("location_id", "year_id", "age_group_id", "sex_id")`` with an age/sex
+    population frame to build age/sex rates -- leaving the default there would
+    silently divide every age/sex count by the location's ALL-AGE population.
 
     Parameters
     ----------
@@ -213,9 +221,10 @@ def make_rate_from_count(
     if 'population' in aa_full_count_df.columns:
         aa_full_count_df = aa_full_count_df.drop(columns=['population'])
 
+    join = list(join_cols)
     df = aa_full_count_df.merge(
-        aa_full_population_df[['location_id', 'year_id', 'population']],
-        on=['location_id', 'year_id'],
+        aa_full_population_df[[*join, 'population']],
+        on=join,
         how='left',
     ).copy()
     df[rate_variable] = df[count_variable] / df['population']
@@ -230,6 +239,179 @@ def make_rate_from_count(
     if return_full_df:
         return df
     return None
+
+
+def aggregate_outcomes_to_ancestors(
+    leaf_df: pd.DataFrame,
+    hierarchy_df: pd.DataFrame,
+    count_cols: dict[str, str],
+    population_df: pd.DataFrame,
+    *,
+    preserve_age_sex: bool = False,
+    extra_group_cols: list[str] | None = None,
+) -> pd.DataFrame:
+    """Counts summed into every ancestor, with rates rebuilt from OWN population.
+
+    The composition that is correct-by-construction, so no caller has to remember
+    the rule: :func:`roll_up_to_ancestors` sums the counts, then
+    :func:`make_rate_from_count` divides each ancestor's count by *that level's own*
+    population row. Summing the leaves' populations instead inflates every aggregate
+    rate, because a parent's population includes people no leaf contributed a count
+    for. That is the single most common aggregation defect in this codebase and the
+    thing ``lib/processing/products.validate_products`` exists to reject.
+
+    ``preserve_age_sex=True`` keeps the age/sex grid and matches the population at
+    age/sex grain, so an age-and-sex-specific rate for any ancestor is one call.
+    ``population_df`` must be at the matching grain: all-age when
+    ``preserve_age_sex`` is False, age/sex when it is True.
+
+    Parameters
+    ----------
+    leaf_df:
+        Leaf-level counts keyed by 'location_id', 'year_id' (plus age/sex when
+        ``preserve_age_sex``). Leaves may sit at mixed levels.
+    hierarchy_df:
+        Needs 'location_id' and 'path_to_top_parent'.
+    count_cols:
+        ``{count_column: rate_column}`` — the counts to sum and the name each
+        resulting rate gets.
+    population_df:
+        Population at every level, at the grain implied by ``preserve_age_sex``.
+    preserve_age_sex:
+        Keep the age/sex grid rather than collapsing to all-age.
+    extra_group_cols:
+        Additional dimensions to preserve (e.g. ``['draw']``).
+
+    Returns
+    -------
+    One row per (ancestor location, year, [age, sex], [extra dims]) carrying every
+    count, every rate, and the 'population' the rates were divided by.
+    """
+    counts = roll_up_to_ancestors(
+        leaf_df, hierarchy_df, list(count_cols),
+        extra_group_cols=extra_group_cols, preserve_age_sex=preserve_age_sex,
+    )
+    keys = ['location_id', 'year_id']
+    if preserve_age_sex:
+        keys += ['age_group_id', 'sex_id']
+    keys += list(extra_group_cols or [])
+
+    out = counts
+    for count_col, rate_col in count_cols.items():
+        rated = make_rate_from_count(
+            rate_col, count_col, counts[[*keys, count_col]], population_df,
+            return_full_df=True, join_cols=tuple(keys),
+        )
+        if 'population' in out.columns:
+            rated = rated.drop(columns=['population'])
+        out = out.merge(rated, on=keys, how='left')
+    return out
+
+
+def roll_up_covariates_to_ancestors(
+    cov_df: pd.DataFrame,
+    hierarchy_df: pd.DataFrame,
+    covariate_cols: str | list[str],
+    population_df: pd.DataFrame,
+    *,
+    extra_group_cols: list[str] | None = None,
+) -> pd.DataFrame:
+    """Population-weighted mean of location-year covariates into every ancestor.
+
+    The ancestor-wise counterpart of :func:`roll_up_to_ancestors`, which sums
+    counts. Covariates do not sum: a region's GDP per capita is the
+    population-weighted mean of its children's, not their total. It is also the
+    arbitrary-ancestor counterpart of :func:`aggregate_aa_rate_lsae_to_gbd`, which
+    does the same weighting but only for the fixed lsae -> gbd step.
+
+    Uses the same ``path_to_top_parent`` mechanism as
+    :func:`roll_up_to_ancestors`, so leaves are returned unchanged alongside the
+    aggregates and mixed-level leaf sets (the FHS 473 straddle levels 3 and 4) are
+    handled without iterating level by level.
+
+    Weights are each LEAF's own population. A covariate has no count to sum, so a
+    weighted mean is the only available definition, and the weights must be the
+    leaves' populations so they add up to the ancestor's aggregate.
+
+    A NaN covariate at a leaf propagates to every ancestor above it rather than
+    being skipped: dropping it would silently reweight the remaining children and
+    hide the gap.
+
+    Parameters
+    ----------
+    cov_df:
+        Covariates at the leaf locations, keyed by 'location_id' and 'year_id'
+        (plus any extra dims). Covariates are location-year attributes, so any
+        age/sex duplication is collapsed before weighting.
+    hierarchy_df:
+        Needs 'location_id' and 'path_to_top_parent'.
+    covariate_cols:
+        Covariate column, or list of them, to aggregate.
+    population_df:
+        Leaf populations, columns 'location_id', 'year_id', 'population'.
+    extra_group_cols:
+        Additional dimensions to preserve through the aggregation.
+
+    Returns
+    -------
+    One row per (ancestor location, year, [extra dims]) with the weighted means.
+    """
+    cols = [covariate_cols] if isinstance(covariate_cols, str) else list(covariate_cols)
+    if 'path_to_top_parent' not in hierarchy_df.columns:
+        msg = "hierarchy_df must carry 'path_to_top_parent' to roll up to ancestors"
+        raise KeyError(msg)
+
+    paths = (
+        hierarchy_df.drop_duplicates('location_id')
+        .set_index('location_id')['path_to_top_parent']
+    )
+    missing = set(cov_df['location_id'].unique()) - set(paths.index)
+    if missing:
+        msg = (f"{len(missing)} location_id(s) absent from the hierarchy, "
+               f"e.g. {sorted(missing)[:5]}")
+        raise KeyError(msg)
+
+    keys = ['location_id', 'year_id', *(extra_group_cols or [])]
+    out = cov_df[[*keys, *cols]].drop_duplicates(subset=keys)
+    if 'population' in out.columns:
+        out = out.drop(columns=['population'])
+    out = out.merge(
+        population_df[['location_id', 'year_id', 'population']],
+        on=['location_id', 'year_id'], how='left',
+    )
+    if out['population'].isna().any():
+        n = int(out['population'].isna().sum())
+        msg = (f"{n} leaf (location, year) rows have no population to weight by; "
+               "a weighted mean is undefined without them")
+        raise ValueError(msg)
+
+    out['_ancestor'] = [
+        [int(x) for x in str(p).split(',')]
+        for p in paths.loc[out['location_id']].to_numpy()
+    ]
+    out = out.explode('_ancestor')
+
+    # A NaN leaf value must poison its ancestors, not vanish. pandas' groupby-sum
+    # skips NaN, which would silently reweight the surviving children onto the full
+    # population and hide the gap -- so count the NaNs per group and re-impose them.
+    nan_flags = {c: f'_nan_{c}' for c in cols}
+    for c, flag in nan_flags.items():
+        out[flag] = out[c].isna().astype('int64')
+        out[c] = out[c] * out['population']
+
+    group_keys = ['_ancestor', 'year_id', *(extra_group_cols or [])]
+    agg = (
+        out.groupby(group_keys, sort=False)[[*cols, 'population', *nan_flags.values()]]
+        .sum()
+        .reset_index()
+    )
+    for c, flag in nan_flags.items():
+        agg[c] = np.where(agg[flag] > 0, np.nan, agg[c] / agg['population'])
+    return (
+        agg.drop(columns=['population', *nan_flags.values()])
+        .rename(columns={'_ancestor': 'location_id'})
+        .astype({'location_id': 'int64'})
+    )
 
 
 # ---------------------------------------------------------------------------
