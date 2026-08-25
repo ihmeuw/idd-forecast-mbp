@@ -37,6 +37,7 @@ from idd_forecast_mbp.lib.processing.disaggregation import (
     disaggregate_malaria_draws,
     malaria_as_fractions,
 )
+from idd_forecast_mbp.lib.processing.vaccine_impact import apply_protection_to_age_sex
 
 _KEYS_AA = ["location_id", "year_id", "draw"]
 _KEYS_AS = ["location_id", "year_id", "age_group_id", "sex_id"]
@@ -177,6 +178,7 @@ def finalize_age_sex_draws(
     *,
     measures: Sequence[str] = ("inc", "mort"),
     start_level: int = 5,
+    protection: pd.DataFrame | None = None,
 ) -> pd.DataFrame:
     """Age/sex count + rate DRAWS at a requested node set (e.g. the FHS hierarchy).
 
@@ -195,6 +197,11 @@ def finalize_age_sex_draws(
         ``disaggregate_malaria_draws``). ``as_pop`` also supplies the rate denominator.
     node_ids:
         Locations to keep (e.g. the 513 ``in_fhs_hierarchy`` nodes).
+    protection:
+        Optional vaccine protection by ``[location_id, year_id, age_group_id,
+        sex_id]``, applied CELL-WISE to the disaggregated admin-2 counts before
+        roll-up so aggregates inherit it. ``None`` is the no-vaccine product --
+        there is no separate code path for it.
 
     Returns
     -------
@@ -205,6 +212,8 @@ def finalize_age_sex_draws(
     parts = []
     for d in sorted(aa_count_draws["draw"].unique()):
         as_d = disaggregate_malaria_draws(aa_count_draws[aa_count_draws["draw"] == d], rr, as_pop)
+        if protection is not None:
+            as_d = apply_protection_to_age_sex(as_d, protection)
         rolled = _rollup_age_sex_one_draw(as_d, hierarchy_df, measures, start_level)
         parts.append(rolled[rolled["location_id"].isin(node_set)])
     out = pd.concat(parts, ignore_index=True)

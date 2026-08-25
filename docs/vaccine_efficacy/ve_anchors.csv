@@ -1,0 +1,23 @@
+label,vaccine,panel,curve,age,ve,type,source,notes
+A1,rtss,case,d3,9,0.68,measured,"PLoS Med 2014 PP, mo 1-6 post dose 3",VE 68%; midpoint mo1-6 (age6-12). Shared pre-booster: B inherits.
+A2,rtss,case,d3,15,0.436,measured,"PLoS Med 2014 PP, mo 7-12",VE 41%. Shared pre-booster.
+A3,rtss,case,d3,21,0.258,measured,"PLoS Med 2014 PP, mo 13-18",VE 26%. Shared pre-booster.
+A4,rtss,case,d3,30,0.118,measured,Lancet 2015 [18] T1 R3C mo21-32 mITT,VE 16.1%; dose-3-only continues.
+A5,rtss,case,d3,44,0.035,measured,Lancet 2015 [18] T1 R3C mo33-end,VE 2.9%.
+B4,rtss,case,d34,30,0.374,measured,Lancet 2015 [18] T1 R3R mo21-32,VE 37.4%; booster reset at 24. Inherits A1-A3.
+B5,rtss,case,d34,44,0.123,measured,Lancet 2015 [18] T1 R3R mo33-end,VE 12.3%.
+C1,rtss,death,d3,9,0.511,derived,[18] T2 pre-booster 33.9% / disease 45.1% => ratio 0.75,severe=0.75*disease. Shared: D inherits.
+D4,rtss,death,d34,30,0.332,derived,[18] T2 R3R 32.2% / disease 36.3% => ratio 0.887,anchored to only significant severe signal.
+D5,rtss,death,d34,44,0.109,derived,ratio 0.887 x disease,boosted decay.
+H1,r21,case,d3,9,0.8,measured,Datoo 2024 ~78% at 12mo,peak ~80%. Shared: I inherits.
+H2,r21,case,d3,15,0.702,measured,Datoo 2024 year-1 waning,~72%. Shared.
+H3,r21,case,d3,21,0.502,derived,Datoo shape + slower-waning assumption,~62%. Shared.
+H4,r21,case,d3,30,0.303,derived,Datoo shape + slower waning,dose-3-only decay.
+I4_E,r21,case,d34,30,0.66,derived,Datoo 18-mo ~74% booster-restored; applied at age-24 booster,"_E: R21 disease independent. Interval note: measured 12-mo gap, applied 18-mo."
+I5_E,r21,case,d34,44,0.42,derived,Datoo shape + slower waning,boosted decay.
+J1_F,r21,death,d3,9,0.601,derived,"RTS,S ratio 0.75 x R21 disease (see F)",R21 has NO severe series. Shared: K inherits.
+K4_F,r21,death,d34,30,0.586,derived,"RTS,S ratio 0.887 x R21 disease (see F)",severe booster entirely borrowed.
+E,r21,case,d34,18,0.594,derived,"LINKAGE: R21 disease from Datoo, NOT rescaled from RTS,S",R21 disease independent (own peak).
+F,r21,death,d34,36,0.482,derived,"LINKAGE: RTS,S severe:disease ratio borrowed for R21",Only severe channel borrowed cross-vaccine.
+G,rtss,death,d3,24,0.0,assumption,[18] T2 R3C severe 1.1% ns => construction,Missed-booster severe: v1 steps to 0; v2 smooths. Discussion point.
+T,rtss,case,d3,66,0.005,assumption,Threshold EPS=0.5%: VE below 0.5% set to 0,Tail-to-zero threshold. Applies to all curves.

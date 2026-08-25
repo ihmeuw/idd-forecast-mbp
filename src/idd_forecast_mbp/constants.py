@@ -119,6 +119,40 @@ GBD_DATA_PATH  = RAW_DATA_PATH / "gbd"
 # symlink). All GBD readers resolve through this, NOT the loose top-level files.
 GBD_DATA_READ_PATH = GBD_DATA_PATH / "current"
 
+# Malaria vaccine (RTS,S / R21) dose-3 / dose-4 coverage, received from the coverage
+# modelers — dated dir + `current` symlink, resolved like the GBD pull above. No
+# hierarchy split: rows are admin1 (subnat_id) within 37 countries, already keyed to
+# the LSAE hierarchy, so there is nothing to split by. Read-only here — this pipeline
+# never writes it, so there is deliberately no write path.
+VACCINE_COVERAGE_PATH      = RAW_DATA_PATH / "malaria_vaccine_coverage"
+VACCINE_COVERAGE_READ_PATH = _artifact_read(VACCINE_COVERAGE_PATH)
+# Delivered file inside that node. A new vintage arrives as a new dated dir, so the
+# filename is pinned with the run date it came with.
+VACCINE_COVERAGE_FILE      = VACCINE_COVERAGE_READ_PATH / "2026_08_05_final_handoff_v2_edu_dtp3_lme.csv"
+
+# Malaria vaccine efficacy curves, received from the VE modelers. Monthly VE by
+# vaccine product for clinical ("case") and severe ("death") outcomes, split into
+# dose-3-only and boosted (dose 3 + 4) columns. Delivered as a 2x2 factorial of
+# curve-shape assumptions (linear vs log-linear interpolation x whether unboosted
+# severe VE drops to 0 at the booster), one CSV per cell -- see FACTORIAL_README.md
+# in the node. The variant is a modelling choice, so it is selected per run rather
+# than defaulted; no hierarchy split (VE is per product, not per location).
+VACCINE_EFFICACY_PATH      = RAW_DATA_PATH / "malaria_vaccine_efficacy"
+VACCINE_EFFICACY_READ_PATH = _artifact_read(VACCINE_EFFICACY_PATH)
+# ^ the received vintage, kept as the immutable record of what was handed over.
+# From 2026-08-24 the curves are BUILT here from anchors, so the pipeline reads
+# its own processed output (verified byte-identical to the received files).
+VE_ANCHORS_PATH = Path(__file__).parent / "VE_ANCHORS.yaml"
+VE_VARIANTS = ("linear_severe0", "linear_severeSmooth",
+               "loglinear_severe0", "loglinear_severeSmooth")
+
+
+def vaccine_efficacy_file(variant: str) -> Path:
+    """Path to one VE factorial cell's CSV within the current node."""
+    if variant not in VE_VARIANTS:
+        raise ValueError(f"unknown VE variant {variant!r}; expected one of {VE_VARIANTS}")
+    return VE_CURVES_READ_PATH / f"ve_{variant}.csv"
+
 # Covariate data produced by the RapidResponse lsae pipeline. Lives flat in
 # 02-processed_data/lsae_XXXX/ and is updated externally, not by this pipeline.
 LSAE_HIERARCHY = "lsae_1285"
@@ -205,6 +239,9 @@ AGE_SPECIFIC_FHS_PATH = _PROCESSED_STAGE / "age_specific_fhs"
 # DAH has no hierarchy split (national-level data).
 _A02_HIERARCHY   = _PROCESSED_STAGE / "hierarchy"   / LSAE_HIERARCHY
 _A02_POPULATION  = _PROCESSED_STAGE / "population"  / LSAE_HIERARCHY
+# Malaria VE curves, built by 02_data_prep/09_build_vaccine_efficacy_curves.py
+# from VE_ANCHORS.yaml. No hierarchy split: VE is per product, not per location.
+_A02_VE_CURVES   = _PROCESSED_STAGE / "malaria_vaccine_efficacy"
 _A02_DAH         = _PROCESSED_STAGE / "covariates"  / "dah"
 _A02_GDPPC       = _PROCESSED_STAGE / "covariates"  / "gdppc"        / LSAE_HIERARCHY
 _A02_LDIPC       = _PROCESSED_STAGE / "covariates"  / "ldipc"        / LSAE_HIERARCHY
@@ -218,6 +255,7 @@ _A02_DEN_RAKED_AS = _PROCESSED_STAGE / "dengue"     / "raked_as" / LSAE_HIERARCH
 # Write paths (current run)
 HIERARCHY_WRITE_PATH    = _artifact_write(_A02_HIERARCHY)
 POPULATION_WRITE_PATH   = _artifact_write(_A02_POPULATION)
+VE_CURVES_WRITE_PATH    = _artifact_write(_A02_VE_CURVES)
 DAH_WRITE_PATH          = _artifact_write(_A02_DAH)
 GDPPC_WRITE_PATH        = _artifact_write(_A02_GDPPC)
 LDIPC_WRITE_PATH        = _artifact_write(_A02_LDIPC)
@@ -231,6 +269,7 @@ DEN_RAKED_AS_WRITE_PATH = _artifact_write(_A02_DEN_RAKED_AS)
 # Read paths (via current/ symlink)
 HIERARCHY_READ_PATH    = _artifact_read(_A02_HIERARCHY)
 POPULATION_READ_PATH   = _artifact_read(_A02_POPULATION)
+VE_CURVES_READ_PATH    = _artifact_read(_A02_VE_CURVES)
 DAH_READ_PATH          = _artifact_read(_A02_DAH)
 GDPPC_READ_PATH        = _artifact_read(_A02_GDPPC)
 LDIPC_READ_PATH        = _artifact_read(_A02_LDIPC)
@@ -292,6 +331,23 @@ MAL_FORECAST_INPUTS_READ_PATH  = _artifact_read(_A04_MAL_FORECAST_INPUTS)
 
 # Raked draw-level forecast predictions (written by forecast_malaria_admin_2s_rocket.r).
 MAL_FORECAST_OUTPUTS_WRITE_PATH = _artifact_write(_A04_MAL_FORECAST_OUTPUTS)
+
+# Malaria vaccine cohort coverage applied to age-sex population: dose-3/dose-4-ever
+# fractions, waning-adjusted protection, and headcounts by location x year x
+# age_group_id x sex_id. Written by 04_forecasting/apply_vaccine_coverage_to_population.py
+# from the raw coverage node (VACCINE_COVERAGE_FILE) + POPULATION_READ_PATH.
+_A04_MAL_VACCINE_COHORTS = _FORECASTING_STAGE / "malaria" / "vaccine_cohorts" / LSAE_HIERARCHY
+MAL_VACCINE_COHORTS_WRITE_PATH = _artifact_write(_A04_MAL_VACCINE_COHORTS)
+MAL_VACCINE_COHORTS_READ_PATH  = _artifact_read(_A04_MAL_VACCINE_COHORTS)
+# Variant is in the filename, not a column: all rows of one run share it.
+MAL_VACCINE_COHORTS_FILENAME_TEMPLATE = (
+    "vaccine_cohort_coverage_ve_{variant}_{products}.parquet"
+)
+# Product-rollout scenarios: as delivered, or counterfactual R21 everywhere.
+# "projected" = the delivered coverage series, which is itself an LME projection
+# to 2100 -- NOT observed data. "all_r21" is the counterfactual product swap.
+PRODUCT_SCENARIOS = ("projected", "all_r21")
+
 MAL_FORECAST_OUTPUTS_READ_PATH  = _artifact_read(_A04_MAL_FORECAST_OUTPUTS)
 
 # ── 05-products artifact roots (finished forecast products) ───────────────────
@@ -518,7 +574,7 @@ measure_map = {
         "short": "mort",
     },
     "incidence": {
-        "measure_id": 6, 
+        "measure_id": 6,
         "name": "incidence",
         "rate_name": "Incidence rate",
         "count_name": "Cases",
@@ -558,7 +614,7 @@ full_measure_map = {
         }
     },
     "incidence": {
-        "measure_id": 6, 
+        "measure_id": 6,
         "name": "incidence",
         "rate_name": "Incidence rate",
         "count_name": "Cases",
@@ -578,7 +634,7 @@ full_measure_map = {
         }
     },
     "daly": {
-        "measure_id": 2, 
+        "measure_id": 2,
         "name": "daly",
         "rate_name": "DALY rate",
         "count_name": "DALYs",
@@ -598,7 +654,7 @@ full_measure_map = {
         }
     },
     "yld": {
-        "measure_id": 3, 
+        "measure_id": 3,
         "name": "yld",
         "rate_name": "YLD rate",
         "count_name": "YLDs",
@@ -618,7 +674,7 @@ full_measure_map = {
         }
     },
     "yll": {
-        "measure_id": 4, 
+        "measure_id": 4,
         "name": "yll",
         "rate_name": "YLL rate",
         "count_name": "YLLs",
@@ -765,7 +821,7 @@ problematic_rule_map = {
             },
             'count_raking_factor_conditional': 100000, # This combined with 0 means this is turned off
             'rate_max_conditional': .1        	        # Flag if raking factor > 10 AND rate > 0.2
-        }        
+        }
     }
 }
 

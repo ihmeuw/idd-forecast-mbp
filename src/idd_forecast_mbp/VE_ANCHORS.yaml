@@ -1,0 +1,134 @@
+# =============================================================================
+# VE_ANCHORS.yaml
+# Vaccine-efficacy anchor points and construction options for the malaria
+# forecast's post-disaggregation VE layer. Human-edited, published values.
+# Read via lib/io/yaml.py (path resolved from constants.REPO_ROOT), mirroring
+# the COVARIATE_DICT.yaml convention. Every anchor carries its provenance.
+#
+# SCOPE: 5-17 month vaccination cohort. Two products (rtss, r21), two outcome
+# channels (case = clinical malaria; death = severe malaria used as mortality
+# proxy), two dose regimens (d3 = primary series; d34 = primary + booster).
+#
+# The builder (lib/processing/vaccine_efficacy.py) turns these anchors into
+# monthly VE curves. Values here are the EXACT literals that reproduce the
+# delivered CSVs byte-for-byte (acceptance test: regenerate and diff).
+#
+# TIME BASIS: anchor ages are AGE IN MONTHS. Dose 3 completes at age 6;
+# booster (dose 4) at age 24 for both products (deployment schedule).
+# =============================================================================
+
+schedule:
+  dose3_age_months: 6        # primary series complete; VE is 0 before this
+  booster_age_months: 24     # dose 4; both products (deployment schedule)
+  # NOTE: trial booster intervals differed (RTS,S ~18 mo after dose 3;
+  # R21 12 mo after dose 3). Applying R21's measured booster-restoration
+  # level at the 18-mo deployment interval is a documented assumption.
+
+# Numeric constants shared across the build.
+constants:
+  max_age_months: 1200       # carry curves to 100 y; loader requires reaching 0
+  eps_threshold: 0.005       # log-linear tail cutoff: VE < 0.5% -> 0 (label T)
+  round_decimals: 4          # final rounding (matches delivered CSVs)
+
+# -----------------------------------------------------------------------------
+# SEVERE:DISEASE RATIOS
+# The severe/death channel has no age-resolved trial curve. It is constructed
+# as (ratio x disease curve). Ratios come from the two summary VE numbers the
+# trial reports for severe vs clinical over matched windows.
+# LOAD-BEARING ASSUMPTION: severe VE is a constant fraction of clinical VE.
+# If severe and clinical protection do not wane in lockstep, the whole death
+# channel moves. This is the single biggest assumption to probe.
+# -----------------------------------------------------------------------------
+severe_disease_ratio:
+  pre_booster: 0.751662        # 33.9 / 45.1  (Lancet 2015 [18] Table 2 vs Table 1, pre-booster pooled)
+  boosted:     0.887052        # 32.2 / 36.3  (Lancet 2015 [18] Table 2 R3R cumulative / disease cumulative)
+  dose3_only_post_booster: 0.0 # [18] R3C cumulative severe 1.1% (ns) -> unboosted severe protection ~0
+  # exact source fractions retained so the ratios are auditable / reproducible:
+  _pre_booster_fraction:  {numerator: 0.339, denominator: 0.451}
+  _boosted_fraction:      {numerator: 0.322, denominator: 0.363}
+
+# -----------------------------------------------------------------------------
+# DISEASE (clinical malaria) ANCHORS — (age_months, VE)
+# Placed at the MIDPOINT age of each trial reporting window.
+# 'pre' anchors are shared by d3 and d34 (identical until the booster).
+# 'd3' = dose-3-only continuation; 'd34' = post-booster observed anchors.
+# -----------------------------------------------------------------------------
+disease:
+  rtss:
+    # PLoS Med 2014 (e1001685), per-protocol, incidence reduction by 6-mo
+    # period after dose 3, 5-17 mo:  68% / 41% / 26%.
+    pre:
+      - {age: 9,  ve: 0.68, src: "PLoS Med 2014 PP, mo 1-6 post dose 3 (VE 68%)"}
+      - {age: 15, ve: 0.41, src: "PLoS Med 2014 PP, mo 7-12 post dose 3 (VE 41%)"}
+      - {age: 21, ve: 0.26, src: "PLoS Med 2014 PP, mo 13-18 post dose 3 (VE 26%)"}
+    # Lancet 2015 [18] Table 1, mITT, VE = 1 - rate ratio.
+    d3:   # R3C (no booster)
+      - {age: 30, ve: 0.161, src: "Lancet 2015 [18] T1 R3C mo 21-32 (VE 16.1%)"}
+      - {age: 44, ve: 0.029, src: "Lancet 2015 [18] T1 R3C mo 33-end (VE 2.9%)"}
+    d34:  # R3R (booster)
+      - {age: 30, ve: 0.374, src: "Lancet 2015 [18] T1 R3R mo 21-32 (VE 37.4%)"}
+      - {age: 44, ve: 0.123, src: "Lancet 2015 [18] T1 R3R mo 33-end (VE 12.3%)"}
+    # Long-tail support (dose-3-only): Olotu 2013 NEJM year 4 ~ 0.
+
+  r21:
+    # Datoo 2024 (Lancet 403:533), 5-17 mo, ~78% at 12 mo (time to first).
+    # Slower waning than RTS,S (durable anti-NANP). Peak modelled ~80%.
+    pre:
+      - {age: 9,  ve: 0.80, src: "Datoo 2024, ~78% at 12 mo, peak anchor (~80%)"}
+      - {age: 15, ve: 0.72, src: "Datoo 2024, modest year-1 waning (~72%)"}
+      - {age: 21, ve: 0.62, src: "Datoo 2024 shape + slower-waning assumption (~62%)"}
+    d3:
+      - {age: 30, ve: 0.34, src: "Datoo shape + slower-waning assumption"}
+      - {age: 44, ve: 0.12, src: "Datoo shape + slower-waning assumption"}
+    d34:  # booster restore ~ measured 74% level (see booster-interval assumption)
+      - {age: 30, ve: 0.66, src: "Datoo 2024 18-mo ~74% booster-restored; interval assumption"}
+      - {age: 44, ve: 0.42, src: "Datoo shape + slower-waning assumption"}
+
+# =============================================================================
+# CONSTRUCTION AXES (the factorial)
+# Two independent binary axes -> four cells. The active cell(s) to build are
+# listed in `build`. Each axis documents the alternatives so switching is a
+# config edit, not a code change.
+# =============================================================================
+axes:
+  interpolation:
+    # How VE moves BETWEEN observed anchors and BEYOND the last anchor.
+    # 'linear'   : piecewise straight in VE space; extrapolate last two anchors to 0.
+    # 'loglinear': piecewise straight in log(VE); extrapolate last two anchors,
+    #              cut to 0 at eps_threshold (label T). Booster reset height is
+    #              the post-booster anchors back-extrapolated to booster age
+    #              (linearly or log-linearly per this choice) (label R).
+    options: [linear, loglinear]
+
+  severe_post_booster:
+    # dose-3-only severe channel after the booster age.
+    # 'zero'  : drops to 0 at booster age (measured [18] R3C severe ~0) (label G).
+    # 'smooth': keeps decaying; under loglinear it borrows the dose-3+4 severe
+    #           slope (its own points can't define a log slope); under linear it
+    #           scales the disease curve.
+    options: [zero, smooth]
+
+# Which cell(s) to build. Name pattern: <interpolation>_<severeTag>
+# where severeTag is 'severe0' (zero) or 'severeSmooth' (smooth).
+build:
+  cells:
+    - {interpolation: linear,    severe_post_booster: zero,   name: linear_severe0}
+    - {interpolation: linear,    severe_post_booster: smooth, name: linear_severeSmooth}
+    - {interpolation: loglinear, severe_post_booster: zero,   name: loglinear_severe0}
+    - {interpolation: loglinear, severe_post_booster: smooth, name: loglinear_severeSmooth}
+  # The forecast's default VE variant (referenced by the stage script):
+  default_cell: loglinear_severe0
+
+# =============================================================================
+# BACK-CASTING (BOOSTER RESET) — additional methods, documented, not yet active.
+# Current active method is 'back_extrapolate' (tied to the interpolation axis).
+# Two alternatives raised for future factorial expansion:
+#   max_observed : reset to the max observed dose-3 VE (primary-series peak).
+#   shape_repeat : replicate the pre-booster decay SHAPE post-booster, shifted
+#                  (in VE or log-VE space) to best-fit the post-booster anchors;
+#                  reset height falls out of the fit (may exceed the primary peak).
+# Left here as a documented option axis for when reset becomes its own dimension.
+# =============================================================================
+reset_method:
+  active: back_extrapolate
+  documented_alternatives: [max_observed, shape_repeat]
