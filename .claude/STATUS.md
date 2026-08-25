@@ -1,5 +1,5 @@
 # Project status
-Updated: 2026-08-21
+Updated: 2026-08-25
 
 ## Goals
 Infectious disease forecasting pipeline for malaria and dengue, projecting
@@ -20,6 +20,22 @@ Long-term axes:
 ## Orientation
 Pipeline infrastructure (stages 01–08, versioning, model registry) is built and
 largely run. Several active fronts on lsae_1285:
+
+**Malaria vaccine impact is the newest malaria front (2026-08-24/25), and it is now a PIPELINE
+rather than a figure run.** RTS,S/R21 dose-3/dose-4 coverage (373 admin1 across 37 countries,
+LME-projected to 2100) and a 2x2 factorial of delivered VE curves drive birth-cohort protection
+fractions, which reduce forecast malaria cases and deaths. The whole computation lives in six
+tested `lib/` modules — `processing/vaccine_{cohort_fractions,efficacy,coverage,impact}.py`,
+`data/vaccine_inputs.py`, `viz/vaccine_impact.py` — with the stage scripts reduced to I/O and
+`run_malaria_vaccine_pipeline.py` as the single documented entry point (~53 s for the data chain).
+This shape was the explicit ask: the sensitivities will be re-run many times under different
+assumptions, and the logic must not live in a stage script or in a conversation. Two facts the
+code depends on that are easy to get wrong: `dose_4` in the delivered coverage is UNCONDITIONAL
+(never multiply by `dose_3`), and protection must be applied CELL-WISE to age/sex draws — the
+burden-weighted collapse is exact for totals but wrong by age (DECISIONS 2026-08-24, 2026-08-25).
+The start-of-year vs mid-year age-reference choice is deliberately parked behind
+`AGE_REFERENCE_PHI` as a ready axis. Remaining gap: six specified figures are unbuilt, and the
+`protection` hook has no live caller.
 
 **Formalization is the active malaria front (2026-08-04).** Stage-05 products and figures are
 built and run; the work has shifted from *producing* figures to making the pipeline repeatable,
@@ -188,6 +204,24 @@ stage-08 gained `malaria_suit` + single-realization `mean_low_temperature`). Now
 formulations and deciding a single winner vs an ensemble (matched per-draw weighted blend).
 
 ## Recent steps
+- 2026-08-25: **Malaria vaccine pipeline formalized into `lib/` (Phases A-D); figures and the live
+  wiring are the remaining gap.** (1) Six modules at 100% coverage own all vaccine logic; the stage
+  scripts shrank to I/O (`plot_vaccine_impact` 535->387, `vaccine_impact_scenarios` 308->113,
+  `apply_vaccine_coverage_to_population` 559->250), every refactor accepted on content-hash
+  equality before/after. (2) **Phase C**: `finalize_age_sex_draws` gained an optional `protection`
+  frame applied cell-wise — implemented, but with NO live caller, since nothing on the running path
+  imports `finalize_forecast.py`. (3) **Phase D**: `docs/malaria_vaccine_pipeline/` (RUNBOOK,
+  FIGURE_SPEC, COHORT_AND_COVERAGE_METHODS, DELIVERY_INTEGRATION, IDD_FIGURES_TRANSITION) and
+  `docs/vaccine_efficacy/` (KNOWLEDGE, DERIVATIONS, VE_report, QUIZ + KEY, HANDOFF). (4)
+  Quantitative findings: the 0.619 aggregate dose4:dose3 ratio is a WINDOWING artefact, not a
+  dropout rate (cohort-matching recovers 0.6367); the population-vs-death-weighted coverage gap is
+  ENTIRELY the never-coverable under-6-month bins (2.5% of population, 18.7% of deaths — excluding
+  them, 0.8827 vs 0.8773); the pre-series dose-4 back-cast recovers 2022-23 but the 2019-21 pilot
+  cohorts are unrecoverable. (5) **Two dengue defects found and parked**: `fit_eligible` names an
+  A0 country gate, not fit membership, and the `& inc_rate > 0` half of the filter contradicts
+  fitting to zeros. (6) **The 100% coverage gate is failing at 79.31%** because the new stage
+  scripts are untested; `--no-cov-on-fail` hides it behind exit 0. Fast suite: 995 passed,
+  1 skipped, 79 deselected, 59 s.
 - 2026-08-21: **Dengue — past inputs widened to the full FHS set; ancestor aggregation moved into
   lib.** (1) **`20260821_v2`: all 473 FHS most-detailed locations**, 567,600 rows, zero NaN across
   32 columns, zeros kept, and the old 305-location frame reproduced bit-identically — recoverable
@@ -564,6 +598,29 @@ formulations and deciding a single winner vs an ensemble (matched per-draw weigh
   carryover from when past inputs were NC instead of parquet.
 
 ## Next steps
+**Active — malaria vaccine impact (2026-08-25):**
+1. **Build the outstanding figures** — `docs/malaria_vaccine_pipeline/FIGURE_SPEC.md` is the list.
+   Highest value first: **#12** product comparison RESTRICTED to the 71 RTS,S admin1s (the current
+   version spans all 373 and dilutes the switch ~4x by including places where nothing changes);
+   then **#6/#7** % averted by age under two denominators (among the vaccinated; among everyone in
+   vaccine-receiving countries); **#11** country choropleths of amount and % averted at 2050 /
+   2100 / cumulative-2050 / cumulative-2100 (reuse `lib/viz/maps.py`); **#9** deaths averted per
+   dose by super-region; **#13** super-region cuts.
+2. **Restore the 100% coverage gate.** `fail_under = 100` fails at **79.31%** repo-wide because the
+   new stage scripts (`run_malaria_vaccine_pipeline.py`, three `plot_vaccine_*.py`,
+   `vaccine_impact_scenarios.py`, `apply_vaccine_coverage_to_population.py`,
+   `09_build_vaccine_efficacy_curves.py`) have no tests. `--no-cov-on-fail` means the suite still
+   exits 0, so it is silent. Either test the scripts' arg-assembly/IO seams, or exclude stage
+   scripts in `[tool.coverage.run]` deliberately and say so — do not leave it ambiguous.
+3. **Wire the `protection` hook to a live caller.** `finalize_age_sex_draws` accepts and applies it
+   correctly, but nothing on the running path imports `finalize_forecast.py`. One argument at the
+   call site once stage-05 finalization lands.
+4. **idd-figures transition** — proposal in
+   `docs/malaria_vaccine_pipeline/IDD_FIGURES_TRANSITION.md`; the paired-arm shared-frame
+   box-panel feature request is written at
+   `../idd-figures/inbox/2026-08-24_idd-forecast-mbp_paired-arm-boxes-shared-frame.md` and is
+   UNCOMMITTED in that repo.
+5. **Tabbed reporting artifact** (DECISIONS 2026-08-24) — after the figures exist.
 **Active — malaria formalization (2026-08-04; `.claude/FORMALIZATION_PLAN.md` is the plan):**
 1. **`tests/05_aggregation/` for malaria BEFORE rewiring anything.** The dir now exists but holds
    only dengue's tests. `plot_run_comparison.py` is 1,400+ lines with 32 DAH references and zero
@@ -764,6 +821,10 @@ landed/exercised, 07b → 08 forecast-input chain produced 3 netCDFs.
     pop-zero-first design.
 
 ## Parking lot
+- **[2026-08-25] Dengue `fit_eligible` is misnamed + `inc_rate > 0` gate is wrong.**
+  The flag records the A0 country-level gate, not fit membership; and we can fit to
+  zeros, so the `& inc_rate > 0` half of 06b's filter shouldn't be there. Noted and
+  deliberately left alone. See DECISIONS.md 2026-08-25.
 - **[2026-07-21] Relocate model-selection code out of `reports/03_modeling`** — Bobby: "reports/03_modeling is a horrible place for the only place where model selection code lives." The selection/ranking logic (esp. the report notebook) shouldn't have its only home under `reports/`; move into proper versioned modules (e.g. `src/idd_forecast_mbp/select/`) later. Note-for-later, not yet actioned.
 - `read_grid_map()` in `netcdf_helpers.R` is a placeholder; canonical fix
   is for the upstream Python writer to embed a `grid_map` global attribute.

@@ -1261,3 +1261,120 @@ exact `A0_af` codes or every country silently inherits another country's effect.
 **Revisit if:** a chosen formulation fits all-age and disaggregates — then the RR is load-bearing
 again, and locations with no observed pattern need one supplied (pooled/regional/global), which is
 a modelling decision, not a filter.
+
+## 2026-08-24: Cohort age-reference convention (start-of-year) — PARKED, to become an axis
+**Decision:** Keep the current start-of-year convention. `single_year_of_age_fraction` uses
+`by = year - age_int - 1`, i.e. age evaluated at the START of the reporting year, which is what
+makes the dose-3 trigger straddle two calendar years 50/50. Phase B will add
+`--age-reference {start_of_year, mid_year, end_of_year}` with `start_of_year` as default, so
+revisiting is a flag flip rather than surgery on the cohort math. Do NOT change the math before
+that axis exists.
+**Why:** Found while checking the VE module's QUIZ_KEY against the code. Under a MID-YEAR
+convention (which is what GBD/FHS population estimates normally are — July 1) a child with `a`
+completed years hits the 6-month trigger in a single calendar year, not split across two. On real
+Kebbi dose_3 the two conventions differ by up to **6.7 percentage points** during ramp-up years
+(e.g. age 3 in 2029: blend 0.195 vs single 0.262), converging to ~0.004 once coverage plateaus.
+That is the same order as the original year-boundary bug the task spec warned about.
+**The test cannot catch it:** `test_vaccine_cohort_ground_truth.py` evaluates ages at `float(y)` —
+the same start-of-year convention — so it validates the code against its own assumption. Any
+future change here needs the harness's convention parameterised too, or the test is vacuous.
+**Revisit if:** the population source's reference date is confirmed (mid-year would argue for
+`mid_year`), or ramp-era (2024-2035) results become decision-relevant rather than the plateau.
+
+## 2026-08-24: `dose_4` in the coverage data is UNCONDITIONAL — never multiply by `dose_3`
+**Decision:** `d4_ever = dose_4(birth_year + 2)`, gated to 0 below age 2. Never
+`d3_ever * dose_4`.
+**Why:** `dose_4` already has the dose-3-to-dose-4 dropout baked in. Verified on the delivered
+Kebbi rows: `dose_4(t)/dose_3(t-2)` settles to a constant by 2029-2033. Double-applying would
+understate dose-4-ever by a factor of ~`dose_3` (≈3x at Kebbi's plateau).
+**Precision note:** that constant computes to **0.640-0.642**, not the 0.633 (= 1 - 0.367) the
+handoff states — about 1pp apart. Do not hardcode 0.633 in any tolerance; the unit test asserts a
+loose band. Per-location median implied ratios span 0.6332-0.6366 across all 373 locations.
+**Revisit if:** a coverage vintage arrives where `dose_4` is documented as conditional.
+
+## 2026-08-24: Pre-lag `dose_4` — back-cast, do not zero
+**Decision:** `--backcast-prelag-dose3` is the treatment of record. `--zero-prelag-dose4` remains
+as a stopgap but discards real children.
+**Why:** 38 locations report `dose_4 > 0` in 2024-25 while `dose_3` starts in 2024 — boosters whose
+dose-3 antecedent predates the file (early RTS,S rollout: Ghana, Kenya, Malawi, Benin, Burkina
+Faso, Cameroon, Liberia, South Sudan, + 2 DRC). Inverting each location's own implied dropout
+ratio recovers plausible, monotone pre-series dose_3 (no implied value > 1; 37/38 monotone into
+their 2024 value). Versus zeroing this keeps **31.7M dose-3 and 19.0M dose-4 person-years**.
+**Known limit:** only 2022 and 2023 are recoverable — the years whose boosters appear in the file.
+Real pilot dose_3 from 2019-2021 leaves no trace, so cohorts born then still read 0, understating
+dose-3-ever for children aged 3+ in 2024-25 in the pilot areas. Needs producer data to fix.
+**Revisit if:** pre-2024 dose_3 is delivered for the early-rollout locations.
+
+## 2026-08-24: VE curves are BUILT in-repo from VE_ANCHORS.yaml (raw anchors -> processed curves)
+**Decision:** Anchors are raw (`src/idd_forecast_mbp/VE_ANCHORS.yaml`, never written by the
+pipeline); curves are processed (`02-processed_data/malaria_vaccine_efficacy/<RUN_DATE>/` +
+`current`), built by `02_data_prep/09_build_vaccine_efficacy_curves.py`. The received vintage in
+`01-raw_data/malaria_vaccine_efficacy/20260824/` is kept as the immutable handover record.
+**Why:** Construction from inputs is data-prep, not fetching, and `01-raw_data` is documented
+"never written by pipeline". Accepted on a byte-identity test: the four cells regenerate with
+matching sha256 against the received CSVs, and the pipeline's results are numerically identical
+(max abs diff 0.0) reading built curves instead of delivered ones. Hashes are pinned in
+`tests/lib/processing/test_vaccine_efficacy.py`.
+**Revisit if:** anchors change — then the pinned hashes must change too, with the diff explained.
+
+## 2026-08-24: `VECurve` lives in `vaccine_efficacy.py`; the cohort module imports it
+**Decision:** One `VECurve`, owned by the module that builds curves. `vaccine_cohort_fractions.py`
+imports it and keeps the birth-cohort logic and the trigger-age constants.
+**Why:** Both modules had defined one (I wrote a reader before the builder arrived). No import
+cycle: `validate_ve_frame` takes `dose3_age`/`booster_age` as parameters, so the stage script
+passes the cohort model's trigger ages in and neither module imports the other.
+
+## 2026-08-24: Vaccine scenario threading — malaria is the template, dengue conforms later
+**Decision (Bobby):** Do NOT copy dengue's existing `vaccinate_{True,False}` upload convention.
+Build the malaria path properly; when dengue is revisited it is re-done to go through whatever is
+built here.
+**Why:** Avoids propagating an older ad-hoc convention into the formalized path.
+
+## 2026-08-24: netCDF forecast reads must be CONTIGUOUS, never scattered `.sel`
+**Decision:** Read the whole variable with `.to_numpy()` and subset positionally in numpy.
+**Why:** Measured on `malaria_forecast_ssp245_Baseline.nc`: contiguous read of the entire 317 MB
+variable takes **3.0s** and the numpy subset 0.4ms, whereas `.sel(location_id=[...])` on 60
+scattered locations takes **36s** and on 1,986 did not finish in 600s. HDF5 fancy-indexing pulls
+whole chunks, so naming fewer locations does not read less. This is recorded in the function's
+docstring; do not "optimize" it back to a lazy `.sel`. Also: this removed the apparent case for
+jobmon-parallelising the impact step — the whole chain is ~35s per cell, aggregation 0.17s.
+
+## 2026-08-24: Reporting will use tabbed artifacts (Phase D intent)
+**Decision (Bobby):** Results reporting is to be an Artifact with tabs per section / assumption /
+plot, so a reader can click through to e.g. averted outcome X for Global or super-region Y.
+Deferred until the pipeline (Phases A-C) is solid; presentation will follow idd-figures standards.
+
+## 2026-08-25: `fit_eligible` is misnamed and the `inc_rate > 0` half of the gate is wrong — parked
+**Decision (Bobby):** Leave both alone for now; note and move on.
+**What's wrong:**
+1. *Name.* `fit_eligible` (06a/06b) does not mean "belongs in the fitting dataset". It means the
+   location's **A0 passed the country-level gate** — the A0's all-age 2023 record had
+   `dengue_mort_count > dengue_fit_mort_threshold` AND `dengue_inc_count > dengue_fit_inc_threshold`
+   (both `0.0` today). It is inherited by every A2 in a qualifying country, including A2s with no
+   dengue of their own. The name should say A0 gate — e.g. `a0_gate_pass` / `a0_dengue_present`.
+2. *Semantics.* 06b:292 states the fitting filter as `fit_eligible & inc_rate > 0`. Bobby: "We 100%
+   can fit to zeros." A zero-incidence location-year is legitimate data, not a row to discard; the
+   `inc_rate > 0` half should not be part of the gate.
+**Why parked:** Dengue is downstream of the malaria paper; renaming a column that travels through
+06a -> 06b -> fitting is a mechanical but wide change, and the zero-fitting question is a modeling
+decision to make deliberately, not in passing.
+**Revisit if:** the dengue revision starts, or the thresholds are tightened off 0.0 (which is when
+the gate's meaning actually starts to bite). Related: the parked malaria "allow zero-burden
+locations to emerge" item — same underlying "zeros are data" theme.
+
+## 2026-08-25: Vaccine protection is applied CELL-WISE to age/sex draws, not via the collapse
+**Decision:** `finalize_age_sex_draws` takes an optional `protection` frame and multiplies the
+DISAGGREGATED admin-2 x age x sex counts cell by cell (`apply_protection_to_age_sex`), before
+roll-up, so every aggregate inherits it. `protection=None` is the no-vaccine product — one code
+path, not two.
+**Why:** The burden-weighted collapse `R = sum(f * protection)` is exact for ALL-AGE totals and is
+what the impact figures use. Scaling all-age counts by `R` and then disaggregating reproduces the
+same total — the fractions sum to 1 — but spreads the reduction UNIFORMLY across ages. On an
+age-targeted product that reports a reduction among 15-19 year olds, who have no protection, and
+understates it among the under-fives, who hold nearly all of it. Both are correct, for different
+outputs: the collapse for totals (cheap), cell-wise for anything age-resolved.
+`test_uniform_collapse_and_cellwise_agree_on_the_total_but_not_by_age` pins both halves.
+**Revisit if:** a delivery product needs only all-age numbers (the collapse suffices), or the
+protection table gains a dimension beyond location x year x age x measure.
+**Note:** the hook has NO live caller — nothing on the running path imports `finalize_forecast.py`.
+Wiring it is one argument at that call site when stage-05 finalization lands.
