@@ -77,7 +77,7 @@ from idd_forecast_mbp.lib.processing.vaccine_coverage import (
     zero_prelag_dose4,
 )
 from idd_forecast_mbp.lib.processing.vaccine_efficacy import load_ve_curve
-from idd_forecast_mbp.lib.versioning import finalize_artifact
+from idd_forecast_mbp.lib.versioning import finish_stage
 
 
 def parse_args(argv=None):
@@ -255,7 +255,7 @@ def main(argv=None) -> pd.DataFrame:
     write_parquet(result, out_path)
     print(f"\nWrote {len(result):,} rows to {out_path}")
     if versioned:
-        finalize_artifact(rfc._A04_MAL_VACCINE_COHORTS)
+        finish_stage(rfc._A04_MAL_VACCINE_COHORTS)
     return result
 
 

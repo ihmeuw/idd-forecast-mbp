@@ -23,6 +23,7 @@ from idd_forecast_mbp.select.rank import (
     load_config,
     load_summary,
     render_report,
+    resolve_run_dir,
     run_selection,
     write_result,
 )
@@ -33,12 +34,6 @@ QMD = (
     / "model_selection"
     / "malaria_model_selection.qmd"
 )
-
-
-def resolve_run_dir(config_run_dir: str, override: str | None) -> Path:
-    """Absolute run dir: an absolute override as given, otherwise relative to the modeling stage root."""
-    chosen = Path(override) if override else Path(config_run_dir)
-    return chosen if chosen.is_absolute() else mbpc._MODELING_STAGE / chosen  # noqa: SLF001 - stage roots are underscore-named in constants by convention
 
 
 @click.command(help=__doc__)
@@ -81,7 +76,7 @@ def main(
     render: bool,
 ) -> None:
     cfg = load_config(config_path)
-    target = resolve_run_dir(cfg.run_dir, run_dir)
+    target = resolve_run_dir(cfg.run_dir, run_dir, root=mbpc._MODELING_STAGE)  # noqa: SLF001 - stage roots are underscore-named in constants
     summary = load_summary(target)
     result = run_selection(summary, build_universe(), cfg.rank)
     click.echo(f"run dir: {target}")

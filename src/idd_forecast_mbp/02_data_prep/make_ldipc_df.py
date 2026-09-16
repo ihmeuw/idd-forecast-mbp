@@ -11,7 +11,7 @@ Standalone: `python make_ldipc_df.py` still works (no flags).
 import pandas as pd
 from idd_forecast_mbp import constants as mbpc
 from idd_forecast_mbp.lib.io.parquet import write_parquet
-from idd_forecast_mbp.lib.versioning import finalize_artifact
+from idd_forecast_mbp.lib.versioning import finish_stage
 
 # Mapping from income scenario names in the source CSV to the RCP scenario
 # string labels used by this pipeline's ssp_scenarios dict.
@@ -65,7 +65,7 @@ def main() -> None:
 
     write_parquet(df, ldipc_df_path)
     print(f"Wrote {len(df):,} rows to {ldipc_df_path}")
-    finalize_artifact(mbpc._A02_LDIPC)
+    finish_stage(mbpc._A02_LDIPC)
 
 
 if __name__ == "__main__":

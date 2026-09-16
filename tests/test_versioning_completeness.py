@@ -1,13 +1,14 @@
 """Enforce that every pipeline stage script that writes to a versioned artifact
-also calls finalize_artifact().
+also calls the success path, finish_stage() (lib.versioning, over idd_tools.versions).
 
 A script "writes to a versioned artifact" if it imports any *_WRITE_PATH or
 FORECASTING_DATA_PATH constant from mbpc. Such a script MUST also import
-finalize_artifact — either directly or via finalize_all_artifacts.
+finish_stage (or idd_tools' finish_if_requested), so a launch with --current /
+IDD_VERSIONS_CURRENT=1 freezes and promotes what it wrote.
 
 Parallel worker scripts (which process one chunk and are called many times) are
-explicitly exempted; the orchestrator is responsible for calling finalize_artifact
-after all workers complete.
+exempted; the orchestrator finishes after all workers complete. So is the first
+half of a two-script stage that shares one node (the second half finishes).
 """
 import ast
 from pathlib import Path
@@ -22,7 +23,7 @@ STAGE_DIRS = [
 ]
 
 # Scripts that process a single chunk in a parallel job array.
-# The orchestrator (not the worker) is responsible for finalize_artifact.
+# The orchestrator (not the worker) is responsible for finish_stage.
 PARALLEL_WORKERS = {
     "forecasted_draw_specific_malaria_dataframes.py",
     "forecasted_draw_specific_dengue_dataframes.py",
@@ -35,7 +36,7 @@ PARALLEL_WORKERS = {
     "create_as_dalys_by_draw_raked_parallel.py",
 }
 
-# Scripts with known deferred finalize_artifact work — tracked in DECISIONS.md.
+# Scripts with known deferred finish_stage work — tracked in DECISIONS.md.
 # Remove entries here as they are fixed.
 DEFERRED = {
     "01_cause_as_aggregation_by_draw_parallel.py",  # stage 05 orchestrator
@@ -44,8 +45,14 @@ DEFERRED = {
     "make_full_means_ds.py",                        # stage 06
 }
 
+# The first script of a two-producer node: it must NOT finish (that would freeze half
+# a stage); its partner does. Keyed script -> the script that finishes the node.
+PAIRED_PRODUCERS = {
+    "02a_fhs_population.py": "02b_full_population.py",
+}
+
 # Retired scripts, kept for reference but not run by the pipeline. The
-# finalize_artifact rule governs scripts that actually execute a stage, so
+# finish_stage rule governs scripts that actually execute a stage, so
 # retired copies are out of its scope. Naming conventions in this repo:
 # OLD_/alt_ prefixes and an _old suffix.
 RETIRED_PREFIXES = ("OLD_", "alt_")
@@ -73,7 +80,7 @@ WRITE_PATH_MARKERS = {
 def _is_write_path_name(name: str) -> bool:
     return name.endswith(WRITE_PATH_SUFFIX) or name in WRITE_PATH_MARKERS
 
-FINALIZE_NAMES = {"finalize_artifact", "finalize_all_artifacts"}
+FINALIZE_NAMES = {"finish_stage", "finish_if_requested"}
 
 SRC_ROOT = Path(__file__).parent.parent / "src" / "idd_forecast_mbp"
 
@@ -99,7 +106,7 @@ def _imports_write_path(tree: ast.Module) -> bool:
     scripts assign their own local `UPLOAD_DATA_PATH = rfc.MODEL_ROOT / ...`,
     which is a hand-built path into a non-versioned subtree, not the versioned
     constant. Counting those produced false positives that this rule then
-    demanded finalize_artifact for -- against an artifact root that has no
+    demanded finish_stage for -- against an artifact root that has no
     dated-run/current convention at all.
     """
     shadowed = _module_level_assignments(tree)
@@ -129,7 +136,8 @@ def collect_offending_scripts(src_root: Path = SRC_ROOT):
             continue
         for path in sorted(stage_dir.glob("*.py")):
             if (path.name.startswith("test_") or _is_retired(path.name)
-                    or path.name in PARALLEL_WORKERS or path.name in DEFERRED):
+                    or path.name in PARALLEL_WORKERS or path.name in DEFERRED
+                    or path.name in PAIRED_PRODUCERS):
                 continue
             source = path.read_text()
             try:
@@ -145,22 +153,22 @@ OFFENDERS = collect_offending_scripts()
 
 
 @pytest.mark.parametrize("script", OFFENDERS, ids=str)
-def test_script_calls_finalize_artifact(script):
+def test_script_calls_finish_stage(script):
     pytest.fail(  # pragma: no cover - only runs when an offender exists
         f"{script} writes to a versioned artifact but does not import "
-        "finalize_artifact or finalize_all_artifacts.\n"
-        "Add: from idd_forecast_mbp.lib.versioning import finalize_artifact\n"
-        "and call finalize_artifact(mbpc._AXX_*) at the end of main()."
+        "finish_stage.\n"
+        "Add: from idd_forecast_mbp.lib.versioning import finish_stage\n"
+        "and call finish_stage(mbpc._AXX_*) at the end of main()."
     )
 
 
 def test_no_offending_scripts():
-    """Single summary test — fails if any scripts are missing finalize_artifact."""
+    """Single summary test — fails if any scripts are missing finish_stage."""
     if OFFENDERS:  # pragma: no cover - only runs when an offender exists
         names = "\n  ".join(str(p) for p in OFFENDERS)
         pytest.fail(
             f"{len(OFFENDERS)} script(s) write to versioned artifacts without "
-            f"calling finalize_artifact:\n  {names}"
+            f"calling finish_stage:\n  {names}"
         )
 
 
@@ -229,9 +237,9 @@ def test_no_write_path_at_all():
 
 
 @pytest.mark.parametrize("source, expected", [
-    ("from idd_forecast_mbp.lib.versioning import finalize_artifact\n", True),
-    ("from idd_forecast_mbp.lib.versioning import finalize_all_artifacts\n", True),
-    ("import finalize_artifact\n", True),
+    ("from idd_forecast_mbp.lib.versioning import finish_stage\n", True),
+    ("from idd_tools.versions import finish_if_requested\n", True),
+    ("import finish_stage\n", True),
     ("from idd_forecast_mbp.lib.versioning import something_else\n", False),
     ("x = 1\n", False),
 ])
@@ -246,7 +254,7 @@ def _stage_file(root: Path, name: str, source: str) -> None:
 
 
 WRITER = "import x as mbpc\np = mbpc.POPULATION_WRITE_PATH\n"
-WRITER_WITH_FINALIZE = ("from idd_forecast_mbp.lib.versioning import finalize_artifact\n"
+WRITER_WITH_FINALIZE = ("from idd_forecast_mbp.lib.versioning import finish_stage\n"
                         "import x as mbpc\np = mbpc.POPULATION_WRITE_PATH\n")
 
 

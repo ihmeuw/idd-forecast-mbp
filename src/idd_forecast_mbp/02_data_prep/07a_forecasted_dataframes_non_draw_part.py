@@ -14,7 +14,7 @@ from pathlib import Path
 from idd_forecast_mbp import constants as mbpc
 from idd_forecast_mbp.lib.io.parquet import read_parquet_with_integer_ids, write_parquet, ensure_id_columns_are_integers, sort_id_columns
 from idd_forecast_mbp.lib.io.covariate_readers import read_income_paths, merge_dataframes, read_urban_paths
-from idd_forecast_mbp.lib.versioning import finalize_artifact
+from idd_forecast_mbp.lib.versioning import finish_stage
 
 
 def main(
@@ -126,7 +126,7 @@ def main(
             cause = "malaria"
             write_parquet(forecast_df, forecasting_data_write_path / f"{cause}_forecast_scenario_{ssp_scenario}_non_draw_part.parquet")
 
-    finalize_artifact(mbpc._FORECASTING_STAGE)
+    finish_stage(mbpc._FORECASTING_STAGE)
 
 
 if __name__ == "__main__":

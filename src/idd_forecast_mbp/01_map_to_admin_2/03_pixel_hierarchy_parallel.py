@@ -120,7 +120,7 @@ try:
     if str(status).upper() == "DONE" or status == "D":
         # pixel_hierarchy writes per-subset_hierarchy (HIERARCHY_MAP);
         # finalize current/ for every subset_hierarchy that got written.
-        from idd_forecast_mbp.lib.versioning import finalize_artifact
+        from idd_forecast_mbp.lib.versioning import finish_stage
         # Mirror HIERARCHY_MAP from pixel_hierarchy.py — kept inline here
         # since the launcher needs to enumerate subset_hierarchies post-run.
         HIERARCHY_MAP = {
@@ -134,10 +134,10 @@ try:
             for subset_hierarchy in HIERARCHY_MAP.get(hierarchy, []):
                 if subset_hierarchy in finalized:
                     continue
-                finalize_artifact(mbpc.pixel_artifact_root(subset_hierarchy))
+                finish_stage(mbpc.pixel_artifact_root(subset_hierarchy))
                 finalized.add(subset_hierarchy)
                 print(f"✅ Finalized pixel artifact for {subset_hierarchy}.")
     else:
-        print(f"⚠️ Workflow did not complete cleanly (status={status}); skipping finalize_artifact.")
+        print(f"⚠️ Workflow did not complete cleanly (status={status}); skipping finish_stage.")
 except Exception as e:
     print(f"❌ Workflow submission failed: {e}")

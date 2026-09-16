@@ -135,11 +135,11 @@ try:
     status = workflow.run(seconds_until_timeout=60 * 60 * 24 * 3)  # 3 days
     print(f"Workflow {workflow.workflow_id} completed with status {status}.")
     if str(status).upper() == "DONE" or status == "D":
-        from idd_forecast_mbp.lib.versioning import finalize_artifact
-        for hierarchy in hierarchies:
-            finalize_artifact(mbpc.pixel_artifact_root(hierarchy))
-            print(f"✅ Finalized pixel artifact for {hierarchy}.")
+        # No finish here: pixel_main fills the node's working/ slot with per-block parts
+        # that 03_pixel_hierarchy_parallel.py aggregates in place; that launcher calls
+        # finish_stage once the per-hierarchy files exist.
+        print("✅ Pixel blocks written to working/; run 03_pixel_hierarchy_parallel.py to aggregate and finish.")
     else:
-        print(f"⚠️ Workflow did not complete cleanly (status={status}); skipping finalize_artifact.")
+        print(f"⚠️ Workflow did not complete cleanly (status={status}).")
 except Exception as e:
     print(f"❌ Workflow submission failed: {e}")

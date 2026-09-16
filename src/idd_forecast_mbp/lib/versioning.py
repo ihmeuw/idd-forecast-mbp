@@ -1,173 +1,162 @@
-"""Output versioning utilities.
+"""Output-node versioning for pipeline stages: the repo's adapter over ``idd_tools.versions``.
 
-Each artifact directory has the structure:
-    {artifact_root}/{RUN_DATE}/          ← output files for this run
-    {artifact_root}/current  -> RUN_DATE ← symlink updated after successful run
-    {artifact_root}/first_submission -> ... ← named tag for a deliverable version
+The contract (STANDARDS, Output management): a stage writes into ``<node>/working/``, or
+``<node>/scratch/<label>/`` for a test run; nothing repoints ``current`` until a human
+freezes, or the launcher was started with ``--current`` and the run succeeded. Readers
+follow ``<node>/current/``.
 
-After a stage completes successfully, call finalize_artifact() to update the
-current/ symlink so downstream scripts read the latest output.
+What this module adds is one repo convention. Stage scripts that have no CLI receive
+the launcher options through the environment::
 
-Artifact roots are defined in constants.py as _A02_* and _A03_* variables,
-with corresponding WRITE and READ path pairs.
+    IDD_VERSIONS_CURRENT=1 IDD_VERSIONS_DESCRIPTION="stage 02, 2026 covariates" \\
+        .venv/bin/python 02_data_prep/01_make_full_hierarchy.py
 
-Example — finalizing a full pipeline run:
-    from idd_forecast_mbp.lib.versioning import finalize_all_artifacts
-    finalize_all_artifacts()
+so :func:`finish_stage` works the same for a click script (pass its ``versions``) and a
+plain script (read from the environment). Everything that mutates a node is
+``idd_tools.versions``; nothing here creates a dated directory or touches a symlink.
 """
 
+from __future__ import annotations
+
+import os
+import warnings
 from pathlib import Path
-from idd_forecast_mbp import constants as mbpc
+from typing import TYPE_CHECKING
+
+import click
+from idd_tools.versions import (
+    FinishResult,
+    VersionsOptions,
+    finish_if_requested,
+    preflight,
+    resolve_target,
+    scratch_dir,
+    with_repo_dir,
+    working_dir,
+)
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping
+
+# The repo whose commit a snapshot records, regardless of the cwd the stage ran from.
+REPO_DIR = Path(__file__).resolve().parents[3]
+
+ENV_PREFIX = "IDD_VERSIONS_"
+_ENV_FLAGS = {
+    "FREEZE": "freeze",
+    "CURRENT": "current",
+    "TAG": "tag",
+    "ALLOW_DIRTY": "allow_dirty",
+    "CLEAN": "clean",
+}
+_ENV_VALUES = {"DESCRIPTION": "description", "LABEL": "label", "SCRATCH": "scratch"}
+_TRUE = frozenset({"1", "true", "yes", "on"})
+_FALSE = frozenset({"", "0", "false", "no", "off"})
 
 
-def assert_artifact_ready(artifact_root: Path) -> Path:
-    """Check that an artifact has readable output and return the resolved path.
+def write_path(node: Path | str, *, clean: bool = False) -> Path:
+    """``<node>/working/``, created; the only directory a stage writes into."""
+    return working_dir(node, clean=clean)
 
-    Prefers current/ symlink. Falls back to the most recent dated subdirectory
-    if current/ is missing, with a warning. Raises FileNotFoundError if nothing
-    exists at all.
 
-    Call at the top of main() for each artifact the script reads from — not at
-    module level. Fires only for the artifacts this script actually needs.
+def scratch_path(node: Path | str, label: str) -> Path:
+    """``<node>/scratch/<label>/``, created; a run that is a test and is never frozen."""
+    return scratch_dir(node, label)
 
-    Returns the resolved read path so callers can use it directly if needed.
 
-    Example:
-        assert_artifact_ready(mbpc._A02_POPULATION)
-        assert_artifact_ready(mbpc._A02_MAL_RAKED_AA)
+def read_path(node: Path | str) -> Path:
+    """``<node>/current/``; refuses when no snapshot is current."""
+    current = Path(node) / "current"
+    if not current.exists():
+        msg = (
+            f"No current snapshot under {node}. Run the upstream stage, then freeze and "
+            f"promote it (idd-versions {node} freeze '<why>' --current), or launch it with --current."
+        )
+        raise FileNotFoundError(msg)
+    return current
+
+
+def assert_artifact_ready(node: Path | str) -> Path:
+    """The path a downstream stage should read: ``current``, else a non-empty ``working/`` with a warning.
+
+    The fallback exists for a node that has never been frozen (a brand-new stage); it is
+    not how chained rebuilds are meant to flow. Those launch upstream with ``--current``.
     """
-    import warnings
-    current = artifact_root / "current"
+    node = Path(node)
+    current = node / "current"
     if current.exists():
         return current
-    if artifact_root.exists():
-        dated = sorted(
-            [p for p in artifact_root.iterdir()
-             if p.is_dir() and not p.is_symlink() and p.name[:8].isdigit()],
-            reverse=True,
+    working = node / "working"
+    if working.is_dir() and any(working.iterdir()):
+        warnings.warn(
+            f"No current snapshot under {node.name}; reading working/ (unfrozen output). "
+            "Freeze and promote it, or launch the producing stage with --current.",
+            stacklevel=2,
         )
-        if dated:
-            warnings.warn(
-                f"No current/ symlink for {artifact_root.name}. "
-                f"Falling back to {dated[0].name}. "
-                "Run finalize_artifact() after writing to suppress this.",
-                stacklevel=2,
-            )
-            return dated[0]
-    raise FileNotFoundError(
-        f"\nArtifact not ready: {artifact_root}\n"
-        "Run and finalize the upstream stage that produces this artifact first."
+        return working
+    msg = (
+        f"Artifact not ready: {node}\n"
+        "Run the upstream stage that produces it; promote a snapshot or launch it with --current."
     )
+    raise FileNotFoundError(msg)
 
 
-def finalize_artifact(artifact_root: Path, run_date: str = mbpc.RUN_DATE) -> None:
-    """Update the current/ symlink for an artifact after a successful run.
+def _flag(raw: str, name: str) -> bool:
+    value = raw.strip().lower()
+    if value in _TRUE:
+        return True
+    if value in _FALSE:
+        return False
+    msg = f"{ENV_PREFIX}{name} must be a boolean (1/0, true/false, yes/no, on/off); got {raw!r}"
+    raise ValueError(msg)
 
-    Args:
-        artifact_root: The artifact directory containing dated run subdirs,
-                       e.g. constants._A02_HIERARCHY.
-        run_date: The run date string to point current/ at.
+
+def versions_from_env(environ: Mapping[str, str] | None = None) -> VersionsOptions:
+    """The launcher options a plain (no-CLI) stage script was started with, from ``IDD_VERSIONS_*``.
+
+    Unset means the defaults: write to ``working/``, freeze nothing. The same pre-flights
+    a click launcher runs at parse time run here, so a missing description is refused
+    before any compute.
     """
-    run_dir = artifact_root / run_date
-    if not run_dir.exists():
-        raise FileNotFoundError(
-            f"Run directory does not exist: {run_dir}\n"
-            "Did the stage complete successfully?"
-        )
-    current = artifact_root / "current"
-    if current.is_symlink():
-        current.unlink()
-    current.symlink_to(run_date)
-    print(f"  {current} -> {run_date}")
+    env = os.environ if environ is None else environ
+    values: dict[str, object] = {}
+    for suffix, field in _ENV_FLAGS.items():
+        raw = env.get(f"{ENV_PREFIX}{suffix}")
+        if raw is not None:
+            values[field] = _flag(raw, suffix)
+    for suffix, field in _ENV_VALUES.items():
+        raw = env.get(f"{ENV_PREFIX}{suffix}")
+        if raw is not None and raw.strip():
+            values[field] = raw.strip()
+    versions = VersionsOptions(**values)  # type: ignore[arg-type]
+    try:
+        preflight(versions)
+    except click.ClickException as exc:
+        raise ValueError(exc.format_message()) from exc
+    return versions
 
 
-def finalize_all_artifacts(run_date: str = mbpc.RUN_DATE) -> None:
-    """Update current/ symlinks for all standard pipeline artifacts."""
-    artifact_roots = [
-        mbpc._A02_HIERARCHY,
-        mbpc._A02_POPULATION,
-        mbpc._A02_DAH,
-        mbpc._A02_GDPPC,
-        mbpc._A02_LDIPC,
-        mbpc._A02_MED_CONSUMPPC,
-        mbpc._A02_URBAN,
-        mbpc._A02_MAL_RAKED_AA,
-        mbpc._A02_MAL_RAKED_AS,
-        mbpc._A02_DEN_RAKED_AA,
-        mbpc._A02_DEN_RAKED_AS,
-        mbpc._A03_MAL_MODELING,
-        mbpc._A03_DEN_MODELING,
-        mbpc._A03_MAL_PAST_INPUTS,
-        mbpc._A03_DEN_PAST_INPUTS,
-        mbpc._A04_MAL_FORECAST_LOCATIONS,
-        mbpc._A04_MAL_FORECAST_INPUTS,
-        mbpc._A04_MAL_FORECAST_OUTPUTS,
-        mbpc._FORECASTING_STAGE,
-    ]
-    print(f"Finalizing run {run_date}:")
-    for root in artifact_roots:
-        run_dir = root / run_date
-        if run_dir.exists():
-            finalize_artifact(root, run_date)
-        else:
-            print(f"  skipping {root.relative_to(mbpc.MODEL_ROOT)} (no output found)")
+def stage_target(
+    node: Path | str,
+    versions: VersionsOptions | None = None,
+    *,
+    clean: bool | None = None,
+) -> Path:
+    """Where this run writes: ``resolve_target`` with the click options, or the environment's."""
+    versions = versions if versions is not None else versions_from_env()
+    return resolve_target(node, versions, clean=clean)
 
 
-def tag_artifact(artifact_root: Path, tag: str, run_date: str = mbpc.RUN_DATE) -> None:
-    """Create a named symlink alongside current/ pointing to a specific run.
+def finish_stage(
+    node: Path | str, versions: VersionsOptions | None = None
+) -> FinishResult | None:
+    """The success path of a stage: freeze and promote ``working/`` if the launch asked for it.
 
-    Use this to bookmark deliverable versions, e.g.:
-        tag_artifact(mbpc._A02_HIERARCHY, "manuscript_v1")
-        tag_artifact(mbpc._A03_MAL_MODELING, "pre_revision_1", run_date="20260315")
-
-    Args:
-        artifact_root: The artifact directory.
-        tag: Name for the symlink (e.g. "manuscript_v1").
-        run_date: The run date string to point the tag at.
+    Pass the click ``versions`` when the script has one; a plain script leaves it ``None``
+    and the ``IDD_VERSIONS_*`` variables decide. Provenance is recorded against this repo's
+    checkout whatever the cwd. Returns ``None`` when nothing was requested.
     """
-    run_dir = artifact_root / run_date
-    if not run_dir.exists():
-        raise FileNotFoundError(f"Run directory does not exist: {run_dir}")
-    tag_path = artifact_root / tag
-    if tag_path.exists() or tag_path.is_symlink():
-        raise FileExistsError(
-            f"Tag already exists: {tag_path}\n"
-            "Remove it manually before re-tagging."
-        )
-    tag_path.symlink_to(run_date)
-    print(f"  {tag_path} -> {run_date}")
-
-
-def list_runs(artifact_root: Path) -> list[dict]:
-    """List all dated run directories and symlink status for an artifact.
-
-    Returns a list of dicts with keys: run_date, symlinks, is_current.
-    """
-    if not artifact_root.exists():
-        return []
-
-    symlink_targets: dict[str, list[str]] = {}
-    for p in artifact_root.iterdir():
-        if p.is_symlink():
-            target = p.resolve().name
-            symlink_targets.setdefault(target, []).append(p.name)
-
-    runs = []
-    for p in sorted(artifact_root.iterdir()):
-        if p.is_dir() and not p.is_symlink():
-            symlinks = symlink_targets.get(p.name, [])
-            runs.append({
-                "run_date": p.name,
-                "symlinks": symlinks,
-                "is_current": "current" in symlinks,
-            })
-    return runs
-
-
-def list_unlinked_runs(artifact_root: Path) -> list[Path]:
-    """Return dated run directories with no symlink pointing to them."""
-    return [
-        artifact_root / r["run_date"]
-        for r in list_runs(artifact_root)
-        if not r["symlinks"]
-    ]
+    versions = versions if versions is not None else versions_from_env()
+    if versions.repo_dir is None:
+        versions = with_repo_dir(versions, REPO_DIR)
+    return finish_if_requested(node, versions)

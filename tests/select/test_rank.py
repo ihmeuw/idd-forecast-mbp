@@ -75,6 +75,7 @@ def test_load_config_reads_committed_file(config):
     assert config.rank.focus_metric in rk.FOCUS_DIRECTION
     assert config.rank.tolerance_rule == "std_fraction"
     assert set(config.fit) >= {"cv_strategy", "gaps", "test_windows"}
+    assert set(config.final_fit) == {"optimizer", "maxit", "data_filter", "suit_variant", "inc_mort_rhs"}
 
 
 def test_load_config_missing_file_refuses(tmp_path):
@@ -95,6 +96,8 @@ def test_load_config_refuses_bad_shapes(tmp_path, mutation):
         raw["extra"] = {}
     elif mutation == "bad_focus":
         raw["rank"]["focus_metric"] = "consensus_rank"
+    elif mutation == "drop_final_fit":
+        del raw["final_fit"]
     p = tmp_path / "cfg.yaml"
     p.write_text(yaml.safe_dump(raw))
     with pytest.raises((ValueError, TypeError), match=r"rank|focus_metric|top-level"):

@@ -12,7 +12,7 @@ Standalone: `python make_med_consumppc_df.py` still works (no flags).
 import pandas as pd
 from idd_forecast_mbp import constants as mbpc
 from idd_forecast_mbp.lib.io.parquet import write_parquet
-from idd_forecast_mbp.lib.versioning import finalize_artifact
+from idd_forecast_mbp.lib.versioning import finish_stage
 
 MED_CONSUMPPC_SCENARIO_MAP: dict[str, str] = {
     "better":    "rcp26",
@@ -54,7 +54,7 @@ def main() -> None:
 
     write_parquet(df, out_path)
     print(f"Wrote {len(df):,} rows to {out_path}")
-    finalize_artifact(mbpc._A02_MED_CONSUMPPC)
+    finish_stage(mbpc._A02_MED_CONSUMPPC)
 
 
 if __name__ == "__main__":

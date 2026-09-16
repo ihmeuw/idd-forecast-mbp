@@ -57,7 +57,9 @@ if TYPE_CHECKING:
 
 AXES: tuple[str, ...] = tuple(AXIS_ORDER)
 WINDOW_SEP = "__"
-RUN_DIR_ENV = "MBP_SELECTION_RUN_DIR"  # how render_report hands the run dir to the report
+RUN_DIR_ENV = (
+    "MBP_SELECTION_RUN_DIR"  # how render_report hands the run dir to the report
+)
 
 # The focus metric decides the parsimony band; its direction is a property of the score,
 # not a choice, so it is fixed here rather than in the config.
@@ -69,7 +71,7 @@ METHOD_RANK_COL: dict[str, str] = {
 }
 TOLERANCE_RULES: frozenset[str] = frozenset({"std_fraction"})
 
-_TOP_KEYS = frozenset({"cause", "run_dir", "fit", "rank"})
+_TOP_KEYS = frozenset({"cause", "run_dir", "fit", "rank", "final_fit"})
 _RANK_KEYS = frozenset(
     {
         "metric_sample",
@@ -159,6 +161,7 @@ class SelectionConfig:
     run_dir: str
     fit: dict[str, Any]
     rank: RankParams
+    final_fit: dict[str, Any]
     source: Path
 
 
@@ -203,19 +206,26 @@ def load_config(path: str | Path) -> SelectionConfig:
     if set(raw) != _TOP_KEYS:
         msg = f"{path}: top-level keys must be exactly {sorted(_TOP_KEYS)}; got {sorted(raw)}"
         raise ValueError(msg)
-    if not isinstance(raw["fit"], dict) or not isinstance(raw["rank"], dict):
-        msg = f"{path}: fit: and rank: must be mappings"
+    if not all(isinstance(raw[k], dict) for k in ("fit", "rank", "final_fit")):
+        msg = f"{path}: fit:, rank: and final_fit: must be mappings"
         raise TypeError(msg)
     return SelectionConfig(
         cause=str(raw["cause"]),
         run_dir=str(raw["run_dir"]),
         fit=dict(raw["fit"]),
         rank=rank_params_from_dict(raw["rank"]),
+        final_fit=dict(raw["final_fit"]),
         source=path,
     )
 
 
 # --------------------------------------------------------------------------- inputs
+def resolve_run_dir(config_run_dir: str, override: str | None, *, root: Path) -> Path:
+    """Absolute run dir: an absolute override as given, otherwise relative to ``root``."""
+    chosen = Path(override) if override else Path(config_run_dir)
+    return chosen if chosen.is_absolute() else root / chosen
+
+
 def load_summary(run_dir: str | Path) -> pd.DataFrame:
     """Read ``selection_summary.parquet`` (finalize's output) from a run directory."""
     path = Path(run_dir) / "selection_summary.parquet"
@@ -495,6 +505,7 @@ def result_record(
         "code": git_info(),
         "config_source": str(config.source),
         "fit": config.fit,
+        "final_fit": config.final_fit,
         "rank": result.params.to_dict(),
         "windows": result.windows,
         "criteria": result.criteria,

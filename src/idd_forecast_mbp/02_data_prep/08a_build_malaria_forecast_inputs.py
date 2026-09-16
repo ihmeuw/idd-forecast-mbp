@@ -38,7 +38,7 @@ from idd_forecast_mbp.lib.io.covariate_registry import (
 from idd_forecast_mbp.lib.io.netcdf import write_netcdf
 from idd_forecast_mbp.lib.io.parquet import read_parquet_with_integer_ids
 from idd_forecast_mbp.lib.processing.dah_scenarios import build_dah_array
-from idd_forecast_mbp.lib.versioning import finalize_artifact
+from idd_forecast_mbp.lib.versioning import finish_stage
 
 DAH_SCENARIOS: tuple[str, ...] = ("Baseline", "Constant")
 
@@ -241,9 +241,9 @@ def main(
         _assert_no_forecast_window_nan(ds, ssp_scenario)
 
     if Path(output_path) == Path(mbpc.MAL_FORECAST_INPUTS_WRITE_PATH):
-        finalize_artifact(mbpc._A04_MAL_FORECAST_INPUTS)
+        finish_stage(mbpc._A04_MAL_FORECAST_INPUTS)
     else:
-        print(f"output_path overridden to {output_path}; skipping finalize_artifact.")
+        print(f"output_path overridden to {output_path}; skipping finish_stage.")
 
 
 def _assert_no_forecast_window_nan(ds: xr.Dataset, ssp_scenario: str) -> None:

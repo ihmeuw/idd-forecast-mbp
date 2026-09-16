@@ -26,7 +26,7 @@ from pathlib import Path
 from idd_forecast_mbp import constants as mbpc
 from idd_forecast_mbp.lib.io.parquet import read_parquet_with_integer_ids, write_parquet
 from idd_forecast_mbp.lib.io.netcdf import write_netcdf, convert_with_preset
-from idd_forecast_mbp.lib.versioning import finalize_artifact
+from idd_forecast_mbp.lib.versioning import finish_stage
 
 
 # Canonical source for lsae_1285 population: the rapidresponse-published
@@ -449,7 +449,7 @@ def main(
         convert_with_preset(as_full_population_df, preset="as_variables"),
         as_full_population_ds_path,
     )
-    finalize_artifact(mbpc._A02_POPULATION)
+    finish_stage(mbpc._A02_POPULATION)
 
 
 if __name__ == "__main__":

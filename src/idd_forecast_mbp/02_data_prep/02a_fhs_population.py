@@ -23,7 +23,6 @@ from pathlib import Path
 from idd_forecast_mbp import constants as mbpc
 from idd_forecast_mbp.lib.io.parquet import read_parquet_with_integer_ids, write_parquet
 from idd_forecast_mbp.lib.io.netcdf import write_netcdf, convert_with_preset
-from idd_forecast_mbp.lib.versioning import finalize_artifact
 
 
 _FUTURE_FHS_POP_PATH = Path(
@@ -178,7 +177,9 @@ def main(
     write_parquet(as_fhs_population_df, as_fhs_population_df_path)
     write_netcdf(convert_with_preset(aa_fhs_population_df, preset="aa_variables"), aa_fhs_population_ds_path)
     write_netcdf(convert_with_preset(as_fhs_population_df, preset="as_variables"), as_fhs_population_ds_path)
-    finalize_artifact(mbpc._A02_POPULATION)
+    # No finish here: the population node is produced by 02a then 02b in the same
+    # working/ slot (02b reads these files from it). 02b calls finish_stage once both
+    # halves are on disk; a finish after 02a alone would freeze half a stage.
 
 
 if __name__ == "__main__":

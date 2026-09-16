@@ -19,7 +19,7 @@ from idd_forecast_mbp.lib.io.array_builders import (
 )
 from idd_forecast_mbp.lib.processing.helpers import level_filter
 from idd_forecast_mbp.lib.processing.locations import malaria_fit_location_ids
-from idd_forecast_mbp.lib.versioning import finalize_artifact
+from idd_forecast_mbp.lib.versioning import finish_stage
 
 PAST_YEARS = list(mbpc.MODELING_YEARS)
 
@@ -203,7 +203,7 @@ def main(
     write_parquet(df, out_file)
     print(f"  Done. File size: {out_file.stat().st_size / 1e6:.1f} MB")
 
-    finalize_artifact(mbpc._A03_MAL_PAST_INPUTS)
+    finish_stage(mbpc._A03_MAL_PAST_INPUTS)
 
 
 if __name__ == "__main__":

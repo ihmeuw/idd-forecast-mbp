@@ -46,7 +46,9 @@ from idd_forecast_mbp.lib.data.hierarchy import load_hierarchy
 from idd_forecast_mbp.lib.io.parquet import read_parquet_with_integer_ids, write_parquet
 from idd_forecast_mbp.lib.processing.aggregation import roll_up_hierarchy
 from idd_forecast_mbp.lib.processing.summarize import summarize_draws
-from idd_forecast_mbp.lib.versioning import finalize_artifact
+from idd_tools.versions import VersionsOptions, versions_options
+
+from idd_forecast_mbp.lib.versioning import finish_stage, stage_target
 
 # Stage-04 netCDF variable per measure. The rocket writes log rates.
 PRED_VARS = {
@@ -619,19 +621,13 @@ def build_anchor_check(
     help="override the versioned product dir (skips finalize)",
 )
 @click.option(
-    "--set-current/--no-set-current",
-    default=True,
-    show_default=True,
-    help="repoint this run's product `current` symlink. Safe for a sensitivity: each "
-         "run key is its own artifact node, so this never touches the baseline.",
-)
-@click.option(
     "--strict-anchor/--no-strict-anchor",
     default=False,
     show_default=True,
     help="exit nonzero when the anchor-year match is outside tolerance. Off by "
          "default because the ~0.1%% aggregate gap is structural, not a bug.",
 )
+@versions_options
 def main(  # noqa: PLR0913
     forecast_run_dir: Path,
     ssp_scenarios: tuple[str, ...],
@@ -646,8 +642,8 @@ def main(  # noqa: PLR0913
     age_structure_hold_year: int | None,
     anchor_vintage: Path | None,
     output_dir: Path | None,
-    set_current: bool,
     strict_anchor: bool,
+    versions: VersionsOptions,
 ) -> None:
     """Turn one stage-04 forecast run into all-age hierarchy products."""
     level_ids = [int(x) for x in levels.split(",") if x.strip() != ""]
@@ -663,13 +659,15 @@ def main(  # noqa: PLR0913
         if anchor_vintage is not None:
             run_key = f"{run_key}__anchor_{anchor_vintage.parent.name}"
 
+    # Each run key is its own product node (idd_tools.versions): the run writes into its
+    # working/ slot and --current / --freeze at launch decide whether it is frozen after.
     if output_dir is None:
-        out_dir = mbpc.mal_products_write_path(run_key)
         node_root = mbpc.mal_products_root(run_key)
+        out_dir = stage_target(node_root, versions)
     else:
         out_dir = output_dir
         node_root = None
-    out_dir.mkdir(parents=True, exist_ok=True)
+        out_dir.mkdir(parents=True, exist_ok=True)
 
     click.echo(f"run_key          : {run_key}")
     click.echo(f"forecast run dir : {forecast_run_dir}")
@@ -750,8 +748,8 @@ def main(  # noqa: PLR0913
         json.dumps(verdicts, indent=2) + "\n"
     )
 
-    if set_current and node_root is not None:
-        finalize_artifact(node_root, out_dir.name)
+    if node_root is not None:
+        finish_stage(node_root, versions)   # freezes / promotes only if the launch asked
 
     # The anchor gap is REPORTED, not fatal. At aggregate levels it cannot be zero by
     # construction: locations the forecast drops are excluded from the sum while the

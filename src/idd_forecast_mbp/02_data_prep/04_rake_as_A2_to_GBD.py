@@ -6,7 +6,7 @@ from idd_forecast_mbp import constants as mbpc
 from idd_forecast_mbp.lib.io.parquet import read_parquet_with_integer_ids, write_parquet
 from idd_forecast_mbp.lib.io.netcdf import convert_to_xarray, write_netcdf
 from idd_forecast_mbp.lib.processing.helpers import level_filter
-from idd_forecast_mbp.lib.versioning import finalize_artifact
+from idd_forecast_mbp.lib.versioning import finish_stage
 
 
 def main(
@@ -211,9 +211,9 @@ def main(
         print(f"Wrote {as_full_cause_df_path}")
 
     if 'malaria' in causes:
-        finalize_artifact(mbpc._A02_MAL_RAKED_AS)
+        finish_stage(mbpc._A02_MAL_RAKED_AS)
     if 'dengue' in causes:
-        finalize_artifact(mbpc._A02_DEN_RAKED_AS)
+        finish_stage(mbpc._A02_DEN_RAKED_AS)
 
 
 if __name__ == "__main__":

@@ -41,7 +41,7 @@ from idd_forecast_mbp.lib.io.covariate_registry import (
 )
 from idd_forecast_mbp.lib.io.netcdf import write_netcdf
 from idd_forecast_mbp.lib.io.parquet import read_parquet_with_integer_ids
-from idd_forecast_mbp.lib.versioning import finalize_artifact
+from idd_forecast_mbp.lib.versioning import finish_stage
 
 
 def _resolve_flooding_path(lsae_hierarchy: str, ssp_scenario: str) -> str | None:
@@ -191,9 +191,9 @@ def main(
         _assert_no_forecast_window_nan(ds, ssp_scenario)
 
     if Path(output_path) == Path(mbpc.DEN_FORECAST_INPUTS_WRITE_PATH):
-        finalize_artifact(mbpc._A04_DEN_FORECAST_INPUTS)
+        finish_stage(mbpc._A04_DEN_FORECAST_INPUTS)
     else:
-        print(f"output_path overridden to {output_path}; skipping finalize_artifact.")
+        print(f"output_path overridden to {output_path}; skipping finish_stage.")
 
 
 def _assert_no_forecast_window_nan(ds: xr.Dataset, ssp_scenario: str) -> None:
@@ -230,7 +230,7 @@ if __name__ == "__main__":
     parser.add_argument("--lsae_hierarchy", default=mbpc.LSAE_HIERARCHY)
     parser.add_argument("--output_path", default=None,
                         help="Write the netCDFs here instead of the default dated "
-                             "dir. Overriding this SKIPS finalize_artifact, so the "
+                             "dir. Overriding this SKIPS finish_stage, so the "
                              "`current` symlink is left alone -- use it to build a "
                              "new vintage without changing what readers see.")
     args = parser.parse_args()

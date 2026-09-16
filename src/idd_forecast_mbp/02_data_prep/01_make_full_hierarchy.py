@@ -3,7 +3,7 @@ import numpy as np
 from idd_forecast_mbp import constants as mbpc
 from idd_forecast_mbp.lib.io.netcdf import convert_to_xarray, write_netcdf
 from idd_forecast_mbp.lib.io.parquet import read_parquet_with_integer_ids, write_parquet
-from idd_forecast_mbp.lib.versioning import finalize_artifact
+from idd_forecast_mbp.lib.versioning import finish_stage
 
 RAW_DATA_PATH = mbpc.RAW_DATA_PATH
 HIERARCHY_WRITE_PATH = mbpc.HIERARCHY_WRITE_PATH
@@ -339,4 +339,4 @@ hierarchy_2023_ds = convert_to_xarray(
 
 # Write to NetCDF
 write_netcdf(hierarchy_2023_ds, hierarchy_2023_ds_path)
-finalize_artifact(mbpc._A02_HIERARCHY)
+finish_stage(mbpc._A02_HIERARCHY)

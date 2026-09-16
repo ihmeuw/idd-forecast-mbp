@@ -30,7 +30,7 @@ from idd_forecast_mbp.lib.io.array_builders import read_shared_covariates, wide_
 from idd_forecast_mbp.lib.io.parquet import read_parquet_with_integer_ids, write_parquet
 from idd_forecast_mbp.lib.processing.helpers import level_filter
 from idd_forecast_mbp.lib.processing.locations import dengue_prediction_location_ids
-from idd_forecast_mbp.lib.versioning import finalize_artifact
+from idd_forecast_mbp.lib.versioning import finish_stage
 
 # Forecast covariates checked for full coverage. Mirror 07b's minimal set;
 # extend (e.g. urban, more climate) as the dengue model's covariate set firms up.
@@ -207,9 +207,9 @@ def main(
     print(f"Wrote {output_path / 'dropped_locations.parquet'}        ({len(dropped_df):,} rows)")
 
     if Path(output_path) == Path(mbpc.DEN_FORECAST_LOCATIONS_WRITE_PATH):
-        finalize_artifact(mbpc._A04_DEN_FORECAST_LOCATIONS)
+        finish_stage(mbpc._A04_DEN_FORECAST_LOCATIONS)
     else:
-        print(f"output_path overridden to {output_path}; skipping finalize_artifact.")
+        print(f"output_path overridden to {output_path}; skipping finish_stage.")
 
 
 if __name__ == "__main__":

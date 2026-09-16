@@ -25,7 +25,6 @@ suppressPackageStartupMessages({
 
 REPO_DIR <- "/mnt/team/idd/pub/forecast-mbp"          # == constants.MODEL_ROOT (verified)
 SRC_REPO <- glue("/ihme/homes/{Sys.getenv('USER')}/repos/idd-forecast-mbp")
-source(glue("{SRC_REPO}/src/idd_forecast_mbp/lib/model_registry.R"))   # get_malaria_model_run_date()
 source(glue("{SRC_REPO}/src/idd_forecast_mbp/lib/netcdf_helpers.R"))   # grid_of()
 
 Sys.setenv(OPENBLAS_NUM_THREADS = "1", OMP_NUM_THREADS = "1")  # tame BLAS under mclapply
@@ -382,8 +381,12 @@ main <- function() {
   # One task = one (ssp, dah) cell of the jobmon workflow. Args come as CLI flags
   # from 01_forecast_malaria_admin_2s_orchestrator.py (NOT the old array/CSV path).
   opt <- parse_args(OptionParser(option_list = list(
-    make_option("--model-run-date",     type = "character", default = NA,
-                help = "formulation run date = model-registry key AND output dir name"),
+    make_option("--model-dir",          type = "character", default = NA,
+                help = "fitted-model snapshot dir holding malaria_models.RData (resolved by the orchestrator)"),
+    make_option("--model-version",      type = "character", default = NA,
+                help = "name of that snapshot or its label, for messages; defaults to basename(--model-dir)"),
+    make_option("--out-dir",            type = "character", default = NA,
+                help = "directory to write into: the forecast_outputs node's working/ slot, passed by the orchestrator"),
     make_option("--ssp-scenario",       type = "character", default = NA),
     make_option("--dah-scenario",       type = "character", default = NA),
     make_option("--forecast-start",     type = "integer",   default = 2023L),
@@ -391,10 +394,6 @@ main <- function() {
     make_option("--rake-year",          type = "character", default = "2023",
                 help = "4-digit scalar OR path to a per-loc rake-year parquet"),
     make_option("--zero-burden-policy", type = "character", default = "drop"),
-    make_option("--output-key",         type = "character", default = NA,
-                help = paste("output dir name; defaults to --model-run-date. Lets ONE",
-                             "fitted model write several runs (the sensitivities),",
-                             "each in its own dir with unchanged file names.")),
     make_option("--hold-covariate",     type = "character", default = "",
                 help = paste("comma-separated covariates to hold constant:",
                              "gdppc, suitability, temp, flood, dah. Empty = none.")),
@@ -405,13 +404,22 @@ main <- function() {
   )))
   names(opt) <- gsub("-", "_", names(opt))   # robust to optparse dash/underscore naming
 
-  model_run_date     <- as.character(opt$model_run_date)
+  model_dir          <- as.character(opt$model_dir)
+  out_dir            <- as.character(opt$out_dir)
   ssp_scenario       <- as.character(opt$ssp_scenario)
   dah_scenario       <- as.character(opt$dah_scenario)
   stopifnot(
-    "--model-run-date must be set"     = !is.na(model_run_date) && nzchar(model_run_date),
+    "--model-dir must be set"          = !is.na(model_dir) && nzchar(model_dir),
+    "--out-dir must be set"            = !is.na(out_dir)   && nzchar(out_dir),
     "--ssp-scenario must be set"       = !is.na(ssp_scenario)   && nzchar(ssp_scenario),
     "--dah-scenario must be set"       = !is.na(dah_scenario)   && nzchar(dah_scenario))
+  model_version <- if (!is.na(opt$model_version) && nzchar(as.character(opt$model_version))) {
+    as.character(opt$model_version)
+  } else {
+    basename(normalizePath(model_dir))
+  }
+  model_rdata <- file.path(model_dir, "malaria_models.RData")
+  stopifnot("--model-dir has no malaria_models.RData" = file.exists(model_rdata))
   forecast_years     <- as.integer(opt$forecast_start):as.integer(opt$forecast_end)
   rake_year_spec     <- as.character(opt$rake_year)
   zero_burden_policy <- as.character(opt$zero_burden_policy)
@@ -420,36 +428,23 @@ main <- function() {
   # pfpr ALWAYS runs (it is the shifted predictor feeding inc/mort); it is never written.
   run_inc  <- outcomes %in% c("inc",  "both")
   run_mort <- outcomes %in% c("mort", "both")
-  # model_run_date is the registry key. The output dir name defaults to it -- the
-  # single identity the 2026-07-14 rewrite established -- but --output-key can name
-  # the dir separately, which is what the covariate-hold sensitivities need: ONE
-  # fitted model writing several runs. The alternative (a hold token welded into the
-  # file names) is what the 2025 chain did, and it is why adding an axis there meant
-  # editing a nested filename expression in every downstream script.
+  # The output directory is the node's working/ slot, handed down by the orchestrator
+  # (idd_tools.versions); the run's identity (model, arm, holds) is the label the
+  # orchestrator freezes it under, not a directory name chosen here. File names carry
+  # only (ssp, dah), so ONE run per slot: the orchestrator finishes before the next.
   hold_covariates    <- trimws(strsplit(as.character(opt$hold_covariate), ",")[[1]])
   hold_covariates    <- hold_covariates[nzchar(hold_covariates)]
   hold_year          <- as.integer(opt$hold_year)
-  out_run_date       <- if (!is.na(opt$output_key) && nzchar(as.character(opt$output_key))) {
-    as.character(opt$output_key)
-  } else {
-    model_run_date
-  }
-  stopifnot("--output-key must differ from --model-run-date when holds are set" =
-              !length(hold_covariates) || out_run_date != model_run_date)
-  message(glue("[{model_run_date}] ssp={ssp_scenario} dah={dah_scenario} ",
+  message(glue("[{model_version}] ssp={ssp_scenario} dah={dah_scenario} ",
                "years={min(forecast_years)}-{max(forecast_years)} ",
                "policy={zero_burden_policy} outcomes={outcomes}",
                if (length(hold_covariates)) {
                  glue(" hold={paste(hold_covariates, collapse='+')}@{hold_year}")
                } else "",
-               if (out_run_date != model_run_date) glue(" -> {out_run_date}") else ""))
+               glue(" -> {out_dir}")))
 
-  # resolve + load model
-  mrd <- get_malaria_model_run_date(
-    malaria_model_registry_path(modeling_data_path),
-    best     = !nzchar(model_run_date),
-    run_date = if (nzchar(model_run_date)) model_run_date else NULL)
-  load(file.path(modeling_data_path, glue("{mrd}_malaria_models.RData")))  # -> pfpr_mod (+ inc_mod/mort_mod)
+  # load model (the snapshot dir was resolved from the models node by the orchestrator)
+  load(model_rdata)  # -> pfpr_mod (+ inc_mod/mort_mod)
   # pfpr is always needed; inc_mod/mort_mod only for the requested outcomes -- so a
   # formulation missing an outcome model can still run the other via --outcomes.
   stopifnot("pfpr_mod missing from the model .RData" = exists("pfpr_mod"))
@@ -501,7 +496,6 @@ main <- function() {
   arrs <- assemble_arrays(per_draw, kept_ids, forecast_years, inputs$draws)
 
   # write
-  out_dir <- file.path(forecast_output_node, out_run_date)
   dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
   out_nc      <- file.path(out_dir, glue("malaria_forecast_{ssp_scenario}_{dah_scenario}.nc"))
   out_sidecar <- file.path(out_dir, glue("malaria_forecast_{ssp_scenario}_{dah_scenario}_location_status.parquet"))
@@ -514,7 +508,7 @@ main <- function() {
   file.rename(sidecar_tmp, out_sidecar)
   Sys.chmod(out_sidecar, "0775")
   message(glue("Wrote {out_nc}\n      {out_sidecar}"))
-  # NO finalize here -- the launcher's afterok job repoints `current` once after the array.
+  # NO freeze here -- the orchestrator finishes the node (idd_tools.versions) once every task is done.
   message("fin")
 }
 

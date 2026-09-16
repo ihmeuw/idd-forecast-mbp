@@ -7,8 +7,11 @@
 # applied after the fits exist and is what the gate lets you change; the final values are
 # written into selection_result.json with the pick.
 #
-# Values copied 2026-09-16 from the notebook (rank_malaria_models_idd_tools.ipynb) and the
-# orchestrator as they stood for the 20260727_efs run.
+# `final_fit:` is what the selected spec is refit with on the full past inputs (the model the
+# forecast loads); copied from 02_fit_final_malaria_models.r as it stood for the 2026_07_31 fit.
+#
+# Values copied 2026-09-16 from the notebook (rank_malaria_models_idd_tools.ipynb), the
+# orchestrator and the final-fit script as they stood for the 20260727_efs run.
 
 cause: malaria
 run_dir: malaria/scam_prelim/lsae_1285/20260727_efs   # relative to the 03-modeling_data stage root
@@ -34,3 +37,10 @@ rank:
   complexity_order: [n_scams, n_smooths, n_terms]
   profile_top_n: 10
   cull_nonconverged: false
+
+final_fit:
+  optimizer: bfgs
+  maxit: 300
+  data_filter: {malaria_inc_count_min: 0, malaria_pfpr_min: 0}   # full endemic past data, no threshold
+  suit_variant: mordecai_0_0
+  inc_mort_rhs: 's(logit_malaria_pfpr, k = 10, bs = "mpi") + log_gdppc_mean + A0_af'

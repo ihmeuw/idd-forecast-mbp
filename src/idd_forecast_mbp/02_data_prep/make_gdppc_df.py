@@ -25,7 +25,7 @@ Standalone: `python make_gdppc_df.py` still works (no flags).
 import pandas as pd
 from idd_forecast_mbp import constants as mbpc
 from idd_forecast_mbp.lib.io.parquet import write_parquet
-from idd_forecast_mbp.lib.versioning import finalize_artifact
+from idd_forecast_mbp.lib.versioning import finish_stage
 
 # Income scenario in the source CSV applied to ALL climate scenarios while GDP is
 # decoupled from the SSP/RCP scenario (see module docstring).
@@ -92,7 +92,7 @@ def main() -> None:
         f"Wrote {len(df):,} rows to {gdppc_df_path} "
         f"(scenario-varying GDP: {GDPPC_SCENARIO_MAP}; dropped {n_dropped:,} zero-pop/NaN rows)"
     )
-    finalize_artifact(mbpc._A02_GDPPC)
+    finish_stage(mbpc._A02_GDPPC)
 
 
 if __name__ == "__main__":

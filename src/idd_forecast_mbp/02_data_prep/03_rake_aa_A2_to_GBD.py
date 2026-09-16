@@ -11,7 +11,7 @@ from idd_forecast_mbp.lib.io.netcdf import convert_to_xarray, write_netcdf
 from idd_forecast_mbp.lib.processing.raking import rake_aa_count_lsae_to_gbd
 from idd_forecast_mbp.lib.processing.aggregation import aggregate_aa_rate_lsae_to_gbd, make_rate_from_count
 from idd_forecast_mbp.lib.utils.diagnostics import check_concordance
-from idd_forecast_mbp.lib.versioning import finalize_artifact
+from idd_forecast_mbp.lib.versioning import finish_stage
 from idd_forecast_mbp.cause_processing_functions import format_aa_gbd_df, process_lsae_df
 
 
@@ -499,9 +499,9 @@ def main(
         )
 
     if 'malaria' in causes:
-        finalize_artifact(mbpc._A02_MAL_RAKED_AA)
+        finish_stage(mbpc._A02_MAL_RAKED_AA)
     if 'dengue' in causes:
-        finalize_artifact(mbpc._A02_DEN_RAKED_AA)
+        finish_stage(mbpc._A02_DEN_RAKED_AA)
 
 
 if __name__ == "__main__":

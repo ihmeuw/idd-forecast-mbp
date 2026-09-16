@@ -188,7 +188,7 @@ def hierarchy_main(
             for block_key in block_keys:
                 # Read from the same RUN_DATE pixel_main just wrote to.
                 # Using pixel_write_path (not pixel_read_path) avoids requiring
-                # pixel_main to finalize_artifact between the two launches.
+                # pixel_main to finish_stage between the two launches.
                 draw_df = pd.read_parquet(mbpc.pixel_write_path(hierarchy) / covariate_name / block_key / f"{draw}.parquet")
                 # filter by scenario
                 draw_df = draw_df[draw_df["scenario"] == scenario]

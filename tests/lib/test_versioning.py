@@ -1,166 +1,166 @@
-"""
-Tests for lib/versioning.py
+"""Tests for lib/versioning.py, the adapter over idd_tools.versions.
 
-Uses tmp_path to simulate artifact directories — no real pipeline paths.
-The artifact-level API takes a Path directly, so no mbpc patching is needed
-for most functions.
+Nodes live in tmp_path. GIT_CEILING_DIRECTORIES keeps tmp nodes outside any repo;
+finish_stage records provenance against the repo itself (REPO_DIR), read-only.
 """
+
+from __future__ import annotations
+
+import os
+import stat
+from pathlib import Path
 
 import pytest
-from pathlib import Path
-from unittest.mock import patch
+from idd_tools.versions import VersionsOptions
 
-from idd_forecast_mbp.lib.versioning import (
-    finalize_artifact,
-    finalize_all_artifacts,
-    tag_artifact,
-    list_runs,
-    list_unlinked_runs,
-)
+from idd_forecast_mbp.lib import versioning as v
 
 
-# ---------------------------------------------------------------------------
-# Fixtures
-# ---------------------------------------------------------------------------
+def _restore_write(root: Path) -> None:
+    for dirpath, dirnames, filenames in os.walk(root):
+        for name in dirnames + filenames:
+            path = Path(dirpath) / name
+            if not path.is_symlink():
+                path.chmod(stat.S_IMODE(path.lstat().st_mode) | 0o200)
 
-@pytest.fixture
-def artifact_root(tmp_path):
-    """Simulate an artifact directory (e.g. _A02_HIERARCHY)."""
-    root = tmp_path / "02-processed_data" / "hierarchy" / "lsae_1285"
-    root.mkdir(parents=True)
-    return root
+
+@pytest.fixture(autouse=True)
+def _outside_any_repo(tmp_path, monkeypatch):
+    monkeypatch.setenv("GIT_CEILING_DIRECTORIES", os.path.realpath(tmp_path))
+    for key in list(os.environ):
+        if key.startswith(v.ENV_PREFIX):
+            monkeypatch.delenv(key)
 
 
 @pytest.fixture
-def artifact_with_run(artifact_root):
-    """Artifact root with a dated run directory."""
-    run_dir = artifact_root / "20260405"
-    run_dir.mkdir()
-    return artifact_root
+def node(tmp_path):
+    n = tmp_path / "node"
+    n.mkdir()
+    yield n
+    _restore_write(n)
 
 
-# ---------------------------------------------------------------------------
-# finalize_artifact
-# ---------------------------------------------------------------------------
-
-def test_finalize_artifact_creates_symlink(artifact_with_run):
-    finalize_artifact(artifact_with_run, run_date="20260405")
-
-    symlink = artifact_with_run / "current"
-    assert symlink.is_symlink()
-    assert symlink.resolve().name == "20260405"
+# ------------------------------------------------------------------ paths
+def test_write_path_creates_working(node):
+    assert v.write_path(node) == node / "working"
+    assert (node / "working").is_dir()
 
 
-def test_finalize_artifact_updates_existing_symlink(artifact_with_run):
-    run2 = artifact_with_run / "20260406"
-    run2.mkdir()
-
-    finalize_artifact(artifact_with_run, run_date="20260405")
-    finalize_artifact(artifact_with_run, run_date="20260406")
-
-    symlink = artifact_with_run / "current"
-    assert symlink.resolve().name == "20260406"
+def test_scratch_path_creates_label_dir(node):
+    assert v.scratch_path(node, "probe") == node / "scratch" / "probe"
+    assert (node / "scratch" / "probe").is_dir()
 
 
-def test_finalize_artifact_missing_run_raises(artifact_root):
-    with pytest.raises(FileNotFoundError, match="Run directory does not exist"):
-        finalize_artifact(artifact_root, run_date="99991231")
+def test_read_path_requires_current(node):
+    with pytest.raises(FileNotFoundError, match="No current snapshot"):
+        v.read_path(node)
+    (node / "20260101").mkdir()
+    (node / "current").symlink_to("20260101")
+    assert v.read_path(node) == node / "current"
 
 
-# ---------------------------------------------------------------------------
-# tag_artifact
-# ---------------------------------------------------------------------------
-
-def test_tag_artifact_creates_named_symlink(artifact_with_run):
-    tag_artifact(artifact_with_run, "pre_revision_1", run_date="20260405")
-
-    tag = artifact_with_run / "pre_revision_1"
-    assert tag.is_symlink()
-    assert tag.resolve().name == "20260405"
-
-
-def test_tag_artifact_missing_run_raises(artifact_root):
+def test_assert_artifact_ready_prefers_current_then_working(node):
+    with pytest.raises(FileNotFoundError, match="Artifact not ready"):
+        v.assert_artifact_ready(node)
+    (node / "working").mkdir()
     with pytest.raises(FileNotFoundError):
-        tag_artifact(artifact_root, "mytag", run_date="99991231")
+        v.assert_artifact_ready(node)  # empty working/ does not count
+    (node / "working" / "a.parquet").write_text("x")
+    with pytest.warns(UserWarning, match="reading working/"):
+        assert v.assert_artifact_ready(node) == node / "working"
+    (node / "20260101").mkdir()
+    (node / "current").symlink_to("20260101")
+    assert v.assert_artifact_ready(node) == node / "current"
 
 
-def test_tag_artifact_existing_tag_raises(artifact_with_run):
-    tag_artifact(artifact_with_run, "v1", run_date="20260405")
-    with pytest.raises(FileExistsError, match="Tag already exists"):
-        tag_artifact(artifact_with_run, "v1", run_date="20260405")
+# ------------------------------------------------------------------ environment options
+def test_versions_from_env_defaults_to_nothing():
+    opts = v.versions_from_env({})
+    assert opts == VersionsOptions()
+    assert not opts.finishes
 
 
-# ---------------------------------------------------------------------------
-# list_runs
-# ---------------------------------------------------------------------------
-
-def test_list_runs_empty_artifact(artifact_root):
-    result = list_runs(artifact_root)
-    assert result == []
-
-
-def test_list_runs_returns_run_dirs(artifact_with_run):
-    result = list_runs(artifact_with_run)
-    run_dates = [r['run_date'] for r in result]
-    assert "20260405" in run_dates
-
-
-def test_list_runs_shows_current_symlink(artifact_with_run):
-    finalize_artifact(artifact_with_run, run_date="20260405")
-    result = list_runs(artifact_with_run)
-
-    current_runs = [r for r in result if r['is_current']]
-    assert len(current_runs) == 1
-    assert current_runs[0]['run_date'] == "20260405"
+def test_versions_from_env_current_implies_freeze():
+    opts = v.versions_from_env(
+        {
+            "IDD_VERSIONS_CURRENT": "1",
+            "IDD_VERSIONS_DESCRIPTION": "stage 02",
+            "IDD_VERSIONS_LABEL": "x",
+        }
+    )
+    assert opts.current
+    assert opts.freeze
+    assert opts.description == "stage 02"
+    assert opts.label == "x"
 
 
-def test_list_runs_nonexistent_artifact(tmp_path):
-    result = list_runs(tmp_path / "99-nonexistent")
-    assert result == []
+@pytest.mark.parametrize(
+    ("env", "match"),
+    [
+        ({"IDD_VERSIONS_CURRENT": "maybe"}, "must be a boolean"),
+        ({"IDD_VERSIONS_CURRENT": "1"}, "need --description"),
+        (
+            {
+                "IDD_VERSIONS_FREEZE": "yes",
+                "IDD_VERSIONS_DESCRIPTION": "d",
+                "IDD_VERSIONS_SCRATCH": "probe",
+            },
+            "never frozen",
+        ),
+        ({"IDD_VERSIONS_TAG": "1"}, "--tag needs"),
+    ],
+)
+def test_versions_from_env_refuses_bad_launches(env, match):
+    with pytest.raises(ValueError, match=match):
+        v.versions_from_env(env)
 
 
-# ---------------------------------------------------------------------------
-# list_unlinked_runs
-# ---------------------------------------------------------------------------
-
-def test_list_unlinked_runs_no_symlinks(artifact_with_run):
-    """Run directory with no symlink pointing to it is unlinked."""
-    result = list_unlinked_runs(artifact_with_run)
-    assert len(result) == 1
+def test_stage_target_honours_scratch(node, monkeypatch):
+    monkeypatch.setenv("IDD_VERSIONS_SCRATCH", "probe")
+    assert v.stage_target(node) == node / "scratch" / "probe"
+    monkeypatch.delenv("IDD_VERSIONS_SCRATCH")
+    assert v.stage_target(node) == node / "working"
 
 
-def test_list_unlinked_runs_empty_after_finalize(artifact_with_run):
-    """After finalize_artifact, the run has current/ pointing to it — no longer unlinked."""
-    finalize_artifact(artifact_with_run, run_date="20260405")
-    result = list_unlinked_runs(artifact_with_run)
-    assert result == []
+# ------------------------------------------------------------------ finish
+def test_finish_stage_does_nothing_unless_asked(node):
+    (v.write_path(node) / "a.txt").write_text("x")
+    assert v.finish_stage(node) is None
+    assert not (node / "registry.json").exists()
+    assert not (node / "current").exists()
 
 
-# ---------------------------------------------------------------------------
-# finalize_all_artifacts
-# ---------------------------------------------------------------------------
+def test_finish_stage_current_freezes_and_promotes(node, monkeypatch):
+    (v.write_path(node) / "a.txt").write_text("x")
+    monkeypatch.setenv("IDD_VERSIONS_CURRENT", "1")
+    monkeypatch.setenv("IDD_VERSIONS_DESCRIPTION", "test stage")
+    res = v.finish_stage(node)
+    assert res is not None
+    assert res.promoted
+    assert not res.reused
+    assert (node / res.snapshot / "a.txt").is_file()
+    assert (node / "current").resolve() == (node / res.snapshot).resolve()
+    assert (node / "working").is_dir()
+    assert not any((node / "working").iterdir())
+    assert res.record.git_commit  # provenance recorded against the repo
 
-def test_finalize_all_artifacts_skips_missing(tmp_path):
-    """finalize_all_artifacts skips artifacts with no run dir — no error."""
-    fake_root = tmp_path / "02-processed_data" / "hierarchy" / "lsae_1285"
-    (fake_root / "20260405").mkdir(parents=True)
 
-    artifact_roots = [fake_root]
-    with patch('idd_forecast_mbp.lib.versioning.mbpc') as mock_mbpc:
-        mock_mbpc.MODEL_ROOT = tmp_path
-        mock_mbpc.RUN_DATE = "20260405"
-        mock_mbpc._A02_HIERARCHY = fake_root
-        mock_mbpc._A02_POPULATION = tmp_path / "missing_artifact"
-        mock_mbpc._A02_DAH = tmp_path / "missing_artifact2"
-        mock_mbpc._A02_MAL_RAKED_AA = tmp_path / "missing_artifact3"
-        mock_mbpc._A02_MAL_RAKED_AS = tmp_path / "missing_artifact4"
-        mock_mbpc._A02_DEN_RAKED_AA = tmp_path / "missing_artifact5"
-        mock_mbpc._A02_DEN_RAKED_AS = tmp_path / "missing_artifact6"
-        mock_mbpc._A03_MAL_MODELING = tmp_path / "missing_artifact7"
-        mock_mbpc._A03_DEN_MODELING = tmp_path / "missing_artifact8"
-        mock_mbpc._A03_COV_MEANS = tmp_path / "missing_artifact9"
-        finalize_all_artifacts(run_date="20260405")
+def test_finish_stage_identical_rerun_reuses_snapshot(node):
+    (v.write_path(node) / "a.txt").write_text("same")
+    opts = VersionsOptions(current=True, description="first")
+    first = v.finish_stage(node, opts)
+    (v.write_path(node) / "a.txt").write_text("same")
+    second = v.finish_stage(
+        node, VersionsOptions(current=True, description="again", label="keep")
+    )
+    assert first is not None
+    assert second is not None
+    assert second.reused
+    assert second.snapshot == first.snapshot
+    assert (node / "keep").resolve() == (node / first.snapshot).resolve()
 
-    symlink = fake_root / "current"
-    assert symlink.is_symlink()
-    assert not (tmp_path / "missing_artifact" / "current").exists()
+
+def test_finish_stage_refuses_empty_working(node):
+    v.write_path(node)
+    with pytest.raises(Exception, match=r"empty|nothing"):
+        v.finish_stage(node, VersionsOptions(freeze=True, description="d"))

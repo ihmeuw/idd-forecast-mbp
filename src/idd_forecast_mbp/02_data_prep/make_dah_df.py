@@ -16,7 +16,7 @@ import pandas as pd
 
 from idd_forecast_mbp import constants as mbpc
 from idd_forecast_mbp.lib.io.parquet import read_parquet_with_integer_ids, write_parquet
-from idd_forecast_mbp.lib.versioning import finalize_artifact
+from idd_forecast_mbp.lib.versioning import finish_stage
 
 DAH_SOURCE_PATH = (
     "/mnt/share/resource_tracking/forecasting/dah_channel_HFA/FGH_2026_July"
@@ -56,7 +56,7 @@ def main() -> None:
 
     write_parquet(new_dah_df, dah_df_path)
     print(f"Wrote {len(new_dah_df):,} rows to {dah_df_path}")
-    finalize_artifact(mbpc._A02_DAH)
+    finish_stage(mbpc._A02_DAH)
 
 
 if __name__ == "__main__":

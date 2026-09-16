@@ -26,7 +26,7 @@ from idd_forecast_mbp import constants as mbpc
 from idd_forecast_mbp.lib.io.parquet import read_parquet_with_integer_ids, write_parquet
 from idd_forecast_mbp.lib.processing.helpers import level_filter
 from idd_forecast_mbp.lib.processing.locations import dengue_fit_locations
-from idd_forecast_mbp.lib.versioning import finalize_artifact
+from idd_forecast_mbp.lib.versioning import finish_stage
 
 
 def main(
@@ -62,7 +62,7 @@ def main(
     write_parquet(out, out_file)
     print(f"Wrote {out_file} ({len(out):,} rows)")
 
-    finalize_artifact(mbpc._A03_DEN_FIT_LOCATIONS)
+    finish_stage(mbpc._A03_DEN_FIT_LOCATIONS)
 
 
 if __name__ == "__main__":

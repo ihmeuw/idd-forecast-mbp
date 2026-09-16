@@ -6,8 +6,9 @@ MODEL_ROOT = Path("/mnt/team/idd/pub/forecast-mbp")
 
 REPO_ROOT = Path("/mnt/share/homes/bcreiner/repos")
 
-# Run date: set IDD_RUN_DATE env var to override (e.g. for re-running a prior date).
-# Format: YYYYMMDD. Multiple runs same day: set to YYYYMMDD_v2, etc.
+# RUN_DATE no longer names any write directory (2026-09-16, idd_tools.versions): stages
+# write to <node>/working/ and snapshots are named by freeze. Kept only as the name of
+# the legacy snapshots the 2026-05-27 rebuild produced, for messages and legacy lookups.
 # RUN_DATE: "20260405" First run after refactor
 # RUN_DATE: "20260527" Run with 'new' gridded population: '2026_05_15.001'
 GRIDDED_RD_2026_05_15 = "20260527"
@@ -39,7 +40,8 @@ FHS_FUTURE_POP_HAS_44858: bool = False
 
 
 # ── Stage root directories ────────────────────────────────────────────────────
-# These are the node directories that contain dated run subdirs + current/ symlink.
+# These are the node directories (idd_tools.versions): <node>/working/ is where a run
+# writes, <node>/<YYYYMMDD[_vN]>/ are frozen snapshots, <node>/current -> a snapshot.
 # Do not use these directly for file I/O — use the write/read paths below.
 _RAW_STAGE       = MODEL_ROOT / "01-raw_data"
 _PROCESSED_STAGE = MODEL_ROOT / "02-processed_data"
@@ -52,9 +54,14 @@ _MANUSCRIPT_STAGE  = MODEL_ROOT / "08-manuscript_material"
 _PRESENTATION_STAGE = MODEL_ROOT / "10-presentation_material"
 
 
-def _artifact_write(artifact_root: Path, run_date: str = None) -> Path:
-    """Return the write path for an artifact: artifact_root/RUN_DATE."""
-    return artifact_root / (run_date or RUN_DATE)
+def _artifact_write(artifact_root: Path) -> Path:
+    """The write slot of an artifact node: artifact_root/working (idd_tools.versions).
+
+    Not created here; lib.versioning.write_path() creates it at run time. Reruns
+    overwrite it. A snapshot exists only through freeze (a launcher's --current, or
+    idd-versions freeze), never through a stage picking a dated name.
+    """
+    return artifact_root / "working"
 
 
 def _artifact_read(artifact_root: Path) -> Path:
@@ -62,17 +69,16 @@ def _artifact_read(artifact_root: Path) -> Path:
     return artifact_root / "current"
 
 
-# ── Malaria model registry ────────────────────────────────────────────────────
-# JSON registry of fitted malaria-model runs, written by
-# 03_modeling/02_fit_final_malaria_models.r (via lib/model_registry.R). One array
-# of run records; each carries a `best` flag and exactly one is True. This is the
-# single source of truth for "which run is best" — both R and Python read it
-# rather than hardcoding a model_date. Lives next to the {run_date}_malaria_models.RData.
+# ── Malaria model registry (LEGACY, read-only) ────────────────────────────────
+# The pre-2026-09-16 index of fitted malaria-model runs: flat {run_date}_malaria_models.RData
+# files beside this JSON, each record with a `best` flag. No writer remains; fitted models
+# now live on the MAL_MODELS_NODE below (one snapshot per run, `current` = the model in
+# use). The readers stay so the legacy records (formulas, thresholds) remain queryable.
 MALARIA_MODEL_REGISTRY: Path = _MODELING_STAGE / "malaria_model_registry.json"
 
 
 def read_malaria_model_registry(path: Path = MALARIA_MODEL_REGISTRY) -> list[dict]:
-    """Return the malaria model run registry (list of run records), best-first.
+    """LEGACY: return the pre-2026-09 malaria model registry (list of run records), best-first.
 
     Empty list if the registry does not exist yet (i.e. no run has been recorded)."""
     path = Path(path)
@@ -85,7 +91,7 @@ def read_malaria_model_registry(path: Path = MALARIA_MODEL_REGISTRY) -> list[dic
 
 def get_malaria_model_run_date(best: bool = True, run_date: str | None = None,
                                path: Path = MALARIA_MODEL_REGISTRY) -> str:
-    """Resolve a malaria-model run_date from the registry.
+    """LEGACY: resolve a run_date from the pre-2026-09 registry. New code uses malaria_model_dir().
 
     - run_date set: verify it exists and return it.
     - best=True (default): return the run_date of the single entry flagged best.
@@ -167,8 +173,8 @@ LSAE_INPUT_PATH = _PROCESSED_STAGE / LSAE_HIERARCHY
 # Per-hierarchy artifact root: 02-processed_data/GBD2023/<hierarchy>/,
 # versioned by RUN_DATE via _artifact_write / _artifact_read. Both per-block
 # scratch and per-hierarchy aggregates share the same root for a given
-# (release, hierarchy) — pixel_main writes <root>/<RUN_DATE>/<cov>/<block>/000.parquet
-# and pixel_hierarchy writes <root>/<RUN_DATE>/<cov>_<stat>_<scenario>.parquet.
+# (release, hierarchy) — pixel_main writes <root>/working/<cov>/<block>/000.parquet
+# and pixel_hierarchy writes <root>/working/<cov>_<stat>_<scenario>.parquet.
 #
 # This convention does NOT apply to pixel_urban_main / pixel_urban_hierarchy —
 # urban is derived from population density and is not GBD-release-dependent.
@@ -178,15 +184,15 @@ PIXEL_GBD_RELEASE: str = "GBD2023"
 def pixel_artifact_root(hierarchy: str) -> Path:
     """Artifact root for stage-01 pixel outputs at `hierarchy` under the
     current GBD release. Used by both pixel_main (per-block scratch) and
-    pixel_hierarchy (per-hierarchy aggregates). Pass `finalize_artifact(...)`
+    pixel_hierarchy (per-hierarchy aggregates). Pass `finish_stage(...)`
     after a successful launch to update the current/ symlink."""
     return _PROCESSED_STAGE / PIXEL_GBD_RELEASE / hierarchy
 
 
-def pixel_write_path(hierarchy: str, run_date: str | None = None) -> Path:
-    """Versioned write path for stage-01 pixel outputs at `hierarchy`.
-    Resolves to: 02-processed_data/GBD2023/<hierarchy>/<RUN_DATE>/."""
-    return _artifact_write(pixel_artifact_root(hierarchy), run_date)
+def pixel_write_path(hierarchy: str) -> Path:
+    """Write slot for stage-01 pixel outputs at `hierarchy`:
+    02-processed_data/GBD2023/<hierarchy>/working/."""
+    return _artifact_write(pixel_artifact_root(hierarchy))
 
 
 def pixel_read_path(hierarchy: str) -> Path:
@@ -297,6 +303,38 @@ MAL_MODELING_READ_PATH     = _artifact_read(_A03_MAL_MODELING)
 DEN_MODELING_READ_PATH     = _artifact_read(_A03_DEN_MODELING)
 MAL_PAST_INPUTS_READ_PATH  = _artifact_read(_A03_MAL_PAST_INPUTS)
 DEN_PAST_INPUTS_READ_PATH  = _artifact_read(_A03_DEN_PAST_INPUTS)
+MAL_PAST_INPUTS_FILENAME   = "malaria_past_inputs.parquet"
+
+# ── Fitted malaria models node ───────────────────────────────────────────────
+# One snapshot per fitted run: <node>/<YYYYMMDD[_vN]>/malaria_models.RData + run.json
+# (formulas, thresholds, convergence, and a `selection` block naming the selection run
+# and spec the formula came from). `current` is the model the forecast uses; labels name
+# it (e.g. full_model_selection_results). Written by 03_modeling/fit_selected_malaria_model.py
+# into working/, then frozen and promoted (the "flag best" step is `promote`).
+_A03_MAL_MODELS = _MODELING_STAGE / "malaria" / "models" / LSAE_HIERARCHY
+MAL_MODELS_NODE       = _A03_MAL_MODELS
+MAL_MODELS_WRITE_PATH = _artifact_write(_A03_MAL_MODELS)
+MAL_MODELS_READ_PATH  = _artifact_read(_A03_MAL_MODELS)
+MAL_MODELS_RDATA      = "malaria_models.RData"
+MAL_MODELS_RUN_JSON   = "run.json"
+
+
+def malaria_model_dir(version: str | None = None, node: Path = _A03_MAL_MODELS) -> Path:
+    """Directory of a fitted malaria model: the current snapshot, or a snapshot name / label.
+
+    Snapshot names and labels are both entries directly under the node (labels are
+    symlinks), so one lookup serves both. Refuses when nothing is there or the RData
+    is missing, naming the node so `idd-versions <node> status` is the next step.
+    """
+    target = node / (version or "current")
+    if not target.is_dir():
+        raise FileNotFoundError(
+            f"no malaria model {version or 'current'!r} under {node}; "
+            f"see `idd-versions {node} status`"
+        )
+    if not (target / MAL_MODELS_RDATA).is_file():
+        raise FileNotFoundError(f"{target} has no {MAL_MODELS_RDATA}")
+    return target.resolve()
 
 # Dengue fit-location set (written by 06a; a modeling concern → under 03-modeling).
 _A03_DEN_FIT_LOCATIONS = _MODELING_STAGE / "dengue" / "fit_locations" / LSAE_HIERARCHY
@@ -363,9 +401,9 @@ def mal_products_root(run_key: str) -> Path:
     return _A05_MAL_PRODUCTS / run_key
 
 
-def mal_products_write_path(run_key: str, run_date: str = None) -> Path:
-    """Dated write path for one malaria forecast run's finished products."""
-    return _artifact_write(mal_products_root(run_key), run_date)
+def mal_products_write_path(run_key: str) -> Path:
+    """Write slot (working/) for one malaria forecast run's finished products."""
+    return _artifact_write(mal_products_root(run_key))
 
 
 def mal_products_read_path(run_key: str) -> Path:
@@ -388,7 +426,9 @@ def den_products_read_path(run_key: str) -> Path:
     return _artifact_read(den_products_root(run_key))
 
 # ── Stage-level paths (stages 04–10, not yet artifact-structured) ─────────────
-FORECASTING_DATA_PATH = _FORECASTING_STAGE / RUN_DATE
+# The forecasting stage root is itself a node (07a writes the non-draw-part frames there;
+# 04-forecasting_data/current points at them). Same working/ contract as every node.
+FORECASTING_DATA_PATH = _artifact_write(_FORECASTING_STAGE)
 UPLOAD_DATA_PATH      = _UPLOAD_STAGE      / RUN_DATE
 
 # ── Previous-submission comparators (read-only) ───────────────────────────────
