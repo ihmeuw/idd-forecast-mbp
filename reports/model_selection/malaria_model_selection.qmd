@@ -1,0 +1,173 @@
+---
+title: "Malaria PfPR model selection"
+format:
+  html:
+    embed-resources: true
+    toc: true
+    toc-depth: 2
+    df-print: paged
+    page-layout: full
+execute:
+  echo: false
+  warning: false
+jupyter: python3
+---
+
+```{python}
+import os
+from pathlib import Path
+
+import pandas as pd
+from IPython.display import Markdown, display
+from idd_tools.model_selection import kendall_tau_matrix, plot_kendall_tau
+
+from idd_forecast_mbp.select import rank as rk
+from idd_forecast_mbp.select.malaria_spec_design import build_universe
+
+# The run dir comes from rank_selection_run.py (render_report) through the environment.
+run_dir = os.environ.get(rk.RUN_DIR_ENV, "")
+if not run_dir:
+    raise SystemExit(f"{rk.RUN_DIR_ENV} must name the run dir to report on")
+run_dir = Path(run_dir)
+record = rk.read_result(run_dir)
+params = rk.rank_params_from_dict(record["rank"])
+summary = rk.load_summary(run_dir)
+universe = build_universe()
+result = rk.run_selection(summary, universe, params)
+pick, anchor = int(result.pick["spec_index"]), int(result.anchor["spec_index"])
+matches = pick == record["pick"]["spec_index"] and anchor == record["anchor"]["spec_index"]
+pd.set_option("display.max_colwidth", None)
+pd.set_option("display.width", 240)
+```
+
+```{python}
+status = record["status"]
+code = record["code"]
+lines = [
+    f"**Run:** `{record['run_dir']}`  ",
+    f"**Result status:** {status}; written {record['written_at']}; code `{code['commit']}`"
+    + (" (dirty tree)" if code.get("dirty") else "") + "  ",
+    f"**Specs:** {result.n_specs} ({record['n_culled']} culled); "
+    f"**windows:** {len(result.windows)}; **criteria:** {len(result.criteria)} -> {len(result.pruned_criteria)} after the tau prune  ",
+    f"**Spec table:** `{record['spec_table_fingerprint']}`  ",
+    f"**Config:** `{record['config_source']}`  ",
+]
+if not matches:
+    lines.append(
+        f"**MISMATCH:** re-deriving with the recorded parameters gives anchor {anchor} / pick {pick}, "
+        f"but the record says anchor {record['anchor']['spec_index']} / pick {record['pick']['spec_index']}."
+    )
+display(Markdown("\n".join(lines)))
+```
+
+## Pick
+
+```{python}
+display(Markdown(rk.format_pick(result).replace("\n", "  \n")))
+```
+
+Tolerance rule: `{python} params.tolerance_rule` x `{python} params.tolerance_value` on `{python} params.focus_metric`; complexity order `{python} ", ".join(params.complexity_order)`. The candidates are the anchor's structural down-set within the band.
+
+```{python}
+cand_cols = ["spec_index", "n_smooths", "n_scams", "n_terms", params.focus_metric, "formula_text"]
+display(result.candidates.sort_values([*params.complexity_order, params.focus_metric])[cand_cols].reset_index(drop=True))
+```
+
+## Fit-time settings
+
+The `fit:` section of the config against what the run recorded on its rows.
+
+```{python}
+problems = rk.compare_fit_settings(record["fit"], summary, result.windows)
+display(Markdown("No mismatches." if not problems else "**Mismatches:**\n\n" + "\n".join(f"- {p}" for p in problems)))
+display(pd.DataFrame([{"setting": k, "value": str(v)} for k, v in rk.fit_settings_from_run(summary).items()]))
+display(rk.run_windows(summary, result.windows))
+```
+
+```{python}
+display(Markdown("Recorded `fit:` section:\n\n```\n" + "\n".join(f"{k}: {v}" for k, v in record["fit"].items()) + "\n```"))
+```
+
+## Criteria and redundancy
+
+`{python} len(result.criteria)` criteria = `{python} len(result.criteria) // len(result.windows)` PfPR-space OOS metrics x `{python} len(result.windows)` windows. Pairs with |Kendall tau| at or above `{python} params.tau_prune_threshold` are pruned greedily; the survivors are the ranking criteria.
+
+```{python}
+tau = kendall_tau_matrix(rk.attach_universe(summary, universe), result.criteria)
+plot_kendall_tau(tau);
+```
+
+```{python}
+display(Markdown("Surviving criteria: " + ", ".join(f"`{c}`" for c in result.pruned_criteria)))
+display(result.prune_log)
+```
+
+## Consensus ranking
+
+Borda, TOPSIS and pairwise dominance on the surviving criteria; `consensus_rank` is the mean of the method ranks in `{python} ", ".join(params.consensus_methods)`. Sorted by the focus metric's rank. Borda elbow cutpoint: `{python} result.borda_cutpoint`.
+
+```{python}
+top_cols = ["spec_index", "n_smooths", "n_scams", "n_terms", "consensus_rank", "on_pareto",
+            "borda_rank", "borda_score", "topsis_rank", "topsis_score", "dominance_rank",
+            *result.pruned_criteria.keys(), "formula_text"]
+display(result.consensus.head(25)[[c for c in top_cols if c in result.consensus.columns]].reset_index(drop=True))
+```
+
+```{python}
+display(Markdown("TOPSIS influence of each criterion:"))
+display(result.topsis_influence)
+```
+
+## Winner profile
+
+Per-axis agreement among the top `{python} params.profile_top_n` of the consensus table.
+
+```{python}
+display(result.profile)
+```
+
+## Structural neighbourhood of the winner
+
+```{python}
+sl = rk.slice_tables(result, universe)
+cols = rk.slice_columns(result)
+display(Markdown(f"Consensus winner: spec {sl['reference']}  \n`{sl['reference_terms']}`  \n"
+                 f"Settled axes (unanimous in the top tier): {sl['settled']}  \nContested: {sl['contested']}"))
+```
+
+Neighbours: single-axis moves off the winner.
+
+```{python}
+display(sl["neighbors"][cols].reset_index(drop=True))
+```
+
+Down-set: everything structurally simpler than the winner (`{python} len(sl["down_set"])` models; first 20).
+
+```{python}
+display(sl["down_set"][cols].head(20).reset_index(drop=True))
+```
+
+Up-set: everything more complex than the winner (`{python} len(sl["up_set"])` models; first 5).
+
+```{python}
+display(sl["up_set"][cols].head(5).reset_index(drop=True))
+```
+
+Fiber: the winner's settled terms held fixed, contested axes varying (`{python} len(sl["fiber"])` models; first 10).
+
+```{python}
+display(sl["fiber"][cols].head(10).reset_index(drop=True))
+```
+
+## Anchor and pick across the windows
+
+```{python}
+wt = rk.window_table(result, [anchor, pick])
+display(wt.pivot(index="window", columns="spec_index", values=list(rk.DEEP_DIVE_METRICS)))
+```
+
+## Recorded rank parameters
+
+```{python}
+display(Markdown("```\n" + "\n".join(f"{k}: {v}" for k, v in record["rank"].items()) + "\n```"))
+```

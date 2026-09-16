@@ -57,6 +57,7 @@ if TYPE_CHECKING:
 
 AXES: tuple[str, ...] = tuple(AXIS_ORDER)
 WINDOW_SEP = "__"
+RUN_DIR_ENV = "MBP_SELECTION_RUN_DIR"  # how render_report hands the run dir to the report
 
 # The focus metric decides the parsimony band; its direction is a property of the score,
 # not a choice, so it is fixed here rather than in the config.
@@ -408,14 +409,14 @@ def git_info(repo_dir: str | Path | None = None) -> dict[str, Any]:
     if git is None:
         return {"commit": "unknown", "dirty": None}
     try:
-        head = subprocess.check_output(
+        head = subprocess.check_output(  # noqa: S603 - fixed argv, resolved git path
             [git, "rev-parse", "--short", "HEAD"],
             cwd=cwd,
             text=True,
             stderr=subprocess.DEVNULL,
         ).strip()
         dirty = bool(
-            subprocess.check_output(
+            subprocess.check_output(  # noqa: S603 - fixed argv, resolved git path
                 [git, "status", "--porcelain"],
                 cwd=cwd,
                 text=True,
@@ -601,3 +602,279 @@ def format_pick(result: SelectionResult) -> str:
         f"         {k['formula_text']}",
     ]
     return "\n".join(lines)
+
+
+# --------------------------------------------------------------------------- report helpers
+# Everything below exists so the Quarto report can stay import-only: it re-derives the
+# ranking from the parameters recorded in selection_result.json and shows the winner's
+# structural neighbourhood (notebook cells 22 to 32) without defining anything itself.
+
+WINDOW_YEAR_COLS: tuple[str, ...] = (
+    "cv_train_lo",
+    "cv_train_hi",
+    "cv_test_lo",
+    "cv_test_hi",
+)
+DEEP_DIVE_METRICS: tuple[str, ...] = ("oos_pfpr_rmse", "oos_pfpr_r", "oos_r_sq")
+
+
+def derive_windows(fit: dict[str, Any]) -> pd.DataFrame:
+    """The temporal windows the ``fit:`` section implies, one row per window.
+
+    Same arithmetic as ``fit_malaria_models_orchestrator.py``: ``train_lo`` is the first
+    modeling year plus ``max_lag``; each (gap, test window) pair gives ``train_hi = test_lo -
+    gap`` and is kept only when at least ``min_training_years`` training years remain.
+    """
+    years = fit["modeling_years"]
+    train_lo = int(years[0]) + int(fit["max_lag"])
+    min_train = int(fit["min_training_years"])
+    rows = []
+    for gap_name, gap in fit["gaps"].items():
+        for test_name, (test_lo, test_hi) in fit["test_windows"].items():
+            train_hi = int(test_lo) - int(gap)
+            if train_hi - train_lo < min_train - 1:
+                continue
+            rows.append(
+                {
+                    "window": f"{gap_name}_{test_name}",
+                    "cv_train_lo": train_lo,
+                    "cv_train_hi": train_hi,
+                    "cv_test_lo": int(test_lo),
+                    "cv_test_hi": int(test_hi),
+                }
+            )
+    return pd.DataFrame(rows).sort_values("window").reset_index(drop=True)
+
+
+def run_windows(summary: pd.DataFrame, windows: list[str]) -> pd.DataFrame:
+    """The windows the run actually used, read from the per-window ``cv_*`` columns."""
+    rows = []
+    for w in windows:
+        row: dict[str, Any] = {"window": w}
+        for c in WINDOW_YEAR_COLS:
+            col = f"{w}{WINDOW_SEP}{c}"
+            row[c] = (
+                int(summary[col].dropna().iloc[0])
+                if col in summary.columns and summary[col].notna().any()
+                else None
+            )
+        strat = f"{w}{WINDOW_SEP}cv_strategy"
+        row["cv_strategy"] = (
+            str(summary[strat].dropna().iloc[0])
+            if strat in summary.columns and summary[strat].notna().any()
+            else None
+        )
+        rows.append(row)
+    return pd.DataFrame(rows).sort_values("window").reset_index(drop=True)
+
+
+def fit_settings_from_run(summary: pd.DataFrame) -> dict[str, Any]:
+    """Fit-time settings the worker recorded on every row (first non-null value of each)."""
+    out: dict[str, Any] = {}
+    for c in ("optimizer", "maxit_setting", "scam_version", "r_version"):
+        if c in summary.columns and summary[c].notna().any():
+            vals = summary[c].dropna().unique().tolist()
+            out[c] = vals[0] if len(vals) == 1 else vals
+    return out
+
+
+def compare_fit_settings(
+    fit: dict[str, Any], summary: pd.DataFrame, windows: list[str]
+) -> list[str]:
+    """Human-readable mismatches between the ``fit:`` section and what the run recorded."""
+    problems: list[str] = []
+    recorded = fit_settings_from_run(summary)
+    if "optimizer" in recorded and str(recorded["optimizer"]) != str(
+        fit.get("optimizer")
+    ):
+        problems.append(
+            f"optimizer: config {fit.get('optimizer')!r}, run {recorded['optimizer']!r}"
+        )
+    if "maxit_setting" in recorded and int(recorded["maxit_setting"]) != int(
+        fit.get("maxit", -1)
+    ):
+        problems.append(
+            f"maxit: config {fit.get('maxit')!r}, run {recorded['maxit_setting']!r}"
+        )
+    expected = derive_windows(fit)
+    actual = run_windows(summary, windows)
+    if set(expected["window"]) != set(actual["window"]):
+        problems.append(
+            f"windows: config implies {sorted(expected['window'])}, run has {sorted(actual['window'])}"
+        )
+    else:
+        merged = expected.merge(actual, on="window", suffixes=("_cfg", "_run"))
+        for c in WINDOW_YEAR_COLS:
+            bad = merged[
+                merged[f"{c}_run"].notna() & (merged[f"{c}_cfg"] != merged[f"{c}_run"])
+            ]
+            for _, r in bad.iterrows():
+                problems.append(
+                    f"{r['window']} {c}: config {r[f'{c}_cfg']}, run {int(r[f'{c}_run'])}"
+                )
+        strategies = set(actual["cv_strategy"].dropna())
+        if strategies and strategies != {str(fit.get("cv_strategy"))}:
+            problems.append(
+                f"cv_strategy: config {fit.get('cv_strategy')!r}, run {sorted(strategies)}"
+            )
+    return problems
+
+
+def winner_of(result: SelectionResult) -> int:
+    """The consensus winner: first row of the consensus table (sorted by the focus rank)."""
+    return int(result.consensus.iloc[0]["spec_index"])
+
+
+def slice_tables(
+    result: SelectionResult, universe: ModelUniverse, *, reference: int | None = None
+) -> dict[str, Any]:
+    """Structural neighbourhood of a reference spec (default: the consensus winner).
+
+    Returns ``neighbors``, ``down_set``, ``up_set``, ``fiber`` frames, each row carrying
+    ``n_changed`` (axes differing from the reference) and ``changed_from_winner`` (which
+    terms differ), plus the ``settled`` / ``contested`` axes read off the winner profile.
+    """
+    from idd_tools.model_selection import (  # noqa: PLC0415 - traversal helpers are only needed here
+        config_key,
+        down_set,
+        fiber,
+        format_config,
+        format_config_diff,
+        neighbors,
+        up_set,
+    )
+
+    ref = reference if reference is not None else winner_of(result)
+    space = universe.space
+    key_to_spec = {config_key(c): i + 1 for i, c in enumerate(universe.configs)}
+    cfg_by_spec = {i + 1: c for i, c in enumerate(universe.configs)}
+    ref_cfg = cfg_by_spec[ref]
+    base = result.scored.merge(
+        result.consensus[["spec_index", "consensus_rank"]], on="spec_index"
+    )
+
+    def rows_for(cfgs: Any) -> pd.DataFrame:
+        idx = [key_to_spec[config_key(c)] for c in cfgs]
+        out = (
+            base[base["spec_index"].isin(idx)]
+            .sort_values("consensus_rank", kind="stable")
+            .copy()
+        )
+        out["n_changed"] = [
+            sum(cfg_by_spec[s][a] != ref_cfg[a] for a in AXES)
+            for s in out["spec_index"]
+        ]
+        out["changed_from_winner"] = [
+            format_config_diff(cfg_by_spec[s], ref_cfg) for s in out["spec_index"]
+        ]
+        return out
+
+    prof = result.profile
+    settled = [a for a in AXES if float(prof.loc[a, "mode_pct"]) >= 100]  # noqa: PLR2004 - unanimous means 100 percent
+    contested = [a for a in AXES if a not in settled]
+    return {
+        "reference": ref,
+        "reference_terms": format_config(ref_cfg, space),
+        "settled": settled,
+        "contested": contested,
+        "neighbors": rows_for(neighbors(ref_cfg, space)),
+        "down_set": rows_for(down_set(ref_cfg, space)),
+        "up_set": rows_for(up_set(ref_cfg, space)),
+        "fiber": rows_for(fiber(universe.configs, ref_cfg, settled)),
+    }
+
+
+def slice_columns(result: SelectionResult) -> list[str]:
+    """The columns the slice tables show, in display order."""
+    return [
+        "spec_index",
+        "consensus_rank",
+        result.params.focus_metric,
+        "n_smooths",
+        "n_scams",
+        "n_terms",
+        "n_changed",
+        "changed_from_winner",
+        *result.pruned_criteria.keys(),
+    ]
+
+
+def window_table(
+    result: SelectionResult,
+    spec_indices: list[int],
+    metrics: tuple[str, ...] = DEEP_DIVE_METRICS,
+) -> pd.DataFrame:
+    """Per-window OOS metrics for a few specs (long: one row per spec x window)."""
+    rows = []
+    for s in spec_indices:
+        r = result.scored[result.scored["spec_index"] == s].iloc[0]
+        for w in result.windows:
+            row: dict[str, Any] = {"spec_index": s, "window": w}
+            for m in metrics:
+                col = f"{w}{WINDOW_SEP}{m}"
+                row[m] = float(r[col]) if col in r.index else None
+            rows.append(row)
+    return pd.DataFrame(rows)
+
+
+def default_quarto() -> Path | None:
+    """The quarto binary: the user-level install the tool record names, else whatever is on PATH."""
+    candidate = Path.home() / ".local" / "opt" / "quarto" / "bin" / "quarto"
+    if candidate.is_file():
+        return candidate
+    found = shutil.which("quarto")
+    return Path(found) if found else None
+
+
+def render_report(
+    qmd: str | Path,
+    run_dir: str | Path,
+    *,
+    quarto: str | Path | None = None,
+    output_name: str = "report.html",
+) -> Path:
+    """Render the Quarto report for a run dir into that run dir (single self-contained HTML).
+
+    The report re-derives from ``selection_result.json``, so it must exist. Quarto's Python
+    engine is pointed at this interpreter via ``QUARTO_PYTHON`` so the venv's kernel is used;
+    the run dir is passed in the ``MBP_SELECTION_RUN_DIR`` environment variable.
+    """
+    import os  # noqa: PLC0415 - only the renderer needs the environment
+    import sys  # noqa: PLC0415
+
+    qmd = Path(qmd).resolve()
+    run_dir = Path(run_dir).resolve()
+    if not (run_dir / RESULT_FILE).is_file():
+        msg = f"no {RESULT_FILE} in {run_dir}; write the result before rendering"
+        raise FileNotFoundError(msg)
+    binary = Path(quarto) if quarto else default_quarto()
+    if binary is None or not Path(binary).is_file():
+        msg = "quarto not found; pass quarto= or install per ~/.claude/tools/quarto-env.md"
+        raise FileNotFoundError(msg)
+    # The run dir travels in the environment rather than via ``-P``: Quarto's parameter
+    # passing for the Python engine needs papermill, which is not a dependency here.
+    env = {**os.environ, "QUARTO_PYTHON": sys.executable, RUN_DIR_ENV: str(run_dir)}
+    cmd = [
+        str(binary),
+        "render",
+        str(qmd),
+        "--to",
+        "html",
+        "--output",
+        output_name,
+        "--output-dir",
+        str(run_dir),
+        "--execute-dir",
+        str(qmd.parent),
+    ]
+    proc = subprocess.run(  # noqa: S603 - fixed argv, resolved quarto path
+        cmd, check=False, capture_output=True, text=True, env=env, cwd=str(qmd.parent)
+    )
+    if proc.returncode != 0:
+        msg = f"quarto render failed ({proc.returncode}):\n{proc.stdout[-2000:]}\n{proc.stderr[-4000:]}"
+        raise RuntimeError(msg)
+    out = run_dir / output_name
+    if not out.is_file():
+        msg = f"quarto reported success but {out} is missing"
+        raise RuntimeError(msg)
+    return out

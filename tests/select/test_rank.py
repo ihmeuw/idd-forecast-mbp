@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import dataclasses
 import json
+import shutil
 from pathlib import Path
 
 import numpy as np
@@ -254,3 +255,92 @@ def test_regression_20260727_efs_picks_1486(universe, config):
     assert res.tolerance == pytest.approx(0.0371, abs=5e-4)
     assert len(res.candidates) == 6
     assert res.pick["formula_text"].startswith("logit_malaria_pfpr ~")
+
+
+# ------------------------------------------------------------------ report helpers
+def test_derive_windows_matches_the_orchestrator(config):
+    w = rk.derive_windows(config.fit)
+    assert sorted(w["window"]) == [
+        "exwide_recent",
+        "narrow_full",
+        "narrow_preC",
+        "narrow_recent",
+        "vwide_full",
+        "vwide_preC",
+        "vwide_recent",
+        "wide_full",
+        "wide_preC",
+        "wide_recent",
+    ]
+    row = w.set_index("window").loc["exwide_recent"]
+    assert (
+        row["cv_train_lo"],
+        row["cv_train_hi"],
+        row["cv_test_lo"],
+        row["cv_test_hi"],
+    ) == (2000, 2009, 2019, 2023)
+
+
+def test_compare_fit_settings_flags_mismatches(config):
+    windows = list(rk.derive_windows(config.fit)["window"])
+    frame = pd.DataFrame(
+        {"spec_index": [1], "optimizer": ["bfgs"], "maxit_setting": [30]}
+    )
+    for _, r in rk.derive_windows(config.fit).iterrows():
+        for c in rk.WINDOW_YEAR_COLS:
+            frame[f"{r['window']}__{c}"] = [r[c]]
+        frame[f"{r['window']}__cv_strategy"] = ["temporal"]
+    problems = rk.compare_fit_settings(config.fit, frame, windows)
+    assert problems == ["optimizer: config 'efs', run 'bfgs'"]
+    frame["narrow_full__cv_test_hi"] = [2022]
+    assert any(
+        "narrow_full cv_test_hi" in p
+        for p in rk.compare_fit_settings(config.fit, frame, windows)
+    )
+
+
+def test_slice_tables_and_window_table(universe, config):
+    specs = _subset_with_downset(universe, ANCHOR_SPEC)
+    res = rk.run_selection(
+        _synthetic_summary(universe, specs, best=ANCHOR_SPEC), universe, config.rank
+    )
+    sl = rk.slice_tables(res, universe)
+    assert sl["reference"] == ANCHOR_SPEC
+    assert set(sl["settled"]) | set(sl["contested"]) == set(rk.AXES)
+    assert (sl["neighbors"]["n_changed"] == 1).all()
+    assert ANCHOR_SPEC in set(
+        sl["down_set"]["spec_index"]
+    )  # the down-set includes the reference itself
+    assert set(rk.slice_columns(res)) <= set(sl["down_set"].columns) | {
+        res.params.focus_metric
+    }
+    wt = rk.window_table(res, [ANCHOR_SPEC], metrics=("oos_pfpr_r", "oos_pfpr_rmse"))
+    assert len(wt) == len(res.windows)
+    assert set(wt.columns) == {"spec_index", "window", "oos_pfpr_r", "oos_pfpr_rmse"}
+
+
+def test_render_report_requires_result(tmp_path):
+    with pytest.raises(FileNotFoundError, match="write the result before rendering"):
+        rk.render_report(
+            REPO / "reports" / "model_selection" / "malaria_model_selection.qmd",
+            tmp_path,
+        )
+
+
+@pytest.mark.slow
+@pytest.mark.skipif(
+    not (REAL_RUN / "selection_result.json").is_file() or rk.default_quarto() is None,
+    reason="real run or quarto missing",
+)
+def test_render_report_on_the_real_run(tmp_path):
+    """Smoke render: the report builds against the recorded result and the pick text is in it."""
+    work = tmp_path / "run"
+    shutil.copytree(
+        REAL_RUN, work, ignore=shutil.ignore_patterns("logs", "select_summary_*")
+    )
+    out = rk.render_report(
+        REPO / "reports" / "model_selection" / "malaria_model_selection.qmd", work
+    )
+    html = out.read_text(errors="ignore")
+    assert "spec 1486" in html
+    assert "MISMATCH" not in html
