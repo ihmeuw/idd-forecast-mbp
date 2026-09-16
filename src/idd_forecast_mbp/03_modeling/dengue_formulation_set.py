@@ -9,7 +9,7 @@ candidates runnable end to end and comparable, not to encode a winner.
 
 The covariate specs come from ``03_modeling/final_models_dengue.r`` and the
 ``spec_A``..``spec_D`` block in
-``reports/03_modeling/pygam_dengue_models_explore.ipynb``. Note the R file — which
+``reports/03_modeling/archive/pygam_dengue_models_explore.ipynb``. Note the R file — which
 the planning prompt calls the settled specification — carries **no year term**,
 while the better-performing notebook formulations do. That disagreement is real
 and unresolved; both are represented below so the comparison can settle it.

@@ -181,7 +181,7 @@ been forecast 3 SSPs × 4 decays × 78 years × 100 draws →
   soft-labelling for occurrence + EVT for magnitude.
 
 **Malaria PfPR forecasting — the FE is moot under the 2023 shift (2026-07-07).** A Python
-pyGAM sandbox (`reports/03_modeling/pygam_model_selection.ipynb` + `lib/modeling/`
+pyGAM sandbox (`reports/03_modeling/archive/pygam_model_selection.ipynb` + `lib/modeling/`
 {data,specs,fit,metrics,shift,forecast}) recreates the scam PfPR path and adds a compounded
 rolling-forecast harness (`forecast.py`). Key finding: under the per-location 2023-anchor
 shift (`shift.apply_shift`), the country fixed effect (and intercept) CANCEL from the forecast
@@ -488,12 +488,12 @@ formulations and deciding a single winner vs an ensemble (matched per-draw weigh
 - 2026-05-12: Confirmed scam `summary()` fails on deserialized objects
   (fundamental limitation — model frame environment lost). Direct field
   access (`$deviance`, `coef()`, `predict()`) still works.
-- 2026-05-12: Created `reports/03_modeling/explore_malaria_fit_metrics.qmd`
+- 2026-05-12: Created `reports/03_modeling/archive/explore_malaria_fit_metrics.qmd`
   for interactive model comparison.
 - 2026-05-12: Promoted "prefer attached/current file content over earlier
   reads" rule to `~/.claude/CLAUDE.md`.
 - 2026-05-13: Built model-selection ranking infrastructure across three
-  notebooks (`reports/03_modeling/rank_malaria_models{,_loop,_w_urban}.ipynb`).
+  notebooks (`reports/03_modeling/archive/rank_malaria_models{,_loop,_w_urban}.ipynb`).
   Integrated 4 MCDM methods (Borda, TOPSIS, Pareto frontier, pairwise
   dominance) with a `build_winners_summary_row` helper for cross-config
   aggregation. Loop notebook iterates over all
@@ -702,7 +702,7 @@ landed/exercised, 07b → 08 forecast-input chain produced 3 netCDFs.
   idd-tools per-tier bundles/resources + output-gating into `resources()`/partition for a right-sized run.
 - **Once the run is done: run model-selection FROM THE TOP** — `finalize_selection_run.py --run-dir
   <20260710_efs>` → `selection_summary.parquet` → the ranking notebook
-  (`reports/03_modeling/malaria_pfpr_model_selection_report.ipynb` / `aggregate_selection_run.ipynb`).
+  (`reports/03_modeling/archive/malaria_pfpr_model_selection_report.ipynb` / `aggregate_selection_run.ipynb`).
   `finalize` MUST key off `manifest.json` (or filter the current `_s` naming) — the 599278 dir had 138
   pre-migration files that inflated the join to 58,936 rows (should be 1,620).
 - idd-tools: commit/push `inbox/2026-07-10_..._resource-calibration-gaps.md`; the 10 gaps (+

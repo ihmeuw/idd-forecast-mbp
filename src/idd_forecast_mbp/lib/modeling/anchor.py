@@ -13,7 +13,7 @@ hardcoded its own combination:
   :mod:`~idd_forecast_mbp.lib.modeling.shift` — single-year point anchor.
 - ``04_forecasting/OLD_rake_dengue.py`` — point anchor, but per
   ``(location, age, sex)`` rather than per location.
-- ``reports/03_modeling/pygam_dengue_models_explore.ipynb`` — ``point`` /
+- ``reports/03_modeling/archive/pygam_dengue_models_explore.ipynb`` — ``point`` /
   ``median_diff`` / ``median_resid`` over a window, per location.
 - ``idd-manuscripts`` ``GBD2023_DENV/gbd2023_denv_aroc_functions.py`` — leave-one-out
   outlier exclusion and a much richer set of baseline statistics.

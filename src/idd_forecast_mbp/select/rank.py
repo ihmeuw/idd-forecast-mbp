@@ -1,6 +1,6 @@
 """Rank a finalized malaria model-selection run and pick the parsimonious spec.
 
-This is the notebook ``reports/03_modeling/rank_malaria_models_idd_tools.ipynb`` (cells 1
+This is the notebook ``reports/03_modeling/archive/rank_malaria_models_idd_tools.ipynb`` (cells 1
 to 20) as functions, so the pick is reproducible from a run directory plus a committed
 parameter file instead of from cells with the knobs inside them. Nothing here decides a
 parameter: every judgment comes from :class:`RankParams`, loaded from YAML by

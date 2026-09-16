@@ -1,6 +1,6 @@
 """Assemble the dengue fit frame from the stage-02 artifacts.
 
-Extracted from ``reports/03_modeling/pygam_dengue_models_explore.ipynb`` (cells
+Extracted from ``reports/03_modeling/archive/pygam_dengue_models_explore.ipynb`` (cells
 3, 5, 7), which is the only place this assembly existed.
 
 The pure transforms are separated from the reads so they can be unit tested
