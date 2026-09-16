@@ -1439,3 +1439,46 @@ node: `2026_07_31_full_model_selection_results` (current), `2026_07_20_hybrid_fg
 house now. `hybrid_deliverable/20260527` was found on review to be the original goalkeepers delivery
 still read as the `old_delivered` overlay, so it stays.
 **Revisit if:** `scam_fits` (298 GB of superseded May grids, left unregistered) needs the space.
+
+## 2026-09-16: Versioning conversion as built: env-var options for no-CLI stages, paired producers, stage-root node
+**Decision:** (1) Stage scripts without a click CLI (10 of 25: import-run and bare-`main()` scripts)
+receive the launch options through `IDD_VERSIONS_*` environment variables, parsed by
+`lib.versioning.versions_from_env` into idd-tools' `VersionsOptions` with the same pre-flights; click
+launchers take `@versions_options`. `finish_stage(node[, versions])` is the one success-path call
+for both. (2) The first half of a two-producer node (02a population, pixel_main) does not finish;
+its partner (02b, pixel_hierarchy) does, and the writer-completeness test exempts the first half
+(`PAIRED_PRODUCERS`). (3) The forecasting stage root remains a node (07a writes the non-draw-part
+frames there) with a `working/` slot like any other. (4) `UPLOAD_DATA_PATH`, `VISUALIZATION_PATH`,
+`FIGURES_PATH`, `MANUSCRIPT_PATH`, `PRESENTATION_PATH` keep their `<stage>/RUN_DATE` form: not
+artifact nodes, out of scope until figures become one.
+**Why:** Converting 12 argparse and 10 no-CLI scripts to click for one flag was not worth the churn;
+the environment is the shell's argument channel for those, and the pre-flights still run. A freeze
+after the first half of a shared slot would snapshot half a stage and empty the slot under the
+second half. The stage-root node predates the conversion and its consumers read `current` there.
+**Revisit if:** the no-CLI scripts gain CLIs (then drop the env path), or the stage root gets a
+proper node home.
+
+## 2026-09-16: Legacy fitted models copied onto the models node under their legacy keys
+**Decision:** The three kept models were copied (not moved) from the flat
+`03-modeling_data/<key>_malaria_models.RData` into
+`03-modeling_data/malaria/models/lsae_1285/<key>/malaria_models.RData` with a `run.json` built from
+the old registry record, and registered as legacy snapshots named by the legacy key:
+`2026_07_31_full_model_selection_results` (current; label `full_model_selection_results`),
+`2026_07_20_hybrid_fghjul` (label `goalkeepers_2026`), `2025_07_08` (label `first_submission`).
+New fits get `YYYYMMDD[_vN]` names from freeze. The flat files and `malaria_model_registry.json`
+stay as read-only history; no writer of that JSON remains.
+**Why:** Nothing on the shared drive moves; the legacy key is the name every note and product
+directory already uses, so keeping it on the snapshot preserves the cross-references.
+**Revisit if:** the product-arm naming is redesigned (FORMALIZATION_PLAN `run_key`).
+
+## 2026-09-16: Freeze list registered; deletions stay with Bobby
+**Decision:** `scripts/register_freeze_list.py --apply` registered every KEEP / KEEP+CURRENT entry of
+`.claude/FREEZE_LIST.md` as a legacy snapshot, promoted the agreed `current` on 43 nodes, attached
+the labels (14 x `first_submission`, `selected_2026_07_31`, 2 x `goalkeepers_2026`,
+`goalkeepers_2026_original`, `goalkeepers_2025`, `full_model_selection_results`), and copied the three
+models. The DROP set (22 directories, 9 flat RData files) and the 6 EMPTY directories were not
+touched: deletion on the shared drive is Bobby's action, through `idd-versions delete` for
+registered snapshots and plain removal otherwise.
+**Why:** The org file-safety rule; and the list's own guidance was to get onto the standard, not to
+clean house.
+**Revisit if:** never; the script is re-runnable and skips what is already registered.
