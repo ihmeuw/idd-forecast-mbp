@@ -15,10 +15,11 @@
 # Restrict which covariates the parallel launchers process.
 # Remove this key (or comment it out) to run all covariates in COVARIATE_DICT.
 covariates_to_run:
-  - malaria_pfpr
-  - malaria_pf_inc_rate
-  - malaria_pf_mort_rate
-
+  # - malaria_pfpr
+  # - malaria_pf_inc_rate
+  # - malaria_pf_mort_rate
+ - dengue_suitability
+ 
 COVARIATE_DICT:
   malaria_anti:
     covariate_name: "malaria_anti"

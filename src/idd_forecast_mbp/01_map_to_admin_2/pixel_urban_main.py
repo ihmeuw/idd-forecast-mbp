@@ -36,7 +36,7 @@ threshold = args.threshold
 hierarchy = args.hierarchy
 block_key = args.block_key
 
-years = list(range(2000, 2101))
+years = list(mbpc.ALL_YEARS)
 
 gridded_population_root = mbpc.GRIDDED_POPULATION_ROOT
 gridded_population_by_block_path = mbpc.GRIDDED_POPULATION_BY_BLOCK_PATH

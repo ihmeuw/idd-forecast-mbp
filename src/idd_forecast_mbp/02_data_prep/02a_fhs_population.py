@@ -1,8 +1,14 @@
 """Part A: FHS population — past + future, combined.
 
-Reads GBD past FHS population and FHS future forecast, applies the
-44858→{60908,95069,94364} location split, and writes combined all-age and
-age-specific FHS population files.
+Reads GBD past FHS population and FHS future forecast and writes combined
+all-age and age-specific FHS population files.
+
+Older FHS vintages had a merged Ethiopia location 44858 in the future file
+while the past file already had it split into {60908, 95069, 94364}. When
+that's the case, a redistribution block maps 44858 future pop onto the
+three sub-nationals using their 2023 age-sex fractions. This block is
+gated on `mbpc.FHS_FUTURE_POP_HAS_44858`; the current FHS release
+(verified 2026-05-30) no longer contains 44858 so the block is skipped.
 
 Outputs (in processed_data_path):
     aa_2023_fhs_population_df.parquet
@@ -84,57 +90,62 @@ def main(
     )
 
     # ── Fix: location 44858 → {60908, 95069, 94364} ──────────────────────────
-    # The future FHS file has 44858 (a merged location), but the past has it
-    # split into three sub-locations. Distribute the 44858 future population
-    # using the 2023 age-sex fractions from the three sub-locations.
-    df_2023 = as_past_fhs_population_df[
-        (as_past_fhs_population_df["year_id"] == 2023)
-        & (as_past_fhs_population_df["location_id"].isin([60908, 95069, 94364]))
-    ].copy()
-    df_44858 = (
-        as_future_fhs_population_df[as_future_fhs_population_df["location_id"] == 44858]
-        .copy()
-        .drop(columns=["location_id"])
-        .rename(columns={"population": "population_44858"})
-    )
-    df_2023 = df_2023.drop(columns=["year_id"])
-    df_2023_sum = (
-        df_2023.groupby(["age_group_id", "sex_id"])
-        .agg({"population": "sum"})
-        .reset_index()
-        .rename(columns={"population": "total_as_population"})
-    )
-    df_2023 = df_2023.merge(df_2023_sum, on=["age_group_id", "sex_id"], how="left")
-    df_2023["as_fraction"] = df_2023["population"] / df_2023["total_as_population"]
-    df_2023 = df_2023[["age_group_id", "sex_id", "location_id", "as_fraction"]]
+    # Older FHS vintages had a merged 44858 in the future file while the past
+    # already had it split into three sub-locations. Redistribute the 44858
+    # future pop using the 2023 age-sex fractions from the three sub-locations.
+    # Gated on the data-state flag — current FHS vintage no longer contains
+    # 44858 so this whole block is skipped. See constants.py for the flag and
+    # the verification context. Preserved here for posterity in case an older
+    # FHS file gets re-used.
+    if mbpc.FHS_FUTURE_POP_HAS_44858:
+        df_2023 = as_past_fhs_population_df[
+            (as_past_fhs_population_df["year_id"] == 2023)
+            & (as_past_fhs_population_df["location_id"].isin([60908, 95069, 94364]))
+        ].copy()
+        df_44858 = (
+            as_future_fhs_population_df[as_future_fhs_population_df["location_id"] == 44858]
+            .copy()
+            .drop(columns=["location_id"])
+            .rename(columns={"population": "population_44858"})
+        )
+        df_2023 = df_2023.drop(columns=["year_id"])
+        df_2023_sum = (
+            df_2023.groupby(["age_group_id", "sex_id"])
+            .agg({"population": "sum"})
+            .reset_index()
+            .rename(columns={"population": "total_as_population"})
+        )
+        df_2023 = df_2023.merge(df_2023_sum, on=["age_group_id", "sex_id"], how="left")
+        df_2023["as_fraction"] = df_2023["population"] / df_2023["total_as_population"]
+        df_2023 = df_2023[["age_group_id", "sex_id", "location_id", "as_fraction"]]
 
-    df_as_new_locations = df_2023.merge(df_44858, on=["age_group_id", "sex_id"], how="left")
-    df_as_new_locations["population"] = (
-        df_as_new_locations["as_fraction"] * df_as_new_locations["population_44858"]
-    )
-    df_as_new_locations = df_as_new_locations.drop(columns=["population_44858", "as_fraction"])
+        df_as_new_locations = df_2023.merge(df_44858, on=["age_group_id", "sex_id"], how="left")
+        df_as_new_locations["population"] = (
+            df_as_new_locations["as_fraction"] * df_as_new_locations["population_44858"]
+        )
+        df_as_new_locations = df_as_new_locations.drop(columns=["population_44858", "as_fraction"])
 
-    df_aa_new_locations = (
-        df_as_new_locations.groupby(["location_id", "year_id"])
-        .agg({"population": "sum"})
-        .reset_index()
-        .copy()
-    )
-    df_aa_new_locations["age_group_id"] = 22
-    df_aa_new_locations["sex_id"] = 3
+        df_aa_new_locations = (
+            df_as_new_locations.groupby(["location_id", "year_id"])
+            .agg({"population": "sum"})
+            .reset_index()
+            .copy()
+        )
+        df_aa_new_locations["age_group_id"] = 22
+        df_aa_new_locations["sex_id"] = 3
 
-    as_future_fhs_population_df = as_future_fhs_population_df[
-        as_future_fhs_population_df["location_id"] != 44858
-    ]
-    aa_future_fhs_population_df = aa_future_fhs_population_df[
-        aa_future_fhs_population_df["location_id"] != 44858
-    ]
-    as_future_fhs_population_df = pd.concat(
-        [as_future_fhs_population_df, df_as_new_locations], ignore_index=True
-    )
-    aa_future_fhs_population_df = pd.concat(
-        [aa_future_fhs_population_df, df_aa_new_locations], ignore_index=True
-    )
+        as_future_fhs_population_df = as_future_fhs_population_df[
+            as_future_fhs_population_df["location_id"] != 44858
+        ]
+        aa_future_fhs_population_df = aa_future_fhs_population_df[
+            aa_future_fhs_population_df["location_id"] != 44858
+        ]
+        as_future_fhs_population_df = pd.concat(
+            [as_future_fhs_population_df, df_as_new_locations], ignore_index=True
+        )
+        aa_future_fhs_population_df = pd.concat(
+            [aa_future_fhs_population_df, df_aa_new_locations], ignore_index=True
+        )
 
     # ── Combine past + future ─────────────────────────────────────────────────
     # Future file starts at 2023 which overlaps with past; drop the overlap.

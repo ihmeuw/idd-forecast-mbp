@@ -20,7 +20,7 @@ import argparse
 import yaml
 
 # Sibling module — importable because Python adds the script's dir to sys.path[0]
-from block_utils import load_raking_shapes  # noqa: E402
+from block_utils import load_raking_shapes, NearestResampler  # noqa: E402
 
 parser = argparse.ArgumentParser(description="Run James code")
 
@@ -262,6 +262,14 @@ def pixel_main(
     
     climate_slice, bounds_map = build_location_masks(block_key, hierarchy)
 
+    # Cached resampler, built lazily on the first inner iteration.
+    # All scenarios share the same source lat/lon grid (climate_slice is
+    # fixed) and the same destination grid (pop_raster geometry is fixed
+    # per block_key), so a single resampler covers the whole task.
+    resampler: NearestResampler | None = None
+    template_transform = None
+    template_shape: tuple[int, int] | None = None
+
     result_records = []
     for scenario in scenarios:
         root = READ_PATH / scenario
@@ -274,7 +282,7 @@ def pixel_main(
         # rename lat/lon to latitude/longitude
         if synoptic:
             ds = ds.rename({"lat": "latitude", "lon": "longitude", "value": "value"})
-            years = list(range(2000, 2023))
+            years = list(mbpc.MODELING_YEARS)
         else:
             ds = ds.rename({"lat": "latitude", "lon": "longitude", "time": "year", "value": "value"})
         ds = ds.sel(**climate_slice)  # type: ignore[arg-type]
@@ -289,18 +297,24 @@ def pixel_main(
                 ds_slice = ds["value"]
             else:
                 ds_slice = ds.sel(year=year)["value"]
-            # Pull out and rasterize the climate data for the current year
-            clim_arr = (
-                to_raster(  # noqa: SLF001
-                    ds_slice,
-                    no_data_value=np.nan,
-                    lat_col="latitude",
-                    lon_col="longitude",
+
+            if resampler is None:
+                resampler = NearestResampler.build(
+                    src_lats=ds["latitude"].values,
+                    src_lons=ds["longitude"].values,
+                    src_crs="EPSG:4326",
+                    dst_template=pop_raster,
                 )
-                .resample_to(pop_raster, "nearest")
-                .astype(np.float32)
-                ._ndarray
-            )
+                template_transform = pop_raster.transform
+                template_shape = pop_arr.shape
+            else:
+                # Pop values change year-to-year but the destination grid
+                # (transform + shape) must stay constant for the cached
+                # source→destination index map to remain valid.
+                assert pop_raster.transform == template_transform
+                assert pop_arr.shape == template_shape
+
+            clim_arr = resampler.apply(ds_slice.values)
 
             weighted_clim_arr = pop_arr * clim_arr  # type: ignore[operator]
 
@@ -325,7 +339,8 @@ def pixel_main(
             "population",
         ],
     ).sort_values(by=["location_id", "year_id"])
-    save_path = DATA_PATH / "GBD2023" / hierarchy / covariate_name / block_key
+    # Versioned write path: 02-processed_data/GBD2023/<hierarchy>/<RUN_DATE>/<cov>/<block>/000.parquet
+    save_path = mbpc.pixel_write_path(hierarchy) / covariate_name / block_key
     mkdir(save_path, parents=True, exist_ok=True)
     filename = "000.parquet"
     results.to_parquet(

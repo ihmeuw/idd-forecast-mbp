@@ -99,7 +99,19 @@ def load_arm(  # noqa: PLR0913
             raise KeyError(msg)
         block = ds["val"].sel(location_id=keep)
         if years is not None:
-            block = block.sel(year_id=[int(y) for y in years])
+            # Intersect rather than index straight through, exactly as the locations
+            # above are intersected. This run starts at 2022, so a caller whose own
+            # frame reaches further back (the current products carry the fitted past
+            # from 2000) would otherwise raise rather than simply having no previous
+            # line before 2022.
+            available_years = set(ds["year_id"].to_numpy().tolist())
+            keep_years = [int(y) for y in years if int(y) in available_years]
+            if not keep_years:
+                msg = (f"none of years {list(years)[:5]}... present in "
+                       f"{path.parent.name} (has {min(available_years)}-"
+                       f"{max(available_years)})")
+                raise KeyError(msg)
+            block = block.sel(year_id=keep_years)
         draw_dim = "draw_id" if "draw_id" in block.dims else "draw"
         # Each .quantile() attaches its own scalar `quantile` coord; combining two
         # of them into one Dataset conflicts, so drop it from each.

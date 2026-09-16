@@ -134,5 +134,12 @@ except Exception as e:
 try:
     status = workflow.run(seconds_until_timeout=60 * 60 * 24 * 3)  # 3 days
     print(f"Workflow {workflow.workflow_id} completed with status {status}.")
+    if str(status).upper() == "DONE" or status == "D":
+        from idd_forecast_mbp.lib.versioning import finalize_artifact
+        for hierarchy in hierarchies:
+            finalize_artifact(mbpc.pixel_artifact_root(hierarchy))
+            print(f"✅ Finalized pixel artifact for {hierarchy}.")
+    else:
+        print(f"⚠️ Workflow did not complete cleanly (status={status}); skipping finalize_artifact.")
 except Exception as e:
     print(f"❌ Workflow submission failed: {e}")

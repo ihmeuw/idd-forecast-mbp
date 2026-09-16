@@ -24,16 +24,16 @@ def get_multiplier(number, scale=2, allow_nonstandard_units=False, override_mult
     elif (number < scale * 100000 and override_multiplier is None) or override_multiplier == 10000:
         multiplier = 0.0001
         multiplier_text = " (in 10,000s)"
-    elif (number < scale * 1_000_000 and override_multiplier is None) or override_multiplier == 100000:
+    elif (number < scale * 1_000_000 and override_multiplier is None) or override_multiplier == 100_000:
         multiplier = 0.00001
         multiplier_text = " (in 100,000s)"
     elif (number < scale * 10_000_000 and override_multiplier is None and allow_nonstandard_units) or (number < scale * 1_000_000_000 and not allow_nonstandard_units and override_multiplier is None) or override_multiplier == 1000000:
         multiplier = 0.000001
         multiplier_text = " (in Millions)"
-    elif (number < scale * 100_000_000 and override_multiplier is None and allow_nonstandard_units) or override_multiplier == 1000000:
+    elif (number < scale * 100_000_000 and override_multiplier is None and allow_nonstandard_units) or override_multiplier == 10_000_000:
         multiplier = 0.0000001
         multiplier_text = " (in 10 Millions)"
-    elif (number < scale * 1_000_000_000 and override_multiplier is None and allow_nonstandard_units) or override_multiplier == 10000000:
+    elif (number < scale * 1_000_000_000 and override_multiplier is None and allow_nonstandard_units) or override_multiplier == 100_000_000:
         multiplier = 0.00000001
         multiplier_text = " (in 100 Millions)"
     else:

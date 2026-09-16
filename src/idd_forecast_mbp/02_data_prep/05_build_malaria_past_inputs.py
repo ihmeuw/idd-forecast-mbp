@@ -21,7 +21,7 @@ from idd_forecast_mbp.lib.processing.helpers import level_filter
 from idd_forecast_mbp.lib.processing.locations import malaria_fit_location_ids
 from idd_forecast_mbp.lib.versioning import finalize_artifact
 
-PAST_YEARS = list(range(2000, 2023))
+PAST_YEARS = list(mbpc.MODELING_YEARS)
 
 
 def _arrays_to_df(arrays: dict, location_ids: list[int], years: list[int]) -> pd.DataFrame:
@@ -93,6 +93,20 @@ def main(
 
     print(f"  Valid rows: {len(df):,}")
 
+    # ── 2b. Broadcast each row's national (A0) PfPR + population for that year ─
+    # National = level 3, already present in aa_df (loaded levels 3–5). PfPR and
+    # population come from the SAME raked-AA national rows, so they're mutually
+    # consistent (and a0_population matches the row-level `population` source).
+    # Raw rate only: any logit / zero handling is deferred to the modeling stage.
+    a0_ctx = (
+        aa_df.loc[aa_df['location_id'].isin(df['A0_location_id'].unique()),
+                  ['location_id', 'year_id', 'malaria_pfpr', 'population']]
+        .rename(columns={'location_id': 'A0_location_id',
+                         'malaria_pfpr': 'a0_malaria_pfpr',
+                         'population': 'a0_population'})
+    )
+    df = df.merge(a0_ctx, on=['A0_location_id', 'year_id'], how='left')
+
     # ── 3. Add base (reference age-sex) rates if requested ───────────────────
     if add_base:
         reference_age_group_id = mbpc.cause_map['malaria']['reference_age_group_id']
@@ -138,7 +152,7 @@ def main(
         f"fldfrc_weightedmin_sum_{ssp_scenario}_mean_r1i1p1f1.parquet",
         f"fldfrc_shifted0.1_sum_{ssp_scenario}_mean_r1i1p1f1.parquet",
     ]:
-        candidate = Path(f"/mnt/team/rapidresponse/pub/flooding/results/output/{lsae_hierarchy}/{fname}")
+        candidate = Path(f"/mnt/team/rapidresponse/pub/flooding/results/output/{lsae_hierarchy}/{mbpc.FLOODING_RUN_DATE}/{fname}")
         if candidate.exists():
             flooding_path_str = str(candidate)
             break

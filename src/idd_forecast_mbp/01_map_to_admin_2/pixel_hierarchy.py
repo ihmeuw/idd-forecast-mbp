@@ -186,7 +186,10 @@ def hierarchy_main(
         for draw in DRAWS:
             draw_results = []
             for block_key in block_keys:
-                draw_df = pd.read_parquet(DATA_PATH / "GBD2023" / hierarchy / covariate_name / block_key / f"{draw}.parquet")
+                # Read from the same RUN_DATE pixel_main just wrote to.
+                # Using pixel_write_path (not pixel_read_path) avoids requiring
+                # pixel_main to finalize_artifact between the two launches.
+                draw_df = pd.read_parquet(mbpc.pixel_write_path(hierarchy) / covariate_name / block_key / f"{draw}.parquet")
                 # filter by scenario
                 draw_df = draw_df[draw_df["scenario"] == scenario]
                 # drop scenario column
@@ -234,9 +237,10 @@ def hierarchy_main(
                 pop_df,
             )
 
-            # Save results for the subset hierarchy
-            subset_results_path = DATA_PATH / subset_hierarchy
-            filename = f"{summary_covariate}_{scenario}.parquet" 
+            # Save results for the subset hierarchy.
+            # Versioned: 02-processed_data/GBD2023/<subset_hierarchy>/<RUN_DATE>/<cov>_<stat>_<scenario>.parquet
+            subset_results_path = mbpc.pixel_write_path(subset_hierarchy)
+            filename = f"{summary_covariate}_{scenario}.parquet"
             mkdir(subset_results_path, parents=True, exist_ok=True)
             subset_results.to_parquet(
                 subset_results_path / filename,
@@ -245,21 +249,9 @@ def hierarchy_main(
             final_path = subset_results_path / filename
             final_path.chmod(0o775)
 
-            subset_pop = pop_df[pop_df["location_id"].isin(subset_location_ids)]
-            popname = f"population.parquet"
-            # Check if the population file already exists
-            if (subset_results_path / popname).exists():
-                # If it exists, don't re-write it
-                continue
-            else:
-                # If it doesn't exist, write it
-                subset_pop.to_parquet(
-                    subset_results_path / popname,
-                    index=True,
-                )
-                # change file permssions to 0775
-                pop_path = subset_results_path / popname
-                pop_path.chmod(0o775)
+            # Population is NOT written here. 02b reads the canonical
+            # rapidresponse aggregate via mbpc.LSAE_POP_PATH; nothing in this
+            # pipeline consumes a stage-01-produced population.parquet sidecar.
 
 
 # Call the function with parsed arguments

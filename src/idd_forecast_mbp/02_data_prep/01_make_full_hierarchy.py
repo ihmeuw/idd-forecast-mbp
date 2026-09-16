@@ -9,7 +9,7 @@ RAW_DATA_PATH = mbpc.RAW_DATA_PATH
 HIERARCHY_WRITE_PATH = mbpc.HIERARCHY_WRITE_PATH
 HIERARCHY_WRITE_PATH.mkdir(parents=True, exist_ok=True)
 
-GBD_DATA_PATH = f"{RAW_DATA_PATH}/gbd"
+GBD_DATA_PATH = f"{RAW_DATA_PATH}/gbd/current"
 lsae_hierarchy = mbpc.LSAE_HIERARCHY
 
 ################################################################
@@ -224,7 +224,7 @@ fhs_look_uptable_df["fhs_level"] = fhs_levels
 
 # Write the updated DataFrame to a new parquet file
 output_path = HIERARCHY_WRITE_PATH / f"{lsae_hierarchy}_to_fhs_table.parquet"
-fhs_look_uptable_df.to_parquet(output_path, index=False)
+write_parquet(fhs_look_uptable_df, output_path)
 
 # Merge the lookup table with the full hierarchy
 hierarchy_2023_df = hierarchy_2023_df.merge(
@@ -285,7 +285,7 @@ gbd_look_uptable_df["gbd_level"] = gbd_levels
 
 # Write the updated DataFrame to a new parquet file
 output_path = HIERARCHY_WRITE_PATH / f"{lsae_hierarchy}_to_gbd_table.parquet"
-gbd_look_uptable_df.to_parquet(output_path, index=False)
+write_parquet(gbd_look_uptable_df, output_path)
 
 # Merge the lookup table with the full hierarchy
 hierarchy_2023_df = hierarchy_2023_df.merge(

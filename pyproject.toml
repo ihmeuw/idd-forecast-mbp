@@ -146,6 +146,10 @@ classmethod-decorators = [
 ban-relative-imports = "all"
 
 [tool.pytest.ini_options]
+# Collect only from tests/. src/ holds stage scripts, some named test_*.py, that
+# are manual verification scripts rather than pytest modules -- collecting them
+# executes real pipeline I/O at import and aborts the run.
+testpaths = ["tests"]
 addopts = """\
     --cov idd_forecast_mbp \
     --cov tests \

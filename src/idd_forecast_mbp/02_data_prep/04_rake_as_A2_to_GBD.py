@@ -17,7 +17,7 @@ def main(
     den_raked_aa_read_path: Path = mbpc.DEN_RAKED_AA_READ_PATH,
     mal_raked_as_write_path: Path = mbpc.MAL_RAKED_AS_WRITE_PATH,
     den_raked_as_write_path: Path = mbpc.DEN_RAKED_AS_WRITE_PATH,
-    gbd_data_path: Path = mbpc.GBD_DATA_PATH,
+    gbd_data_path: Path = mbpc.GBD_DATA_READ_PATH,
     causes: list[str] = None,
 ) -> None:
     if causes is None:
@@ -50,10 +50,10 @@ def main(
     #### Paths, loading, and cleaning
     ################################################################
 
-    aa_gbd_cause_df_path_template = "{GBD_DATA_PATH}/gbd_2023_{cause}_aa.parquet"
-    as_gbd_cause_df_path_template = "{GBD_DATA_PATH}/gbd_2023_{cause}_as.parquet"
+    aa_gbd_cause_df_path_template = "{GBD_DATA_PATH}/aa_{cause}_results.parquet"
+    as_gbd_cause_df_path_template = "{GBD_DATA_PATH}/as_{cause}_results.parquet"
 
-    years = list(range(2000, 2023))
+    years = list(mbpc.MODELING_YEARS)
     year_filter = ('year_id', 'in', years)
 
     as_full_population_df_path = Path(population_read_path) / "as_2023_full_population_df.parquet"
@@ -190,6 +190,7 @@ def main(
             as_full_cause_df.loc[as_full_cause_df['age_group_id'].isin(force_zero_age_ids), [f'aa_{cause}_{measure_map[measure]["short"]}_{metric}' for measure in measure_map]] = 0
         as_full_cause_df_path = as_write_paths[cause] / f"as_full_{cause}_df.parquet"
         as_full_cause_ds_path = as_write_paths[cause] / f"as_full_{cause}_ds.nc"
+        as_full_cause_df = as_full_cause_df[as_full_cause_df["year_id"].isin(mbpc.MODELING_YEARS)]
         write_parquet(as_full_cause_df, as_full_cause_df_path)
 
 

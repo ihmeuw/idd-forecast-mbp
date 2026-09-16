@@ -283,6 +283,7 @@ def kendall_tau_heatmap(
     calibration_metrics: Optional[List[str]] = None,
     figsize: Tuple[int, int] = (12, 10),
     plot: bool = True,
+    verbose: bool = True,
 ) -> pd.DataFrame:
     """Pairwise Kendall tau correlations between metric rankings.
 
@@ -319,16 +320,17 @@ def kendall_tau_heatmap(
     avg_tau = tau_matrix[np.triu_indices_from(tau_matrix, k=1)].mean()
     disagreeing = int((tau_matrix < 0).sum() // 2)
 
-    print(f"\n=== Metric Agreement Analysis ===")
-    print(f"Average pairwise Kendall tau: {avg_tau:.3f}")
-    print(f"Pairs with negative correlation: {disagreeing}")
+    if verbose:
+        print(f"\n=== Metric Agreement Analysis ===")
+        print(f"Average pairwise Kendall tau: {avg_tau:.3f}")
+        print(f"Pairs with negative correlation: {disagreeing}")
 
-    if avg_tau > 0.5:
-        print("Metrics largely agree. Flat top tier likely reflects genuine equivalence.")
-    elif avg_tau > 0.2:
-        print("Moderate agreement. Some trade-offs between metrics.")
-    else:
-        print("Low agreement. Flat top tier may be aggregation artifact (metric cancellation).")
+        if avg_tau > 0.5:
+            print("Metrics largely agree. Flat top tier likely reflects genuine equivalence.")
+        elif avg_tau > 0.2:
+            print("Moderate agreement. Some trade-offs between metrics.")
+        else:
+            print("Low agreement. Flat top tier may be aggregation artifact (metric cancellation).")
 
     return tau_df
 

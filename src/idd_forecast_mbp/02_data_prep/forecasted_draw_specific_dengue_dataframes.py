@@ -48,7 +48,7 @@ def main(
         "dengue_suitability":       "{CLIMATE_DATA_PATH}/dengue_suitability_{ssp_scenario}.parquet"
     }
 
-    year_filter = ('year_id', '==', 2022)
+    year_filter = ('year_id', '==', mbpc.MODELING_YEARS[-1])
 
     dengue_df = read_parquet_with_integer_ids(aa_full_cause_df_path,
                                               filters=[year_filter, level_filter(hierarchy_df, start_level=3)])
@@ -121,7 +121,7 @@ def main(
 
     columns_to_keep = as_merge_variables + ['logit_dengue_cfr', 'as_id']
     as_md_dengue_modeling_df = as_md_dengue_modeling_df[columns_to_keep].copy()
-    as_md_dengue_modeling_df['year_to_rake'] = 2022
+    as_md_dengue_modeling_df['year_to_rake'] = mbpc.MODELING_YEARS[-1]
     as_md_dengue_modeling_df = as_md_dengue_modeling_df.drop(columns=['year_id'])
 
     forecast_by_draw_df = forecast_by_draw_df.merge(as_md_dengue_modeling_df,

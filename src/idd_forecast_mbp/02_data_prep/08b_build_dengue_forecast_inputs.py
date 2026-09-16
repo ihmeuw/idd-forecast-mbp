@@ -228,9 +228,15 @@ if __name__ == "__main__":
                              "lib/io/covariate_registry.COVARIATE_REGISTRY. "
                              "Defaults to DEFAULT_DENGUE_FORECAST_COVARIATES.")
     parser.add_argument("--lsae_hierarchy", default=mbpc.LSAE_HIERARCHY)
+    parser.add_argument("--output_path", default=None,
+                        help="Write the netCDFs here instead of the default dated "
+                             "dir. Overriding this SKIPS finalize_artifact, so the "
+                             "`current` symlink is left alone -- use it to build a "
+                             "new vintage without changing what readers see.")
     args = parser.parse_args()
     main(
         ssp_scenarios=args.ssp_scenarios,
         covariates=args.covariates,
         lsae_hierarchy=args.lsae_hierarchy,
+        **({"output_path": Path(args.output_path)} if args.output_path else {}),
     )

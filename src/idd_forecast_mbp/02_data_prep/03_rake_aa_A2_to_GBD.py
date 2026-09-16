@@ -21,8 +21,11 @@ def main(
     population_read_path: Path = mbpc.POPULATION_READ_PATH,
     mal_raked_aa_write_path: Path = mbpc.MAL_RAKED_AA_WRITE_PATH,
     den_raked_aa_write_path: Path = mbpc.DEN_RAKED_AA_WRITE_PATH,
-    gbd_data_path: Path = mbpc.GBD_DATA_PATH,
-    lsae_input_path: Path = mbpc.LSAE_INPUT_PATH,
+    gbd_data_path: Path = mbpc.GBD_DATA_READ_PATH,
+    # malaria/dengue aggregates live under the GBD-release-tagged pixel
+    # artifact root (produced by pixel_hierarchy.py), not at the flat
+    # lsae_<hier>/ path that LSAE_INPUT_PATH points at.
+    lsae_input_path: Path = mbpc.pixel_read_path(mbpc.LSAE_HIERARCHY),
     causes: list[str] = None,
 ) -> None:
     if causes is None:
@@ -48,9 +51,10 @@ def main(
 
     hierarchy_df = read_parquet_with_integer_ids(full_2023_hierarchy_path)
     aa_full_population_df = pd.read_parquet(aa_full_population_df_path)
+    aa_full_population_df = aa_full_population_df[aa_full_population_df["year_id"].isin(mbpc.MODELING_YEARS)]
 
-    aa_gbd_malaria_df_path = gbd_data_path / "gbd_2023_malaria_aa.csv"
-    aa_gbd_dengue_df_path = gbd_data_path / "gbd_2023_dengue_aa.csv"
+    aa_gbd_malaria_df_path = gbd_data_path / "aa_malaria_results.parquet"
+    aa_gbd_dengue_df_path = gbd_data_path / "aa_dengue_results.parquet"
 
     measure_map = mbpc.measure_map
     ploblematic_rule_map = mbpc.problematic_rule_map
@@ -71,7 +75,7 @@ def main(
         aa_full_malaria_pfpr_df = aggregate_aa_rate_lsae_to_gbd(rate_variable = "malaria_pfpr", hierarchy_df = hierarchy_df, aa_lsae_rate_df = aa_lsae_malaria_pfpr_df, aa_full_population_df=aa_full_population_df, return_full_df = True)
 
         # Load GBD reference data for raking
-        aa_gbd_malaria_df = pd.read_csv(aa_gbd_malaria_df_path, low_memory=False)
+        aa_gbd_malaria_df = pd.read_parquet(aa_gbd_malaria_df_path)
 
         ###----------------------------------------------------------###
         ### 2. Incidence Processing & Raking
@@ -212,6 +216,7 @@ def main(
         ### Exports the final processed dataset to a parquet file for use in downstream modeling.
         ### This preserves the complete, harmonized dataset for forecasting applications.
         ###----------------------------------------------------------###
+        aa_full_malaria_df = aa_full_malaria_df[aa_full_malaria_df["year_id"].isin(mbpc.MODELING_YEARS)]
         write_parquet(aa_full_malaria_df, aa_full_malaria_df_path)
 
     ################################################################
@@ -227,7 +232,7 @@ def main(
         # Load the dengue suitability data
         aa_lsae_dengue_suit_df = process_lsae_df("dengue", "dengue_suitability", aa_full_population_df, hierarchy_df, lsae_input_path=lsae_input_path)
         # Load GBD reference data for raking
-        aa_gbd_dengue_df = pd.read_csv(aa_gbd_dengue_df_path, low_memory=False)
+        aa_gbd_dengue_df = pd.read_parquet(aa_gbd_dengue_df_path)
 
         ###----------------------------------------------------------###
         ### 2. Incidence Processing & Raking
@@ -415,6 +420,7 @@ def main(
         ### Exports the final processed dataset to a parquet file for use in downstream modeling.
         ### This preserves the complete, harmonized dataset for forecasting applications.
         ###----------------------------------------------------------###
+        aa_full_dengue_df = aa_full_dengue_df[aa_full_dengue_df["year_id"].isin(mbpc.MODELING_YEARS)]
         write_parquet(aa_full_dengue_df, aa_full_dengue_df_path)
 
     ###----------------------------------------------------------###
@@ -456,7 +462,8 @@ def main(
             filled_df = pd.DataFrame(filled_rows)
             filled_df.index = pd.MultiIndex.from_tuples(filled_df.index, names=['location_id', 'year_id'])
             aa_full_dengue_df = pd.concat([aa_full_dengue_df, filled_df])
-            aa_full_dengue_df = aa_full_dengue_df.reset_index()
+        
+        aa_full_dengue_df = aa_full_dengue_df.reset_index()
 
         dengue_ds = convert_to_xarray(
             aa_full_dengue_df,

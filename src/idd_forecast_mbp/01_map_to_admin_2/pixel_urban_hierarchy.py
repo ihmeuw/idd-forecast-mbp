@@ -24,7 +24,7 @@ args = parser.parse_args()
 threshold = args.threshold
 hierarchy = args.hierarchy
 
-years = list(range(2000, 2101))
+years = list(mbpc.ALL_YEARS)
 
 modeling_frame_path = mbpc.MODELING_FRAME_PATH
 DATA_PATH = mbpc.MODEL_ROOT / "02-processed_data"
@@ -214,14 +214,9 @@ def hierarchy_main(
         )
         (covariate_write_path / filename).chmod(0o775)
 
-        # Write population to intermediate scratch path (used within stage 01 only)
-        scratch_path = DATA_PATH / subset_hierarchy
-        mkdir(scratch_path, parents=True, exist_ok=True)
-        subset_pop = pop_df[pop_df["location_id"].isin(subset_location_ids)]
-        popname = "population.parquet"
-        if not (scratch_path / popname).exists():
-            subset_pop.to_parquet(scratch_path / popname, index=True)
-            (scratch_path / popname).chmod(0o775)
+        # Population is NOT written here. 02b reads the canonical
+        # rapidresponse aggregate via mbpc.LSAE_POP_PATH; nothing in this
+        # pipeline consumes a stage-01 urban-side population.parquet sidecar.
 
 
 # Call the function with parsed arguments

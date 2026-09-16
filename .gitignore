@@ -95,3 +95,9 @@ notebooks/
 !.claude/STATUS.md
 !.claude/DECISIONS.md
 !.claude/DEAD_ENDS.md
+
+# VS Code workspace settings: machine-specific interpreter path
+.vscode/
+
+# R session env vars — holds absolute data roots, never commit
+.Renviron

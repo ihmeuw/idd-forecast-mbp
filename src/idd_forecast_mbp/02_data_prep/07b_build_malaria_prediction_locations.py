@@ -1,6 +1,6 @@
 """Build the malaria forecast prediction-location set with full covariate coverage.
 
-DEPENDENCY ORDER: must run BEFORE 08_build_malaria_forecast_inputs.py.
+DEPENDENCY ORDER: must run BEFORE 08a_build_malaria_forecast_inputs.py.
 
 Starts from `malaria_prediction_location_ids` (any level-5 location in an
 endemic A0). Drop policy (2026-05-27):
@@ -48,7 +48,7 @@ from idd_forecast_mbp.lib.versioning import finalize_artifact
 # forecast covariate set in lib/io/covariate_registry.py.
 SHARED_VARS_TO_CHECK: tuple[str, ...] = (
     "gdppc_mean",
-    "weighted_1km_urban_threshold_300.0_simple_mean",
+    # "weighted_1km_urban_threshold_300.0_simple_mean",  # urban coverage check disabled for the incidence-only test run; re-add when urban returns to the model
     "people_flood_days_per_capita",
 )
 DRAW_VARS_TO_CHECK: tuple[str, ...] = ("malaria_suitability",)
@@ -63,7 +63,7 @@ FORECAST_CHECK_START_YEAR: int = 2023
 
 
 def _resolve_flooding_path(lsae_hierarchy: str, ssp_scenario: str) -> str | None:
-    base = Path(f"/mnt/team/rapidresponse/pub/flooding/results/output/{lsae_hierarchy}")
+    base = Path(f"/mnt/team/rapidresponse/pub/flooding/results/output/{lsae_hierarchy}/{mbpc.FLOODING_RUN_DATE}")
     for fname in [
         f"fldfrc_weightedmin_sum_{ssp_scenario}_mean_r1i1p1f1.parquet",
         f"fldfrc_shifted0.1_sum_{ssp_scenario}_mean_r1i1p1f1.parquet",
@@ -156,6 +156,7 @@ def main(
             flooding_path=flooding_path,
             rcp_scenario=rcp_scenario,
             med_consumppc_read_path=None,
+            variables=SHARED_VARS_TO_CHECK,
         )
         for var in SHARED_VARS_TO_CHECK:
             if var not in shared_arrays:

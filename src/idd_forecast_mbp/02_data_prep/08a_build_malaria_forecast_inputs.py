@@ -41,14 +41,11 @@ from idd_forecast_mbp.lib.processing.dah_scenarios import build_dah_array
 from idd_forecast_mbp.lib.versioning import finalize_artifact
 
 DAH_SCENARIOS: tuple[str, ...] = ("Baseline", "Constant")
-# Year onward for which 07b guarantees non-NaN coverage. Past-year NaN is
-# allowed in the sanity check until 01_map_to_admin_2 historical gap is fixed.
-NAN_SANITY_CHECK_START_YEAR: int = 2023
 
 
 def _resolve_flooding_path(lsae_hierarchy: str, ssp_scenario: str) -> str | None:
     """Probe the two known flooding filenames; return the first that exists."""
-    base = Path(f"/mnt/team/rapidresponse/pub/flooding/results/output/{lsae_hierarchy}")
+    base = Path(f"/mnt/team/rapidresponse/pub/flooding/results/output/{lsae_hierarchy}/{mbpc.FLOODING_RUN_DATE}")
     for fname in [
         f"fldfrc_weightedmin_sum_{ssp_scenario}_mean_r1i1p1f1.parquet",
         f"fldfrc_shifted0.1_sum_{ssp_scenario}_mean_r1i1p1f1.parquet",
@@ -77,7 +74,7 @@ def main(
 ) -> None:
     ssp_scenarios = ssp_scenarios or list(mbpc.ssp_scenarios.keys())
     covariates    = list(covariates or DEFAULT_MALARIA_FORECAST_COVARIATES)
-    years         = list(years or mbpc.model_years)
+    years         = list(years or mbpc.ALL_YEARS)
     output_path   = Path(output_path)
     output_path.mkdir(parents=True, exist_ok=True)
 
@@ -158,6 +155,23 @@ def main(
                     )
                 data_vars[name] = (DIMS_BY_KIND["climate_draw"], climate_arrays[name])
 
+        # 6a-mean. Climate collapsed to the ensemble mean (single realization, loc x year)
+        if by_kind["climate_mean"]:
+            print("Reading climate (draw-mean single realization)...")
+            climate_mean_arrays = read_draw_climate(
+                location_ids=location_ids,
+                years=years,
+                ssp_scenario=ssp_scenario,
+                lsae_hierarchy=lsae_hierarchy,
+            )
+            for name in by_kind["climate_mean"]:
+                if name not in climate_mean_arrays:
+                    raise KeyError(
+                        f"Climate variable {name!r} not returned by read_draw_climate; "
+                        "check lib/io/array_builders.py:read_draw_climate vs the registry."
+                    )
+                data_vars[name] = (DIMS_BY_KIND["climate_mean"], climate_mean_arrays[name].mean(axis=2))
+
         # 6b. Suitability (draw-varying, single variant)
         for name in by_kind["suitability"]:
             print(f"Reading {name} ({suitability_variant})...")
@@ -182,6 +196,7 @@ def main(
                 flooding_path=flooding_path,
                 rcp_scenario=rcp_scenario,
                 med_consumppc_read_path=med_consumppc_read_path,
+                variables=by_kind["shared_scalar"] + by_kind["flooding"],
             )
             for name in by_kind["shared_scalar"] + by_kind["flooding"]:
                 if name not in shared_arrays:
@@ -232,13 +247,13 @@ def main(
 
 
 def _assert_no_forecast_window_nan(ds: xr.Dataset, ssp_scenario: str) -> None:
-    """Raise if any data_var has NaN in year >= NAN_SANITY_CHECK_START_YEAR.
+    """Raise if any data_var has NaN in the forecast window (mbpc.FORECAST_YEARS).
 
     07b is supposed to drop locations whose covariates are NaN in the forecast
     window. If we see NaN here, either 07b wasn't re-run after a source update
     or a covariate was added without a coverage check.
     """
-    future = ds.sel(year_id=slice(NAN_SANITY_CHECK_START_YEAR, None))
+    future = ds.sel(year_id=slice(mbpc.FORECAST_YEARS[0], mbpc.FORECAST_YEARS[-1]))
     offenders = {}
     for name, da in future.data_vars.items():
         if da.dtype.kind != "f":

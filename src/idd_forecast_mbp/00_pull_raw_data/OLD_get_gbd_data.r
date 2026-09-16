@@ -61,7 +61,9 @@ write.csv(gbd_2023_age_metadata, glue("{output_dir}/gbd_2023_age_metadata.csv"),
 # Get hierarchy
 gbd_2023_modeling_hierarchy <- as.data.frame(get_location_metadata(location_set_id = gbd_location_set_id, release_id=gbd_2023_release_id))
 fhs_2023_modeling_hierarchy <- as.data.frame(get_location_metadata(location_set_id = fhs_location_set_id, release_id=gbd_2023_release_id))
-
+fhs_2024_modeling_hierarchy <- as.data.frame(get_location_metadata(location_set_id = fhs_location_set_id, release_id=32))
+# Test if fhs_2023_modeling_hierarchy and fhs_2024_modeling_hierarchy are identical
+identical(fhs_2023_modeling_hierarchy, fhs_2024_modeling_hierarchy) # TRUE
 
 fhs_2023_modeling_hierarchy[which(fhs_2023_modeling_hierarchy$location_id == 44858),]
 

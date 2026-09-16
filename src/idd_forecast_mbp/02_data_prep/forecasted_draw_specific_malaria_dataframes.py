@@ -61,7 +61,7 @@ def main(
         how="left",
         on="location_id")
 
-    aa_A0_malaria_df = aa_malaria_df[(aa_malaria_df["location_id"] == aa_malaria_df["A0_location_id"]) & (aa_malaria_df["year_id"] == 2022)].copy()
+    aa_A0_malaria_df = aa_malaria_df[(aa_malaria_df["location_id"] == aa_malaria_df["A0_location_id"]) & (aa_malaria_df["year_id"] == mbpc.MODELING_YEARS[-1])].copy()
     aa_A0_malaria_df = aa_A0_malaria_df[aa_A0_malaria_df['malaria_mort_count'] > malaria_mortality_threshold].copy()
     A0_malaria_ids = aa_A0_malaria_df['A0_location_id'].unique()
 
@@ -124,7 +124,7 @@ def main(
     pakistan_grandchildren_ids = hierarchy_df[hierarchy_df['parent_id'].isin(pakistan_children_ids)]['location_id'].tolist()
     all_pakistan_locations = [pakistan_id] + pakistan_children_ids + pakistan_grandchildren_ids
 
-    forecast_by_draw_df['year_to_rake_to'] = 2022
+    forecast_by_draw_df['year_to_rake_to'] = mbpc.MODELING_YEARS[-1]
     forecast_by_draw_df.loc[forecast_by_draw_df['location_id'].isin(all_pakistan_locations), 'year_to_rake_to'] = 2021
 
     dah_scenarios, dah_scenario_names = generate_dah_scenarios(

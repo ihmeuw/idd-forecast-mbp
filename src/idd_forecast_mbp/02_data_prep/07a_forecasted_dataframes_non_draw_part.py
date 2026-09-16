@@ -34,7 +34,7 @@ def main(
     forecasting_data_write_path.mkdir(parents=True, exist_ok=True)
 
     ssp_scenarios = mbpc.ssp_scenarios
-    years = mbpc.model_years
+    years = mbpc.ALL_YEARS
     year_filter = ('year_id', 'in', years)
 
     VARIABLE_DATA_PATH = str(lsae_input_path)
@@ -62,7 +62,7 @@ def main(
     }
 
     cc_sensitive_paths = {
-        "flooding": f"/mnt/team/rapidresponse/pub/flooding/results/output/{lsae_hierarchy}/fldfrc_shifted0.1_sum_{{ssp_scenario}}_mean_r1i1p1f1.parquet"
+        "flooding": f"/mnt/team/rapidresponse/pub/flooding/results/output/{lsae_hierarchy}/{mbpc.FLOODING_RUN_DATE}/fldfrc_shifted0.1_sum_{{ssp_scenario}}_mean_r1i1p1f1.parquet"
     }
 
     for ssp_scenario in ssp_scenarios:

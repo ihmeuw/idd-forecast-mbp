@@ -29,12 +29,14 @@ from idd_forecast_mbp.lib.io.netcdf import write_netcdf, convert_with_preset
 from idd_forecast_mbp.lib.versioning import finalize_artifact
 
 
-# Canonical source for lsae_1285 population: pre-aggregated parquet covering all
-# locations and years 2000-2100, produced by the pixel population pipeline.
-# Path pattern: MODEL_ROOT / "02-processed_data" / <run_date> / <hierarchy> / "population.parquet"
-_LSAE_POP_PARQUET_ROOT = mbpc.MODEL_ROOT / "02-processed_data" / "20260405"
-_LSAE_YEARS = list(range(2000, 2024))
-_FUTURE_YEARS = list(range(2024, 2101))
+# Canonical source for lsae_1285 population: the rapidresponse-published
+# pre-aggregated parquet under climate-aggregates/<CLIMATE_COVARIATE_RUN_DATE>/.
+# Pinned via mbpc.LSAE_POP_PATH (date-pinned, NOT `current/`). When a new
+# rapidresponse climate-aggregates run lands, bump CLIMATE_COVARIATE_RUN_DATE
+# in constants.py and 02b picks it up automatically.
+# Year ranges come from mbpc:
+#   mbpc.MODELING_YEARS = 2000-2023 (past raking window)
+#   mbpc.FUTURE_YEARS   = 2024-2100 (strictly future, scaled by 2023 FHS fractions)
 
 
 def main(
@@ -48,7 +50,7 @@ def main(
     population_write_path = Path(population_write_path)
     population_write_path.mkdir(parents=True, exist_ok=True)
 
-    gbd_data_path = Path(raw_data_path) / "gbd"
+    gbd_data_path = Path(raw_data_path) / "gbd" / "current"
     fhs_data_path = mbpc.AGE_SPECIFIC_FHS_PATH
 
     # ── Input paths ───────────────────────────────────────────────────────────
@@ -83,10 +85,10 @@ def main(
     as_fhs_population_df = read_parquet_with_integer_ids(as_fhs_population_df_path)
 
     # ── Load LSAE historical all-age population ────────────────────────────────
-    lsae_pop_parquet = _LSAE_POP_PARQUET_ROOT / lsae_hierarchy / "population.parquet"
+    lsae_pop_parquet = mbpc.LSAE_POP_PATH
     aa_full_population_df = pd.read_parquet(lsae_pop_parquet)
     aa_full_population_df = aa_full_population_df[
-        aa_full_population_df["year_id"].isin(_LSAE_YEARS)
+        aa_full_population_df["year_id"].isin(mbpc.MODELING_YEARS)
     ]
 
     # ── Identify locations in hierarchy but absent from LSAE CSVs ─────────────
@@ -123,7 +125,7 @@ def main(
         # Fill from GBD population first
         missing_aa_population_df = gbd_population_df[
             (gbd_population_df["location_id"].isin(missing_location_ids))
-            & (gbd_population_df["year_id"].isin(_LSAE_YEARS))
+            & (gbd_population_df["year_id"].isin(mbpc.MODELING_YEARS))
             & (gbd_population_df["age_group_id"] == 22)
             & (gbd_population_df["sex_id"] == 3)
         ].drop(columns=["age_group_id", "sex_id"]).copy()
@@ -142,7 +144,7 @@ def main(
             print(f"  {len(still_missing)} locations zero-filled.")
             hierarchy_df["no_info"] = hierarchy_df["location_id"].isin(still_missing)
             zero_fill = pd.DataFrame(
-                list(itertools.product(still_missing["location_id"].unique(), _LSAE_YEARS)),
+                list(itertools.product(still_missing["location_id"].unique(), mbpc.MODELING_YEARS)),
                 columns=["location_id", "year_id"],
             )
             zero_fill["population"] = 0
@@ -304,7 +306,7 @@ def main(
         hierarchy_df[hierarchy_df["level"].isin([4, 5])]["location_id"].unique().tolist()
     )
     subnat_future_population_df = pd.DataFrame(
-        list(itertools.product(lsae_subnat_ids, _FUTURE_YEARS)),
+        list(itertools.product(lsae_subnat_ids, mbpc.FUTURE_YEARS)),
         columns=["location_id", "year_id"],
     ).merge(hierarchy_df[["location_id", "fhs_location_id"]], on="location_id", how="left")
     subnat_future_population_df = subnat_future_population_df.merge(
