@@ -1482,3 +1482,24 @@ registered snapshots and plain removal otherwise.
 **Why:** The org file-safety rule; and the list's own guidance was to get onto the standard, not to
 clean house.
 **Revisit if:** never; the script is re-runnable and skips what is already registered.
+
+## 2026-09-16: `reports/03_modeling` sorted into archive / malaria / dengue
+**Decision:** Everything that was in `reports/03_modeling/` moved to `archive/` (git mv); notebooks
+are promoted to `malaria/` or `dengue/` only when in use (today: the two dengue notebooks Bobby
+edits). A README states the scheme. The canonical malaria selection code and its report live in
+`src/idd_forecast_mbp/select/` and `reports/model_selection/`, never here.
+**Why:** Sixteen look-alike notebooks made it impossible to see which one was the record; the record
+is now the written `selection_result.json` beside each run, so the notebooks are history.
+**Revisit if:** a notebook becomes a maintained vignette (then `notebooks/vignettes/` per STANDARDS).
+
+## 2026-09-16: Pre-commit hooks run on the repo venv; mypy per staged file with a stubs override
+**Decision:** The `repo: local` hooks call `.venv/bin/{ruff,mypy,kacl-cli}` instead of
+`poetry run ...`. mypy checks the staged files (`pass_filenames: true`) rather than `mypy .`, and
+`[tool.mypy.overrides]` sets `ignore_missing_imports` for `pandas`, `yaml` and `pyarrow` until
+`pandas-stubs` / `types-PyYAML` are added.
+**Why:** The hooks had failed on a missing `poetry` executable since the venv-only migration, so
+every commit since 2026-08-25 was `--no-verify`. `mypy .` in strict mode would block every commit on
+legacy code; per-file keeps new modules typed and lets legacy files be fixed when touched. The
+mirror-hook approach idd-tools uses needs a stub list in an isolated env, which this repo's
+"repo env only" rule argues against.
+**Revisit if:** the stubs are added (drop the override) or the legacy tree is typed (return to `mypy .`).

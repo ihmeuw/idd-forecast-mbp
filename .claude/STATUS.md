@@ -1,5 +1,5 @@
 # Project status
-Updated: 2026-08-25
+Updated: 2026-09-16
 
 ## Goals
 Infectious disease forecasting pipeline for malaria and dengue, projecting
@@ -18,8 +18,41 @@ Long-term axes:
    scenario, variable importance methods beyond "hold at 2022".
 
 ## Orientation
-Pipeline infrastructure (stages 01–08, versioning, model registry) is built and
-largely run. Several active fronts on lsae_1285:
+Pipeline infrastructure (stages 01–08) is built and largely run on lsae_1285. Since 2026-09-16
+every output node is on idd-tools versioning and the malaria model selection is a scripted chain;
+the older fronts below are kept as history where they say so.
+
+**Output versioning is `idd_tools.versions` (2026-09-16).** Every node writes to `working/`; a snapshot
+exists only through a freeze, by hand (`idd-versions <node> freeze "why" [--current]`) or by
+launching with `--current --description "why"` (click launchers via `@versions_options`; scripts
+without a CLI via `IDD_VERSIONS_CURRENT=1 IDD_VERSIONS_DESCRIPTION=...`). Readers follow `current`.
+`lib/versioning` is a thin adapter (`write_path`, `stage_target`, `finish_stage`); nothing in the
+repo names a dated directory. Two-script stages (02a→02b, pixel_main→pixel_hierarchy) finish once,
+from the second script. The data root is registered: 43 nodes with `current`, labels
+(`first_submission` ×15, `selected_2026_07_31`, `goalkeepers_2026`, `goalkeepers_2026_original`,
+`goalkeepers_2025`, `full_model_selection_results`); LEAVE items stay unregistered for `gc`; the
+DROP list was removed by Bobby on 2026-09-16. Fitted malaria models live on
+`03-modeling_data/malaria/models/lsae_1285` (`current` = the model the forecast loads; "flag best"
+is `idd-versions promote`); the flat `malaria_model_registry.json` is read-only history.
+Runbook for both: `docs/model_selection/RUNBOOK.md`. Assessment and as-built notes:
+`.claude/VERSIONING_MIGRATION_ASSESSMENT.md`; the agreed list: `.claude/FREEZE_LIST.md`.
+
+**Malaria model selection is a scripted chain (2026-09-16).** specs (`build_malaria_spec_design.py`)
+→ fits (`fit_malaria_models_orchestrator.py`) → summary (`finalize_selection_run.py`) →
+`rank_selection_run.py` (committed config `reports/model_selection/malaria_selection_config.yaml`
+with `fit:` / `rank:` / `final_fit:` sections, no defaults in code; writes `selection_result.json`
++ `ranking.parquet` + `report.html` into the run dir) → `fit_selected_malaria_model.py` (R worker,
+into the models node's `working/`) → `idd-versions promote` → forecast (`--model-version`,
+workers get `--model-dir`/`--out-dir`; frozen on success under `--label`). The selected model is
+spec 1486 of `20260727_efs` (DAH mpd + GDP mpd + linear suitability + A0_af), the notebook's own
+parsimony pick under the 2026-07-01 rule (DECISIONS 2026-09-16); the random-CV 1-SE step is out
+(DEAD_ENDS 2026-09-16). Not yet exercised: the R worker, the rocket edits, the orchestrator's finish
+path (no R or jobmon in the 2026-09-16 session). Next build: the gate notebook (ipywidgets; Record
+pick → fit → Flag best = promote), `.claude/SELECTION_PIPELINE_PLAN.md` step 3.
+`reports/03_modeling/` is sorted into `archive/` (history), `dengue/` (the two live notebooks) and
+`malaria/` (empty); the canonical selection code is `src/idd_forecast_mbp/select/`.
+
+Older fronts, in the order they were current:
 
 **Malaria vaccine impact is the newest malaria front (2026-08-24/25), and it is now a PIPELINE
 rather than a figure run.** RTS,S/R21 dose-3/dose-4 coverage (373 admin1 across 37 countries,
@@ -71,7 +104,7 @@ Goalkeepers/SDG age-sex incidence-rate-per-1000-by-country deliverable
 - The hybrid reads a SPECIFIC forecast dir via `--forecast_run_date <key>` (never touches `current`);
   sensitivity gained an `old_delivered` overlay + `--rake_years`.
 - Stage-04 forecast is now the jobmon orchestrator (`01_forecast_malaria_admin_2s_orchestrator.py`,
-  Python → a CC runs it, submits R rocket tasks); `--model-run-date` = registry key = output dir.
+  Python → a CC runs it, submits R rocket tasks); `--model-run-date` = registry key = output dir (replaced 2026-09-16 by `--model-version` and the node's `working/` slot).
 - DAH correction: the first delivery used erroneous DAH (future-only error in the Goalkeepers-2026
   drop); reloaded from FGH_2026_July → `2026_07_20_hybrid_fghjul` → wf 603553 → `20260720`. KEY
   PRINCIPLE: a DAH correction confined to FUTURE years leaves the FITTED model unchanged (fit is on
@@ -80,7 +113,7 @@ Goalkeepers/SDG age-sex incidence-rate-per-1000-by-country deliverable
   `/ihme/forecasting/data/37/future/incidence/<DATE>_malaria_incidence_goalkeepers/` is a Bobby-run
   cp (a CC can't write /ihme outside /ihme/homes).
 
-**Malaria PfPR model-selection (current focus).** idd-tools **jobmon MANIFEST** workflow
+**Malaria PfPR model-selection (2026-07-10; superseded 2026-09-16 by the scripted chain above, kept for the resource notes).** idd-tools **jobmon MANIFEST** workflow
 (replaced the old param_map). Three files, one seam:
 - `build_malaria_neighborhood_specs.r` — **single source of truth for formulas**. FE-only
   neighborhood (lags dropped); writes `neighborhood_specs.rds` + `spec_table.parquet`
@@ -191,7 +224,7 @@ PfPR covariate" was therefore a non-problem and is dropped for malaria. The corr
 open question (does a lag *add* skill on top of base+FE, scored on *shifted* preds) is DEFERRED
 to dengue; the harness is built and reusable. See memory Dengue for the Python how-to.
 
-**Malaria final-model comparison + forecast (2026-07-08).** GDP switched to the V5 income
+**Malaria final-model comparison + forecast (2026-07-08; superseded by the full selection, DECISIONS 2026-09-16).** GDP switched to the V5 income
 forecast's `reference` scenario applied to all RCPs (decoupled from climate); GDP rebuilt +
 stage-02 past-inputs (→20260707) and stage-08 forecast-inputs (→20260708) re-run.
 `02_fit_final_malaria_models.r` is now a FORMULATIONS-list multi-fit (each →
@@ -204,6 +237,22 @@ stage-08 gained `malaria_suit` + single-realization `mean_low_temperature`). Now
 formulations and deciding a single winner vs an ensemble (matched per-draw weighted blend).
 
 ## Recent steps
+- 2026-09-16: **Repo converted to `idd_tools.versions`, all at once** (commit 41efc85): `lib/versioning`
+  adapter, every write slot `working/`, 23 stage scripts on `finish_stage`, models node +
+  `fit_selected_malaria_model.{r,py}`, forecaster on `--model-dir`/`--out-dir`, orchestrator and
+  `finish_run.py` on `@versions_options` with finish-on-success, legacy registry read-only, three
+  scripts archived; 1025 tests pass. Proof: stage 09 into `malaria_vaccine_efficacy/working/`.
+- 2026-09-16: **Freeze list registered on the data root** (`scripts/register_freeze_list.py --apply`, 150
+  actions): 43 nodes with `current`, all labels, three kept models copied onto the models node.
+  Bobby removed the DROP set (20 dirs, 6 empties, 9 flat RData). Runbook written.
+- 2026-09-16: **Malaria selection chain built** (21db899, 2f1b7d1): config, `select/rank.py`,
+  `rank_selection_run.py`, Quarto report, 22 tests incl. the spec-1486 regression; tentative
+  result + `report.html` written into `20260727_efs`. Provenance of the 2026_07_31 model
+  reconstructed and recorded (DECISIONS 2026-09-16); 1-SE random-CV step assessed and dropped.
+- 2026-09-16: `reports/03_modeling` sorted into archive/malaria/dengue; ipywidgets added; pre-commit
+  hooks moved off poetry onto the venv (all 14 pass; mypy per staged file); STANDARDS/CLAUDE.md
+  freeze sentences softened for `--current` (backups `.bak.20260916-1556`); baseline commit 5183c04
+  of the pre-conversion tree. 9 commits, all pushed.
 - 2026-08-25: **Malaria vaccine pipeline formalized into `lib/` (Phases A-D); figures and the live
   wiring are the remaining gap.** (1) Six modules at 100% coverage own all vaccine logic; the stage
   scripts shrank to I/O (`plot_vaccine_impact` 535->387, `vaccine_impact_scenarios` 308->113,
@@ -598,6 +647,19 @@ formulations and deciding a single winner vs an ensemble (matched per-draw weigh
   carryover from when past inputs were NC instead of parquet.
 
 ## Next steps
+**Active — selection chain + versioning (2026-09-16):**
+1. **First real run of the R side** (not the 2026-09-16 session): `fit_selected_malaria_model.py` in an
+   srun session against `20260727_efs` as the gate test on `2026_07_31` (decision 2.3), then a
+   forecast launch with `--current --label`. Watch the orchestrator's finish path and the rocket's
+   `--model-dir`/`--out-dir` handling; neither has executed yet.
+2. **Gate notebook** (`reports/model_selection/malaria_selection_gate.ipynb`, ipywidgets): toggles
+   for the `rank:` parameters, Record pick (writes the result, re-renders, launches the fit),
+   Flag best (`promote`). `.claude/SELECTION_PIPELINE_PLAN.md` step 3.
+3. **Reply to idd-tools' inbox**: `finish_run` / `versions_options` / CLI `finish` are consumed;
+   the jobmon `submit_with_manifest` target knob remains the follow-up.
+4. Optional: `pandas-stubs` + `types-PyYAML` so mypy types those imports (currently an
+   `ignore_missing_imports` override; not the 2026-09-16 session).
+
 **Active — malaria vaccine impact (2026-08-25):**
 1. **Build the outstanding figures** — `docs/malaria_vaccine_pipeline/FIGURE_SPEC.md` is the list.
    Highest value first: **#12** product comparison RESTRICTED to the 71 RTS,S admin1s (the current
@@ -692,7 +754,7 @@ formulations and deciding a single winner vs an ensemble (matched per-draw weigh
 Python data-prep 02a → 02b → 03 → 04 → 07b → 08 rebuild, reproject-cache
 landed/exercised, 07b → 08 forecast-input chain produced 3 netCDFs.
 
-**Active — malaria model-selection (2026-07-10; supersedes the 2026-07-01 param_map/CALIB block):**
+**Closed 2026-09-16** (selection done: spec 1486; the chain is scripted, see the 2026-09-16 block above). The 2026-07-10 notes, kept for the resource numbers:
 - **LAUNCH THE FULL RUN.** `idd-jobmon-launch --out-dir <20260710_efs> python
   fit_malaria_models_orchestrator.py --spec-table <..>/spec_table.parquet --output-dir <20260710_efs>
   --worker select_malaria_models_rocket.r --r-image ihme_rstudio_4524.img --r-shell execRscript.sh
@@ -857,3 +919,10 @@ landed/exercised, 07b → 08 forecast-input chain produced 3 netCDFs.
   tiny offset, rake to that, forecast forward, then cull the ones that didn't
   grow over time. This is essentially the stubbed `zero_burden_policy='impute'`
   (option B) and pairs with the per-draw culling machinery. Parked 2026-07-07.
+- (2026-09-16) `scam_fits/lsae_1285` = 298 GB of superseded May grids, left unregistered by decision; the
+  largest gc candidate on the root.
+- (2026-09-16) `UPLOAD_DATA_PATH`, `VISUALIZATION_PATH`, `FIGURES_PATH`, `MANUSCRIPT_PATH`,
+  `PRESENTATION_PATH` are still `<stage>/RUN_DATE`, not nodes; figures were left unregistered.
+- (2026-09-16) `05_aggregation/finish_run.py` shares its name with `idd_tools.versions.finish_run`.
+- (2026-09-16) Product arms are per-run nodes named by model key + hold suffix; the FORMALIZATION_PLAN
+  `run_key` redesign would replace that with labels on one node.

@@ -348,3 +348,11 @@ the band. It scores interpolation, not the 77-year extrapolation the temporal wi
 deleted from the notebook 2026-09-15; the run directory stays as a legacy snapshot. The one usable
 fact: the contested terms carry little signal even under interpolation.
 **Refs:** `20260731_nbhd_rand10` under `scam_prelim/lsae_1285`; DECISIONS 2026-07-01 (temporal OOS + parsimony).
+
+## 2026-09-16: Quarto `-P` parameters for the Python-engine selection report
+**What I tried:** Rendering `malaria_model_selection.qmd` with `quarto render -P run_dir:<path>`
+and a `#| tags: [parameters]` cell.
+**Why I stopped:** Quarto's parameter passing for the Python engine requires papermill, which is not
+a dependency of this repo. The run dir now reaches the report through the `MBP_SELECTION_RUN_DIR`
+environment variable set by `rank.render_report`; the qmd reads it and refuses to run without it.
+**Refs:** `src/idd_forecast_mbp/select/rank.py::render_report`, `reports/model_selection/malaria_model_selection.qmd`.
