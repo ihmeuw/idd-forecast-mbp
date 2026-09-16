@@ -597,7 +597,8 @@ def read_result(run_dir: str | Path) -> dict[str, Any]:
     if not path.is_file():
         msg = f"no {RESULT_FILE} in {run_dir}"
         raise FileNotFoundError(msg)
-    return json.loads(path.read_text())
+    record: dict[str, Any] = json.loads(path.read_text())
+    return record
 
 
 def format_pick(result: SelectionResult) -> str:

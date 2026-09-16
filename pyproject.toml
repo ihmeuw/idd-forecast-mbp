@@ -212,3 +212,9 @@ disallow_any_unimported = false
 #  "my_unpyted_dependency2.*"
 # ]
 # ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+# Third-party packages without shipped or installed stubs. pandas-stubs / types-PyYAML
+# would type these properly; until they are added, treat the imports as Any.
+module = ["pandas", "pandas.*", "yaml", "yaml.*", "pyarrow", "pyarrow.*"]
+ignore_missing_imports = true
