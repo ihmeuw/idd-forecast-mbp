@@ -1378,3 +1378,64 @@ outputs: the collapse for totals (cheap), cell-wise for anything age-resolved.
 protection table gains a dimension beyond location x year x age x measure.
 **Note:** the hook has NO live caller — nothing on the running path imports `finalize_forecast.py`.
 Wiring it is one argument at that call site when stage-05 finalization lands.
+
+## 2026-09-16: Selected malaria PfPR spec is 1486 from `20260727_efs`, by the 2026-07-01 rule, confirmed after a notebook defect
+**Decision:** The registered `2026_07_31_full_model_selection_results` pfpr formula is spec 1486 of the
+1,620-spec typed space (DAH mpd + GDP mpd + linear logit suitability + A0_af). It is the notebook's own
+parsimony pick: consensus anchor 1585, tolerance 0.25 SD of TOPSIS (0.0371), 6 down-set candidates,
+pick 1486. The window-mean pass agrees (anchor 1567, pick 1486).
+**Why:** Recorded because nothing in the repo tied the registered formula to the run and rule that
+produced it. The parsimony cell had errored on 2026-07-31, so the saved notebook showed no pick and
+was misread on 2026-09-15 as evidence of a hand choice; Bobby fixed the cell and re-ran it.
+**Revisit if:** the selection run, the metric set, or the tolerance rule changes; then it is a new pick,
+recorded through the pipeline below rather than here.
+
+## 2026-09-16: Malaria model selection becomes a scripted chain with an interactive two-button gate
+**Decision:** specs -> fits -> summary -> tentative pick + rendered report -> gate -> fit selected ->
+flag best -> forecast. Rank-time parameters (metric set, tau threshold, consensus methods, focus
+metric, tolerance rule, top_n) live in a committed config under `reports/model_selection/` and are
+recorded with the pick at click time; the code carries no default for any of them. The gate is an
+ipywidgets notebook with two buttons in sequence: Record pick (writes `selection_result.json`,
+re-renders the report, launches the final fit) and Flag best (enabled once the fitted run exists).
+The random 10-fold 1-SE step is not part of the chain. The report template lives in
+`reports/model_selection/`. Plan: `.claude/SELECTION_PIPELINE_PLAN.md`.
+**Why:** The selection existed only as an untracked notebook with knobs in cells; the fit script had
+the formula retyped by hand and a `FLAG_BEST_ID` constant that did not match the registry. A
+two-button gate because the final fit (minutes, R) must create the registry entry before anything
+can be flagged. ipywidgets over Shiny because it needs no server for a one-person gate.
+**Revisit if:** more than one person needs the gate in a browser (then Shiny), or the fit becomes
+fast enough to run inside a single click.
+
+## 2026-09-16: Convert the repo to idd-tools versioning, all at once; writers get `--current`
+**Decision:** Replace `lib/versioning.py` / `.R` (dated write dirs + auto-repointed `current`) and
+the flat RData model registry with `idd_tools.versions`. Stage scripts write to `working_dir(node)`
+(or `scratch_dir` under `--scratch`). Launchers take a `--current` flag, default off, that freezes
+and promotes on success; readers stay on `current`. Fitted models move to a node
+(`03-modeling_data/malaria/models/lsae_1285`); `best` becomes `current`, the human key a label;
+the fit script writes into the path it is given and touches no register. Existing dated
+directories are registered in place as legacy snapshots (nothing on the shared drive moves).
+Depends on an idd-tools helper requested in its inbox on 2026-09-16 (`versions_options`, `finish_run`,
+CLI `finish`, R wrapper); the conversion waits for it rather than writing the sequence 25 times.
+Assessment: `.claude/VERSIONING_MIGRATION_ASSESSMENT.md`.
+**Why:** Everyone else converged on one versioning system; ours needed a Python mirror of an R
+registry writer just to flag a model. Writer-side `--current` keeps today's rebuild flow (each stage
+promotes when done) without reader changes; the alternative, readers switching to `working/`, would
+have left a rebuild silently reading stale upstream snapshots. Cost accepted: one snapshot per
+promoted run, and a deviation from the STANDARDS sentence "reruns never create directories", which
+Bobby will amend.
+**Revisit if:** snapshot churn from promoted reruns becomes a disk or registry problem (then gc
+policy), or the fleet convention changes.
+
+## 2026-09-16: Freeze-list guidance for the data root
+**Decision:** Anything from the first submission stays and is registered with the `first_submission`
+label. Drop only what Bobby named (f1 to f6, the 20260602/20260603/2026_07_14 forecasts and their
+direct dependents) and directories rewritten within about a day whose successor is in use. Everything
+else superseded but not clearly dead is left on disk unregistered for `gc` to list later. Figures
+(06/07) stay unregistered until they become a node. The three RData runs to copy into the models
+node: `2026_07_31_full_model_selection_results` (current), `2026_07_20_hybrid_fghjul`, and
+`2025_07_08` (the first-submission model, pinned by the archived 2025 launcher). Full table:
+`.claude/FREEZE_LIST.md`.
+**Why:** The aim is to be on the standard so things can be frozen and dropped later, not to clean
+house now. `hybrid_deliverable/20260527` was found on review to be the original goalkeepers delivery
+still read as the `old_delivered` overlay, so it stays.
+**Revisit if:** `scam_fits` (298 GB of superseded May grids, left unregistered) needs the space.

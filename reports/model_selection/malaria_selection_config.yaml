@@ -1,0 +1,36 @@
+# Malaria PfPR model-selection parameters: the record of the 2026-07 selection run.
+#
+# Every value in this file is a judgment. The code carries no default for any of them and
+# refuses to run without this file. `fit:` was baked into the run when the 1,620-spec grid
+# was launched (fit_malaria_models_orchestrator.py / select_malaria_models_rocket.r) and is
+# echoed here so the report can compare it with what the run manifest recorded. `rank:` is
+# applied after the fits exist and is what the gate lets you change; the final values are
+# written into selection_result.json with the pick.
+#
+# Values copied 2026-09-16 from the notebook (rank_malaria_models_idd_tools.ipynb) and the
+# orchestrator as they stood for the 20260727_efs run.
+
+cause: malaria
+run_dir: malaria/scam_prelim/lsae_1285/20260727_efs   # relative to the 03-modeling_data stage root
+
+fit:
+  cv_strategy: temporal
+  modeling_years: [2000, 2023]
+  max_lag: 0
+  min_training_years: 5
+  gaps: {narrow: 1, wide: 3, vwide: 7, exwide: 10}
+  test_windows: {preC: [2013, 2019], full: [2013, 2023], recent: [2019, 2023]}
+  data_filter: {malaria_inc_count_min: 1, malaria_pfpr_min: 0.0001}
+  optimizer: efs
+  maxit: 30
+
+rank:
+  metric_sample: out_of_sample          # idd_tools Sample
+  metric_space: pfpr                    # registry tag: rank in PfPR units, not logit
+  tau_prune_threshold: 0.7              # |Kendall tau| at or above which two criteria are redundant
+  consensus_methods: [borda, topsis, dominance]
+  focus_metric: topsis_score            # topsis_score (higher better) | borda_score (lower better)
+  tolerance: {rule: std_fraction, value: 0.25}   # band = value x SD of focus_metric over all specs
+  complexity_order: [n_scams, n_smooths, n_terms]
+  profile_top_n: 10
+  cull_nonconverged: false

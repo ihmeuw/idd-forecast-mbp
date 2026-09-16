@@ -120,16 +120,21 @@ ignore = [
     "RUF007",   # zip is idiomatic, this is a dumb check
     "RET505",   # Else after return, makes a lot of false positives
     "E501",     # Line too long, this is autoformatted
+    "CPY001",   # No copyright-header convention in this repo (no file carries one)
 ]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = [
     "S101",     # "Use of `assert` detected"
+    "PLR2004",  # Magic values are the expected numbers in tests
     "ARG",      # "Unused function argument". Fixtures are often unused.
     "S105",     # "Possible hardcoded password".
 ]
 "scripts/**" = [
     "INP001",   # "Scripts are not part of a package."
+]
+"src/idd_forecast_mbp/0*_*/**" = [
+    "INP001",   # Stage directories hold entry-point scripts, not a package.
 ]
 
 [tool.ruff.lint.mccabe]
@@ -150,7 +155,10 @@ ban-relative-imports = "all"
 # are manual verification scripts rather than pytest modules -- collecting them
 # executes real pipeline I/O at import and aborts the run.
 testpaths = ["tests"]
+# tmp_path must never land in /tmp (repo rule): pytest's temp root stays inside the repo;
+# .pytest_tmp/ is gitignored and pytest wipes it at the start of each run.
 addopts = """\
+    --basetemp=.pytest_tmp \
     --cov idd_forecast_mbp \
     --cov tests \
     --cov-report term-missing \

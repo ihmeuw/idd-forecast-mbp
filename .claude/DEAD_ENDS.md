@@ -328,3 +328,23 @@ observed zero can never produce a nonzero forecast, so those 168 project zero to
 their covariates do — an anchor question, and the interesting one for climate-driven expansion.
 **Refs:** DECISIONS 2026-08-21; parked malaria `zero_burden_policy='impute'` idea in STATUS
 Parking lot (2026-07-07).
+
+## 2026-09-16: Reading the Jul 31 ranking notebook's saved outputs as the record of the pick
+**What I tried:** Answered "how was the 2026_07_31 model selected" from the saved outputs of
+`rank_malaria_models_idd_tools.ipynb`, concluding spec 1486 was a hand choice because the automated
+picks shown were 757 and 1576.
+**Why I stopped:** The parsimony cell had errored on 2026-07-31, so its output was missing and the
+later cells were stale. After Bobby fixed and re-ran it, the pick is 1486 in both passes. A notebook's
+saved outputs are not a record; the pipeline in DECISIONS 2026-09-16 writes one.
+**Refs:** DECISIONS 2026-09-16 (spec 1486); corrections log 2026-09.
+
+## 2026-09-16: Random 10-fold 1-SE refinement of the 45 finalists
+**What I tried:** Ran the 45 fiber finalists through random 10-fold CV (`20260731_nbhd_rand10`) to
+get independent folds and apply the literal 1-SE rule.
+**Why I stopped:** The SE is the sampling noise of a correlation on about 17k held-out rows per fold
+(0.0008), so the band only admits models that reshape a term, never drop one. Random CV separates
+suitability in/out (0.008 in r) and moves temperature and urban by at most 0.002, the same size as
+the band. It scores interpolation, not the 77-year extrapolation the temporal windows score. Cells
+deleted from the notebook 2026-09-15; the run directory stays as a legacy snapshot. The one usable
+fact: the contested terms carry little signal even under interpolation.
+**Refs:** `20260731_nbhd_rand10` under `scam_prelim/lsae_1285`; DECISIONS 2026-07-01 (temporal OOS + parsimony).

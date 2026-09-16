@@ -101,3 +101,4 @@ notebooks/
 
 # R session env vars — holds absolute data roots, never commit
 .Renviron
+.pytest_tmp/
