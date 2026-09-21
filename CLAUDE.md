@@ -30,9 +30,9 @@ mixed.
   source travels with this pyproject into every consumer's resolution and breaks it
   (2026-09-21). To test an unpushed idd-tools change here: `uv pip install -e ../idd-tools`
   after `uv sync`, and re-run it after the next sync. `climate-data` is the optional
-  extra `climate` (still a path source to `../climate-data`, a personal fork on a wip
-  branch; unrequested extras are never followed), imported only by
-  `01_map_to_admin_2/run_suitability_pipeline.py`.
+  extra `climate`, a git source on `ihmeuw/climate-data` `main` (`uv sync --extra climate`),
+  imported only by `01_map_to_admin_2/run_suitability_pipeline.py`. No path sources anywhere
+  (STANDARDS §Cross-repo idd-* dependencies, 2026-09-21).
 - Interpreter downloads are deliberate only: the user-level uv policy is
   `python-downloads = "manual"` — a plain `uv venv`/`uv sync` must never
   trigger a CPython download.

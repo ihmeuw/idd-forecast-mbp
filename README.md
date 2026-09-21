@@ -32,7 +32,7 @@ uv sync --all-extras         # runtime + dev + notebooks extra
 Resolution needs IHME artifactory access (`jobmon_installer_ihme` is a core
 dependency of this cluster-only pipeline repo) and GitHub SSH access for
 `idd-tools`, a git source pinned to `main`. `climate-data` is the optional extra
-`climate` (`uv sync --extra climate`, from a sibling `../climate-data` clone);
+`climate` (`uv sync --extra climate`, a git source on `ihmeuw/climate-data` `main`);
 only the stage-01 suitability wrapper imports it.
 
 Another repo can drive the malaria fits from Python by depending on this

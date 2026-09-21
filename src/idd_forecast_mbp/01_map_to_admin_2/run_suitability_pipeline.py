@@ -13,7 +13,7 @@ from idd_forecast_mbp import constants as mbpc
 
 CLIMATE_DATA_HINT = (
     "climate-data is an optional extra of idd-forecast-mbp; install it with "
-    "`uv sync --extra climate` (it resolves from the sibling ../climate-data clone)."
+    "`uv sync --extra climate` (a git source on ihmeuw/climate-data main)."
 )
 
 
