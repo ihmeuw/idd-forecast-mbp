@@ -69,6 +69,37 @@ def test_build_worker_args_carries_every_final_fit_setting(launcher):
     assert pairs["--pfpr-min"] == str(cfg.final_fit["data_filter"]["malaria_pfpr_min"])
 
 
+def test_prep_script_is_passed_through_only_when_given(launcher, tmp_path):
+    cfg = load_config(CONFIG)
+    base = launcher.build_worker_args(
+        tmp_path / "r.json", tmp_path / "out", tmp_path / "p.parquet", cfg.final_fit
+    )
+    assert "--prep-script" not in base
+    with_prep = launcher.build_worker_args(
+        tmp_path / "r.json",
+        tmp_path / "out",
+        tmp_path / "p.parquet",
+        cfg.final_fit,
+        tmp_path / "my_prep.R",
+    )
+    assert with_prep[: len(base)] == base
+    assert with_prep[len(base) :] == ["--prep-script", str(tmp_path / "my_prep.R")]
+
+
+def test_worker_command_shell_quotes_arguments_the_wrapper_reparses(launcher):
+    rhs = 's(logit_malaria_pfpr, k = 10, bs = "mpi") + log_gdppc_mean + A0_af'
+    cmd = launcher.worker_command(
+        "execRscript.sh", "img.img", Path("w.r"), ["--inc-mort-rhs", rhs]
+    )
+    # single quotes for the bash -c parse; the inner double quotes escaped for the wrapper's eval
+    assert (
+        cmd[-1] == "'" + rhs.replace('"', '\\"') + "'"
+    )  # -> 's(..., bs = \"mpi\") + ...'
+    assert launcher.wrapper_quote("/a/plain/path.parquet") == "/a/plain/path.parquet"
+    assert launcher.wrapper_quote("0.0001") == "0.0001"
+    assert cmd[-2] == "--inc-mort-rhs"
+
+
 def test_worker_command_uses_the_r_shell_idiom(launcher):
     cmd = launcher.worker_command(
         "execRscript.sh", "img.img", Path("w.r"), ["--a", "1"]

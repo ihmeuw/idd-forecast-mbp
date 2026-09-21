@@ -15,8 +15,10 @@ One run per slot: finish a fit before launching the next.
 
 from __future__ import annotations
 
+import shlex
 import subprocess
 from pathlib import Path
+from typing import Any
 
 import click
 from idd_tools.versions import VersionsOptions, resolve_target, versions_options
@@ -34,11 +36,19 @@ WORKER = Path(__file__).resolve().with_name("fit_selected_malaria_model.r")
 
 
 def build_worker_args(
-    result_path: Path, out_dir: Path, past_inputs: Path, final_fit: dict
+    result_path: Path,
+    out_dir: Path,
+    past_inputs: Path,
+    final_fit: dict[str, Any],
+    prep_script: Path | None = None,
 ) -> list[str]:
-    """The worker's flags from the config's ``final_fit:`` section; nothing defaulted here."""
+    """The worker's flags from the config's ``final_fit:`` section; nothing defaulted here.
+
+    ``prep_script`` is passed through only when given; the worker's own default is the
+    package's ``lib/malaria_fit_frame.R``.
+    """
     filt = final_fit["data_filter"]
-    return [
+    args = [
         "--result",
         str(result_path),
         "--out-dir",
@@ -58,13 +68,41 @@ def build_worker_args(
         "--inc-mort-rhs",
         str(final_fit["inc_mort_rhs"]),
     ]
+    if prep_script is not None:
+        args += ["--prep-script", str(prep_script)]
+    return args
+
+
+def wrapper_quote(arg: str) -> str:
+    """Quote one argument for execRscript.sh.
+
+    The wrapper joins its arguments into a string and ``eval``s ``bash -c "... $args"``, so an
+    argument is parsed twice: once inside that double-quoted string (where ``"``, ``$``, backtick
+    and backslash are special) and once by ``bash -c``. Single-quote it for the second parse
+    and escape the double-quote-context characters for the first. Plain paths pass unchanged.
+    """
+    quoted = shlex.quote(arg)
+    return (
+        quoted.replace("\\", "\\\\")
+        .replace('"', '\\"')
+        .replace("$", "\\$")
+        .replace("`", "\\`")
+    )
 
 
 def worker_command(
     r_shell: str, r_image: str, worker: Path, args: list[str]
 ) -> list[str]:
-    """The IHME singularity R shell invocation, as the jobmon orchestrators spell it."""
-    return [r_shell, "-i", r_image, "-s", str(worker), *args]
+    """The IHME singularity R shell invocation, as the jobmon orchestrators spell it, with
+    every worker argument quoted for the wrapper's double parse (see wrapper_quote)."""
+    return [
+        r_shell,
+        "-i",
+        r_image,
+        "-s",
+        str(worker),
+        *(wrapper_quote(a) for a in args),
+    ]
 
 
 @click.command(help=__doc__)
@@ -101,6 +139,12 @@ def worker_command(
     help="Past-inputs parquet; default the current past_inputs snapshot.",
 )
 @click.option(
+    "--prep-script",
+    default=None,
+    type=click.Path(exists=True, dir_okay=False),
+    help="R file defining prepare_malaria_fit_frame(); default the package's lib/malaria_fit_frame.R.",
+)
+@click.option(
     "--dry-run",
     is_flag=True,
     help="Print the worker command and the target; run nothing.",
@@ -115,6 +159,7 @@ def main(  # noqa: PLR0913 - one option per launcher knob
     worker: str,
     node: str | None,
     past_inputs: str | None,
+    prep_script: str | None,
     versions: VersionsOptions,
     dry_run: bool,
 ) -> None:
@@ -133,7 +178,13 @@ def main(  # noqa: PLR0913 - one option per launcher knob
         r_shell,
         r_image,
         Path(worker),
-        build_worker_args(result_path, target, inputs, cfg.final_fit),
+        build_worker_args(
+            result_path,
+            target,
+            inputs,
+            cfg.final_fit,
+            Path(prep_script) if prep_script else None,
+        ),
     )
     click.echo(
         f"selected spec {record['pick']['spec_index']} ({record['status']}) from {selection_dir}"

@@ -6,6 +6,12 @@
 # standard incidence / mortality scams on the past inputs, strip them to a
 # predict-only core, and write malaria_models.RData + run.json into --out-dir.
 #
+# The frame comes from prepare_malaria_fit_frame() in --prep-script (default:
+# lib/malaria_fit_frame.R next to this file's parent directory), the same preparation
+# the selection worker uses; fitting and stripping come from lib/scam_fit_helpers.R.
+# Acceptance 2026-09-18: at thresholds (0, 0) on the 20260527 past inputs this
+# preparation reproduces the registered 2026_07_31 fit to 3e-10 (coef, sp).
+#
 # This worker writes into the directory it is given and nothing else. It keeps no
 # registry: the launcher (fit_selected_malaria_model.py) owns the models node under
 # idd_tools.versions, and "flag best" is `idd-versions <node> promote`. Every fit
@@ -17,6 +23,16 @@ suppressPackageStartupMessages({
   library(data.table); library(jsonlite); library(optparse)
 })
 
+this_file_path <- function() {
+  ca <- commandArgs(trailingOnly = FALSE)
+  fa <- sub("^--file=", "", ca[grepl("^--file=", ca)])
+  if (length(fa)) normalizePath(fa[1]) else NA_character_
+}
+default_lib_dir <- function() {
+  f <- this_file_path()
+  if (is.na(f)) NA_character_ else normalizePath(file.path(dirname(f), "..", "lib"), mustWork = FALSE)
+}
+
 opt <- parse_args(OptionParser(option_list = list(
   make_option("--result",        type = "character", default = NA, help = "selection_result.json written by rank_selection_run.py"),
   make_option("--out-dir",       type = "character", default = NA, help = "directory to write malaria_models.RData + run.json into (the node's working slot)"),
@@ -26,7 +42,9 @@ opt <- parse_args(OptionParser(option_list = list(
   make_option("--optimizer",     type = "character", default = NA, help = "scam optimizer (bfgs / efs)"),
   make_option("--maxit",         type = "integer",   default = NA, help = "scam control maxit"),
   make_option("--suit-variant",  type = "character", default = NA, help = "malaria_suitability_<variant> column for logit_malaria_suitability"),
-  make_option("--inc-mort-rhs",  type = "character", default = NA, help = "RHS shared by the incidence and mortality scams")
+  make_option("--inc-mort-rhs",  type = "character", default = NA, help = "RHS shared by the incidence and mortality scams"),
+  make_option("--prep-script",   type = "character", default = NA, help = "R file defining prepare_malaria_fit_frame(); default <lib-dir>/malaria_fit_frame.R"),
+  make_option("--lib-dir",       type = "character", default = NA, help = "directory holding scam_fit_helpers.R; default ../lib relative to this file")
 )))
 names(opt) <- gsub("-", "_", names(opt))
 required <- c("result", "out_dir", "past_inputs", "inc_count_min", "pfpr_min",
@@ -34,6 +52,15 @@ required <- c("result", "out_dir", "past_inputs", "inc_count_min", "pfpr_min",
 missing <- required[vapply(required, function(k) is.null(opt[[k]]) || is.na(opt[[k]]), logical(1))]
 if (length(missing)) stop(glue("missing required flags: --{paste(gsub('_', '-', missing), collapse=' --')}"))
 if (!dir.exists(opt$out_dir)) stop(glue("--out-dir does not exist: {opt$out_dir} (the launcher creates it)"))
+
+# -------------------------- Shared code --------------------------
+lib_dir <- if (is.na(opt$lib_dir)) default_lib_dir() else opt$lib_dir
+if (is.na(lib_dir) || !dir.exists(lib_dir)) stop("cannot locate lib dir (pass --lib-dir)")
+source(file.path(lib_dir, "scam_fit_helpers.R"))
+prep_script <- if (is.na(opt$prep_script)) file.path(lib_dir, "malaria_fit_frame.R") else opt$prep_script
+if (!file.exists(prep_script)) stop(glue("prep script not found: {prep_script}"))
+source(prep_script)
+if (!exists("prepare_malaria_fit_frame", mode = "function")) stop("prep script defines no prepare_malaria_fit_frame()")
 
 # -------------------------- The selected spec --------------------------
 res  <- jsonlite::fromJSON(opt$result, simplifyVector = TRUE)
@@ -48,57 +75,21 @@ message(glue("selected spec {pick$spec_index} from {res$run_dir} (result status:
 message(glue("  pfpr: {deparse1(pfpr_fml)}"))
 
 # -------------------------- Fit helper --------------------------
+# Every model here is a scam; an error is fatal (nothing is written).
 fit_scam_one <- function(fml, data, label) {
-  t0 <- Sys.time()
-  fit <- tryCatch(
-    scam(fml, data = data, optimizer = opt$optimizer, control = list(maxit = as.integer(opt$maxit))),
-    error = function(e) e
-  )
-  elapsed <- as.numeric(difftime(Sys.time(), t0, units = "secs"))
-  if (inherits(fit, "error")) stop(glue("[{label}] scam error after {sprintf('%.1f', elapsed)}s: {conditionMessage(fit)}"))
-  iter <- tryCatch(as.integer(fit$iter), error = function(e) NA_integer_)
-  conv <- isTRUE(fit$conv)
-  message(glue("  [{label}] iter={iter} converged={conv} ({sprintf('%.1f', elapsed)}s)"))
-  list(fit = fit, iter = iter, converged = conv, elapsed = elapsed)
+  r <- fit_one_mod(fml, data, n_scams = 1L, n_smooths = 1L,
+                   optimizer = opt$optimizer, maxit = as.integer(opt$maxit), label = label)
+  if (r$error) stop(glue("[{label}] scam error after {sprintf('%.1f', r$elapsed)}s: {r$error_msg}"))
+  r
 }
 
-# Drop training-frame slots predict() never reads; verify_strip proves it lossless.
-strip_scam_for_predict <- function(mod) {
-  for (slot in c("model", "y", "residuals", "fitted.values",
-                 "linear.predictors", "weights", "prior.weights")) mod[[slot]] <- NULL
-  mod
+# -------------------------- Load + prepare past data --------------------------
+past_data <- prepare_malaria_fit_frame(opt$past_inputs, opt$inc_count_min, opt$pfpr_min, opt$suit_variant)
+for (fml in list(pfpr_fml, inc_fml, mort_fml)) {
+  absent <- setdiff(all.vars(fml), names(past_data))
+  if (length(absent)) stop(glue("formula names columns the prepared frame lacks: {paste(absent, collapse = ', ')}"))
 }
-verify_strip <- function(full, stripped, newdata, label) {
-  max_abs <- max(abs(predict(full, newdata = newdata) - predict(stripped, newdata = newdata)))
-  if (!is.finite(max_abs) || max_abs > 1e-8) {
-    stop(glue("[{label}] strip changed predictions (max |diff| = {max_abs}); not saving."))
-  }
-  message(glue("  [{label}] strip verified (max |diff| = {signif(max_abs, 3)})"))
-}
-
-# -------------------------- Load + clean past data --------------------------
-past_data <- as.data.frame(arrow::read_parquet(opt$past_inputs))
-past_data$malaria_inc_count <- past_data$malaria_inc_rate * past_data$population
-for (var in c("malaria_pfpr", "gdppc_mean", "mal_DAH_total_per_capita", "malaria_inc_rate", "malaria_mort_rate")) {
-  past_data <- past_data[!is.na(past_data[[var]]), ]
-}
-past_data$do30_fraction <- pmin(pmax(past_data$days_over_30C / 365, 0.001), 0.999)
-past_data$logit_do30    <- log(past_data$do30_fraction / (1 - past_data$do30_fraction))
-past_data$rh_fraction   <- pmin(pmax(past_data$relative_humidity / 100, 0.001), 0.999)
-past_data$logit_relative_humidity <- log(past_data$rh_fraction / (1 - past_data$rh_fraction))
-for (cov in c("mal_DAH_total_per_capita", "gdppc_mean", "ldipc_mean", "med_consumppc",
-              "malaria_inc_rate", "malaria_mort_rate")) {
-  past_data[[paste0("log_", cov)]] <- log(past_data[[cov]])
-}
-n_before <- nrow(past_data)
-past_data <- past_data[past_data$malaria_inc_count >= opt$inc_count_min & past_data$malaria_pfpr >= opt$pfpr_min, ]
-past_data$A0_af <- as.factor(past_data$A0_location_id)
-suit_col <- paste0("malaria_suitability_", opt$suit_variant)
-if (!suit_col %in% names(past_data)) stop(glue("suit_variant '{opt$suit_variant}' -> column '{suit_col}' not in past inputs"))
-past_data$malaria_suit <- past_data[[suit_col]]
-frac <- pmin(pmax(past_data[[suit_col]] / 365, 0.001), 0.999)
-past_data$logit_malaria_suitability <- log(frac / (1 - frac))
-message(glue("past inputs: {n_before} rows -> {nrow(past_data)} after filter (inc_count >= {opt$inc_count_min}, pfpr >= {opt$pfpr_min})"))
+message(glue("past inputs: {attr(past_data, 'n_read')} rows -> {nrow(past_data)} after filter (inc_count >= {opt$inc_count_min}, pfpr >= {opt$pfpr_min})"))
 
 set.seed(1)
 verify_sample <- past_data[sample(nrow(past_data), min(5000L, nrow(past_data))), ]
@@ -132,7 +123,10 @@ run <- list(
   pfpr_formula = deparse1(pfpr_fml), inc_formula = deparse1(inc_fml), mort_formula = deparse1(mort_fml),
   inc_count_threshold = opt$inc_count_min, pfpr_threshold = opt$pfpr_min,
   optimizer = opt$optimizer, maxit = as.integer(opt$maxit), suit_variant = opt$suit_variant,
-  past_inputs = normalizePath(opt$past_inputs), n_rows_fit = nrow(past_data),
+  past_inputs = normalizePath(opt$past_inputs), past_inputs_sha256 = sha256_file(opt$past_inputs),
+  prep_script = normalizePath(prep_script), prep_script_sha256 = sha256_file(prep_script),
+  n_rows_read = attr(past_data, "n_read"), n_rows_fit = nrow(past_data),
+  n_non_finite_rows = attr(past_data, "n_non_finite_rows"), n_a0_levels = nlevels(past_data$A0_af),
   pfpr_converged = pfpr_res$converged, pfpr_iter = pfpr_res$iter, pfpr_elapsed_sec = pfpr_res$elapsed,
   inc_converged  = inc_res$converged,  inc_iter  = inc_res$iter,  inc_elapsed_sec  = inc_res$elapsed,
   mort_converged = mort_res$converged, mort_iter = mort_res$iter, mort_elapsed_sec = mort_res$elapsed,
@@ -145,9 +139,6 @@ run <- list(
     config_source = res$config_source
   )
 )
-run_json <- file.path(opt$out_dir, "run.json")
-tmp <- paste0(run_json, ".tmp")
-jsonlite::write_json(run, tmp, auto_unbox = TRUE, pretty = TRUE, null = "null", digits = NA)
-file.rename(tmp, run_json); Sys.chmod(run_json, "0664")
-message(glue("Wrote {rdata}\n      {run_json}"))
+write_json_atomic(run, file.path(opt$out_dir, "run.json"))
+message(glue("Wrote {rdata}\n      {file.path(opt$out_dir, 'run.json')}"))
 message("fin")
