@@ -1697,7 +1697,6 @@ dependencies = [
     { name = "affine" },
     { name = "cartopy" },
     { name = "click" },
-    { name = "climate-data" },
     { name = "geopandas" },
     { name = "h5py" },
     { name = "idd-tools" },
@@ -1728,6 +1727,9 @@ dependencies = [
 ]
 
 [package.optional-dependencies]
+climate = [
+    { name = "climate-data" },
+]
 notebooks = [
     { name = "dask" },
     { name = "ipywidgets" },
@@ -1761,7 +1763,7 @@ requires-dist = [
     { name = "affine", specifier = ">=2.4" },
     { name = "cartopy", specifier = ">=0.25" },
     { name = "click", specifier = ">=8.1" },
-    { name = "climate-data", editable = "../climate-data" },
+    { name = "climate-data", marker = "extra == 'climate'", editable = "../climate-data" },
     { name = "dask", marker = "extra == 'notebooks'", specifier = ">=2026.1" },
     { name = "geopandas", specifier = ">=1.0.1" },
     { name = "h5py", specifier = ">=3.16" },
@@ -1795,7 +1797,7 @@ requires-dist = [
     { name = "tqdm", specifier = ">=4.67" },
     { name = "xarray", specifier = ">=2025.4.0" },
 ]
-provides-extras = ["notebooks"]
+provides-extras = ["climate", "notebooks"]
 
 [package.metadata.requires-dev]
 dev = [
@@ -1842,7 +1844,6 @@ requires-dist = [
     { name = "pydantic", specifier = ">=2.0" },
     { name = "scikit-learn", marker = "extra == 'ranking'", specifier = ">=1.3" },
     { name = "scipy", specifier = ">=1.11" },
-    { name = "scipy", marker = "extra == 'ranking'", specifier = ">=1.11" },
     { name = "seaborn", marker = "extra == 'notebooks'", specifier = ">=0.13" },
     { name = "torch", marker = "extra == 'torch'", specifier = ">=2.8", index = "https://download.pytorch.org/whl/cpu" },
 ]

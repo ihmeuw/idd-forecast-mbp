@@ -2,19 +2,39 @@
 Wrapper to run climate-data suitability pipeline with custom curves.
 """
 
-import pandas as pd
-from pathlib import Path
-from typing import Callable
 from collections import defaultdict
-import numpy as np
+from collections.abc import Callable
+from pathlib import Path
 
-# These imports come from the climate-data repo
-from climate_data.generate import scenario_annual, utils
-from climate_data import constants as cdc
+import numpy as np
+import pandas as pd
 
 from idd_forecast_mbp import constants as mbpc
+
+CLIMATE_DATA_HINT = (
+    "climate-data is an optional extra of idd-forecast-mbp; install it with "
+    "`uv sync --extra climate` (it resolves from the sibling ../climate-data clone)."
+)
+
+
+def _climate_data_modules():
+    """The climate-data modules this wrapper drives.
+
+    Imported on use (hence the noqa): climate-data is the optional `climate` extra, and the
+    package must import without it.
+    """
+    try:
+        from climate_data import constants as cdc  # noqa: PLC0415
+        from climate_data.generate import scenario_annual, utils  # noqa: PLC0415
+    except ImportError as exc:  # pragma: no cover - depends on the extra being absent
+        raise ImportError(CLIMATE_DATA_HINT) from exc
+    return cdc, scenario_annual, utils
+
+
 PROCESSED_DATA_PATH = mbpc.MODEL_ROOT / "02-processed_data"
-malaria_temp_suitabilities_df_path = PROCESSED_DATA_PATH / 'malaria_temp_suitabilities_df.parquet'
+malaria_temp_suitabilities_df_path = (
+    PROCESSED_DATA_PATH / "malaria_temp_suitabilities_df.parquet"
+)
 
 
 def run_custom_suitability_curves(
@@ -54,7 +74,7 @@ def run_custom_suitability_curves(
     scenarios
         SSP scenarios to run (default: ssp126, ssp245, ssp585)
     years
-        Years to process - will be automatically split into historical (1950-2023) 
+        Years to process - will be automatically split into historical (1950-2023)
         and forecast (2024-2100). Default: all years.
     gcm_members
         GCM members to use (default: all available)
@@ -74,10 +94,11 @@ def run_custom_suitability_curves(
     list[str]
         Names of target variables that were processed
     """
+    cdc, scenario_annual, utils = _climate_data_modules()
     df = pd.read_parquet(dataframe_path)
     climate_data_repo = Path(climate_data_repo)
     output_dir = Path(output_dir) if output_dir else cdc.MODEL_ROOT
-    
+
     supplementary_data_dir = (
         climate_data_repo / "src" / "climate_data" / "generate" / "supplementary_data"
     )
@@ -85,7 +106,7 @@ def run_custom_suitability_curves(
 
     # Defaults
     scenarios = scenarios or ["ssp126", "ssp245", "ssp585"]
-    
+
     # Parse years into historical and forecast
     if years is None:
         history_years = cdc.HISTORY_YEARS
@@ -93,7 +114,7 @@ def run_custom_suitability_curves(
     else:
         history_years = [y for y in years if y in cdc.HISTORY_YEARS]
         forecast_years = [y for y in years if y in cdc.FORECAST_YEARS]
-    
+
     # Get unique combinations
     unique_combos = df[combination_columns].drop_duplicates()
     print(f"Found {len(unique_combos)} unique curve combinations")
@@ -146,33 +167,37 @@ def run_custom_suitability_curves(
     if dry_run:
         print(f"\nDry run complete. Generated {len(target_variables)} curve files.")
         print(f"Target variables: {target_variables}")
-        print(f"Historical years to run: {len(history_years)} ({history_years[0] if history_years else 'none'} - {history_years[-1] if history_years else 'none'})")
-        print(f"Forecast years to run: {len(forecast_years)} ({forecast_years[0] if forecast_years else 'none'} - {forecast_years[-1] if forecast_years else 'none'})")
+        print(
+            f"Historical years to run: {len(history_years)} ({history_years[0] if history_years else 'none'} - {history_years[-1] if history_years else 'none'})"
+        )
+        print(
+            f"Forecast years to run: {len(forecast_years)} ({forecast_years[0] if forecast_years else 'none'} - {forecast_years[-1] if forecast_years else 'none'})"
+        )
         print(f"Scenarios: {scenarios}")
         return target_variables
 
     # Import additional modules
-    from climate_data.data import ClimateData, PopulationModelData, ClimateAggregateData
-    from climate_data.generate.draws import compile_gcm_main
-    from climate_data.aggregate.pixel import pixel_main
     from climate_data.aggregate.hierarchy import hierarchy_main
-    
+    from climate_data.aggregate.pixel import pixel_main
+    from climate_data.data import ClimateAggregateData, ClimateData, PopulationModelData
+    from climate_data.generate.draws import compile_gcm_main
+
     cdata = ClimateData(output_dir, read_only=True)
-    
+
     # Get all available GCMs
     all_gcms = gcm_members or cdata.get_gcms(["tas"])
-    
+
     # ============================================
     # STEP 1: Generate scenario annual results
     # ============================================
-    print("\n" + "="*60)
+    print("\n" + "=" * 60)
     print("STEP 1: Generating scenario annual results")
     print("  Output: Annual suitability rasters per GCM/year/scenario")
-    print("="*60)
-    
+    print("=" * 60)
+
     for target_var in target_variables:
         print(f"\nProcessing: {target_var}")
-        
+
         # Historical
         if history_years:
             print(f"  Running historical ({len(history_years)} years)...")
@@ -185,11 +210,13 @@ def run_custom_suitability_curves(
                     output_dir=output_dir,
                     progress_bar=progress_bar,
                 )
-        
+
         # Scenarios
         if forecast_years:
             for scenario in scenarios:
-                print(f"  Running {scenario} ({len(forecast_years)} years × {len(all_gcms)} GCMs)...")
+                print(
+                    f"  Running {scenario} ({len(forecast_years)} years × {len(all_gcms)} GCMs)..."
+                )
                 for year in forecast_years:
                     for gcm in all_gcms:
                         scenario_annual.generate_scenario_annual_main(
@@ -204,11 +231,11 @@ def run_custom_suitability_curves(
     # ============================================
     # STEP 2: Compile GCM results
     # ============================================
-    print("\n" + "="*60)
+    print("\n" + "=" * 60)
     print("STEP 2: Compiling GCM results")
     print("  Output: Combined historical+scenario file per GCM")
-    print("="*60)
-    
+    print("=" * 60)
+
     for target_var in target_variables:
         print(f"\nCompiling: {target_var}")
         for scenario in scenarios:
@@ -224,52 +251,53 @@ def run_custom_suitability_curves(
     # ============================================
     # STEP 3: Create draws with mapping
     # ============================================
-    print("\n" + "="*60)
+    print("\n" + "=" * 60)
     print("STEP 3: Creating 100 draws")
     print("  Output: Draw symlinks + draw_mapping_{variable}.parquet")
-    print("="*60)
-    
+    print("=" * 60)
+
     draw_mappings = {}
     for target_var in target_variables:
         print(f"\nCreating draws for: {target_var}")
         mapping_df = _draws_main_with_mapping(target_var, str(output_dir), scenarios)
         draw_mappings[target_var] = mapping_df
-        
+
         # Save mapping
         mapping_path = output_dir / f"draw_mapping_{target_var}.parquet"
         mapping_df.to_parquet(mapping_path, index=False)
         print(f"  Saved draw mapping to: {mapping_path}")
 
     if not run_aggregation:
-        print("\n" + "="*60)
+        print("\n" + "=" * 60)
         print("COMPLETE (aggregation skipped)")
-        print("="*60)
+        print("=" * 60)
         return target_variables
 
     # ============================================
     # STEP 4: Pixel aggregation
     # ============================================
-    print("\n" + "="*60)
+    print("\n" + "=" * 60)
     print("STEP 4: Pixel aggregation (population-weighted)")
     print("  Output: Admin-level values per draw/block")
-    print("="*60)
-    
+    print("=" * 60)
+
     # Monkey-patch AGGREGATION_MEASURES to include our custom variables
     original_measures = cdc.AGGREGATION_MEASURES.copy()
     cdc.AGGREGATION_MEASURES = target_variables
-    
+
     # Also need to patch in the aggregate.pixel module
     from climate_data.aggregate import pixel as pixel_module
+
     pixel_module.cdc.AGGREGATION_MEASURES = target_variables
-    
+
     pm_data = PopulationModelData(cdc.POPULATION_MODEL_ROOT)
     ca_data = ClimateAggregateData(cdc.AGGREGATE_ROOT)
-    
+
     modeling_frame = pm_data.load_modeling_frame()
     block_keys = modeling_frame["block_key"].unique().tolist()
-    
+
     draws = [f"{d:03d}" for d in range(100)]
-    
+
     print(f"  Processing {len(draws)} draws × {len(block_keys)} blocks...")
     for draw in draws:
         print(f"\n  Draw {draw}")
@@ -288,11 +316,11 @@ def run_custom_suitability_curves(
     # ============================================
     # STEP 5: Hierarchy aggregation
     # ============================================
-    print("\n" + "="*60)
+    print("\n" + "=" * 60)
     print("STEP 5: Hierarchy aggregation (roll up to all admin levels)")
     print("  Output: Final parquet files per variable")
-    print("="*60)
-    
+    print("=" * 60)
+
     for target_var in target_variables:
         for scenario in scenarios:
             print(f"\n  Aggregating: {target_var} / {scenario}")
@@ -305,18 +333,18 @@ def run_custom_suitability_curves(
                 output_dir=str(cdc.AGGREGATE_ROOT),
                 progress_bar=progress_bar,
             )
-    
+
     # Restore original measures
     cdc.AGGREGATION_MEASURES = original_measures
-    
-    print("\n" + "="*60)
+
+    print("\n" + "=" * 60)
     print("COMPLETE")
-    print("="*60)
-    print(f"\nOutputs:")
+    print("=" * 60)
+    print("\nOutputs:")
     print(f"  Gridded rasters: {output_dir}/results/annual/")
     print(f"  Draw mappings: {output_dir}/draw_mapping_*.parquet")
     print(f"  Aggregated data: {cdc.AGGREGATE_ROOT}/{agg_version}/")
-    
+
     return target_variables
 
 
@@ -324,14 +352,16 @@ def _make_custom_suitability_mapper(curve_name: str) -> Callable:
     """Create a suitability mapping function for a custom curve."""
     import numpy as np
     import xarray as xr
-    
+
+    _cdc, _scenario_annual, utils = _climate_data_modules()
+
     def smap(ds: xr.Dataset) -> xr.Dataset:
         df = pd.read_parquet(
             Path(utils.__file__).parent / "supplementary_data" / f"{curve_name}.parquet"
         )
         t = df["temperature"].to_numpy()
         s = df["suitability"].to_numpy()
-        
+
         ds["value"] = (("date", "latitude", "longitude"), np.interp(ds["value"], t, s))
         return ds
 
@@ -339,25 +369,27 @@ def _make_custom_suitability_mapper(curve_name: str) -> Callable:
 
 
 def _draws_main_with_mapping(
-    target_variable: str, 
-    output_dir: str, 
+    target_variable: str,
+    output_dir: str,
     scenarios: list[str],
 ) -> pd.DataFrame:
     """Run draws and return the draw-to-GCM mapping."""
     from climate_data.data import ClimateData
-    
+
     cdata = ClimateData(output_dir)
 
     # Only look at scenarios we actually ran
     scenario_gcm_members = {}
     for scenario in scenarios:
-        paths = (cdata.compiled_annual_results / scenario / target_variable).glob("*.nc")
+        paths = (cdata.compiled_annual_results / scenario / target_variable).glob(
+            "*.nc"
+        )
         scenario_gcm_members[scenario] = [p.stem for p in paths]
 
     # Get members present in all scenarios
     all_members = set.intersection(*[set(m) for m in scenario_gcm_members.values()])
     all_members = sorted(all_members)
-    
+
     source_member_map = defaultdict(list)
     for gcm_member in all_members:
         source, member = gcm_member.split("_")
@@ -365,19 +397,16 @@ def _draws_main_with_mapping(
 
     num_draws = 100
     rs = np.random.RandomState(42)  # Same seed as original - ensures matching draws
-    
+
     draw_mapping = []
     for draw in range(num_draws):
         gcm = rs.choice(list(source_member_map))
         member = rs.choice(source_member_map[gcm])
         gcm_member = f"{gcm}_{member}"
-        draw_mapping.append({
-            "draw": draw,
-            "gcm": gcm,
-            "member": member, 
-            "gcm_member": gcm_member
-        })
-        
+        draw_mapping.append(
+            {"draw": draw, "gcm": gcm, "member": member, "gcm_member": gcm_member}
+        )
+
         for scenario in scenarios:
             cdata.link_annual_draw(
                 draw=draw,
@@ -385,7 +414,7 @@ def _draws_main_with_mapping(
                 scenario=scenario,
                 gcm_member=gcm_member,
             )
-    
+
     return pd.DataFrame(draw_mapping)
 
 
@@ -393,7 +422,6 @@ def _draws_main_with_mapping(
 # Example usage
 # ============================================
 if __name__ == "__main__":
-    
     # ------------------------------------------
     # USE CASE 1: Run the whole thing
     # ------------------------------------------
@@ -405,7 +433,7 @@ if __name__ == "__main__":
     #     climate_data_repo="/ihme/homes/bcreiner/repos/climate-data",
     #     # All defaults: all years, all scenarios, aggregation enabled
     # )
-    
+
     # ------------------------------------------
     # USE CASE 2: Test run - one year, one scenario, no aggregation
     # ------------------------------------------

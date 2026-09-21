@@ -18,7 +18,6 @@ dependencies = [
     "scipy>=1.15.2",
     "netcdf4>=1.7.2",
     "rasterra>=0.6.2",
-    "climate-data",
     "openpyxl>=3.1.5",
     "seaborn>=0.13",
     "scikit-learn>=1.8",
@@ -49,6 +48,12 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# climate-data is imported only by 01_map_to_admin_2/run_suitability_pipeline.py (the custom
+# suitability-curve run); a consumer of this package as a git dependency cannot resolve its
+# local path source, so it is an extra: `uv sync --extra climate` here to run stage 01.
+climate = [
+    "climate-data",
+]
 # Imported only by notebooks/, not by library code.
 notebooks = [
     "dask>=2026.1",
