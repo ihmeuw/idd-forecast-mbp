@@ -30,6 +30,9 @@ repos:
       - id: mypy
         name: mypy
         # Per staged file, on the repo venv (this repo is venv-only; poetry is gone).
+        # tests/0N_*/ are packages (they carry __init__.py) whose names mypy rejects outright
+        # ("not a valid Python package name"), so it cannot check them at all; excluded.
+        exclude: ^tests/0[0-9]_
         entry: .venv/bin/mypy
         require_serial: true
         language: system
