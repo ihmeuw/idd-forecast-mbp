@@ -356,3 +356,12 @@ and a `#| tags: [parameters]` cell.
 a dependency of this repo. The run dir now reaches the report through the `MBP_SELECTION_RUN_DIR`
 environment variable set by `rank.render_report`; the qmd reads it and refuses to run without it.
 **Refs:** `src/idd_forecast_mbp/select/rank.py::render_report`, `reports/model_selection/malaria_model_selection.qmd`.
+
+## 2026-09-18: A data-preparation "contract" for the shared malaria prep (NA-drop set, ordering, which() semantics)
+**What I tried:** Proposed the shared preparation as a contract: a fixed five-column NA-drop list, an order-of-operations rule,
+`which()` vs logical-index semantics, and a per-transform list, with acceptance tests on each.
+**Why I stopped:** Bobby: a dozen lines of unconditional column arithmetic plus one line turning non-finite values into NA
+does the job; the formula's `na.omit` decides which rows a fit uses. The elaborate version guarded covariates a formula might
+never name and would have diverged from the selection worker on hypothetical parquets while changing nothing on the real one.
+**Refs:** handoff `~/.claude/handoffs/2026-09-18-mbp-importable-fitter.md` (design amendments 14:33–14:35, folded into
+"Design (current)"); `lib/malaria_fit_frame.R`.

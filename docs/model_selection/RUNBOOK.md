@@ -73,3 +73,33 @@ and `execRscript.sh` wrapper passed to every R launcher.
   and a `selection` block pointing at the run dir and spec.
 - The registers: `registry.json` on every node; `idd-versions <node> status` reads them.
 - The pre-2026-09-16 flat model registry (`malaria_model_registry.json`) is read-only history.
+
+## Refits from another repo (the importable fitter, 2026-09-18)
+
+The body of `fit_malaria_models_orchestrator.py` is
+`idd_forecast_mbp.lib.modeling.malaria_fit_run.submit_malaria_fit_run(spec_table, output_dir, *, r_image, r_shell,
+past_inputs, ...)`. It writes only under `output_dir` (any directory; it refuses a finished selection run, a registered
+snapshot, a `current` target, or anything under the models node), fans the spec table into one in-sample cell plus the
+out-of-sample cells, bundles them, submits through `idd_tools.jobmon`, and returns a `MalariaFitRun`. Arguments beyond the
+orchestrator's options: `past_inputs` (required; nothing follows `current`), `prep_script` (an R file defining
+`prepare_malaria_fit_frame(parquet_path, inc_count_min, pfpr_min, suit_variant)`; default the package's
+`lib/malaria_fit_frame.R`), `inc_count_min` / `pfpr_min` (1 and 0.0001 give the selection frame, 167,649 rows on the
+`20260527` past inputs; 0 and 0 give the registered final model's 319,073 rows), `oos_windows` (default the ten windows of
+the 2026-07 run, built by `temporal_windows()`), `save_fits` and `save_predictions` (both off by default).
+
+- `spec_table` needs `spec_index`, `n_smooths`, `n_scams`, `formula_text`; an optional `suit_variant` column picks the
+  suitability variant per spec (absent: `mordecai_0_0`).
+- `save_fits=True` writes `fits/<cell>/spec_<i>.rds` (predict-stripped, a few MB) with `spec_<i>.json` beside it: the
+  spec, the cell and its years, the thresholds, the past-inputs and prep-script paths with sha256, the rows and country
+  levels the fit used, versions and timing. `save_predictions=True` writes `predictions/<cell>/spec_<i>.parquet`
+  (`location_id`, `year_id`, `observed`, `predicted_lp`, `predicted_response`, `observed_response`).
+- The worker (`select_malaria_models_rocket.r`) takes the same things as flags: `--past-inputs`, `--prep-script`,
+  `--inc-count-min`, `--pfpr-min`, `--save-fits`, `--save-predictions`, `--strip-fits`.
+- `fit_selected_malaria_model.{py,r}` use the same preparation (`--prep-script`, same default).
+- Consumer pin: `"idd-forecast-mbp"` in `dependencies` and
+  `idd-forecast-mbp = { git = "ssh://git@github.com/ihmeuw/idd-forecast-mbp.git", rev = "<commit>" }` in
+  `[tool.uv.sources]`; `branch = "main"` once the work is on `main`. The consumer declares `idd-tools` and the IHME
+  index itself; `climate-data` is not needed (it is the `climate` extra).
+- Tests: `tests/lib/modeling/test_malaria_fit_run.py` (pytest) and `tests/testthat/` (run
+  `execRscript.sh -i <image> -s tests/testthat.R` from the repo root; set `MBP_PAST_INPUTS` to the parquet for the
+  two real row-count checks).

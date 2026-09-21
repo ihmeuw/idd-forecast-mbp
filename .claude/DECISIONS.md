@@ -1503,3 +1503,49 @@ legacy code; per-file keeps new modules typed and lets legacy files be fixed whe
 mirror-hook approach idd-tools uses needs a stub list in an isolated env, which this repo's
 "repo env only" rule argues against.
 **Revisit if:** the stubs are added (drop the override) or the legacy tree is typed (return to `mypy .`).
+
+## 2026-09-18: Acceptance reference for the shared malaria data preparation is the registered fit, not a script
+**Decision:** The shared R data preparation being built for the importable fitter (handoff
+`~/.claude/handoffs/2026-09-18-mbp-importable-fitter.md`) is accepted when a refit of the three
+registered formulas at thresholds (0, 0) on the `20260527` past-inputs parquet agrees at the
+coefficient level with `models/lsae_1285/2026_07_31_full_model_selection_results/malaria_models.RData`.
+The archived `02_fit_final_malaria_models.r` is the record of how that fit was produced;
+`fit_selected_malaria_model.r` (never yet run) is the candidate under test, not the reference.
+**Why:** Two scripts can agree with each other and both differ from the model the forecast loads.
+The registered objects carry `coefficients`, `sp`, `xlevels` and `df.null` (319,072), which is
+enough to test against. Bobby's ruling, 2026-09-18.
+**Revisit if:** the registered model is refit and promoted (the reference then moves with `current`),
+or the scam build that produced the registered fit turns out to differ from the image's 1.2.21 and
+the disagreement is attributed to the library rather than the preparation.
+
+## 2026-09-18: Malaria fit preparation is unconditional column arithmetic; the formula decides rows and columns
+**Decision:** `lib/malaria_fit_frame.R::prepare_malaria_fit_frame(parquet_path, inc_count_min, pfpr_min, suit_variant)`
+computes every derived column always (six logs, the two clipped logits, the two suitability aliases), sets non-finite
+transforms to NA with a count in the log, applies the two thresholds, builds `A0_af`. No NA-drop column list; a row is
+dropped only when a column the formula names is NA (R's `na.omit`). Both the selection worker and (after the STOP) the final
+fitter source this file, and a caller may pass its own file as `--prep-script` / `prep_script=`; the contract is the
+function name and signature plus the columns the formulas name.
+**Why:** Bobby, 2026-09-18: a fixed NA-drop list guards covariates a formula may not use; "we can do them always everywhere
+and not worry about NaNs". On the 20260527 parquet the old 3- and 5-column drops removed zero rows, so the counts (167,649 at
+(1, 1e-4), 319,073 at (0, 0)) are unchanged; `log(0)` is `-Inf`, which `na.omit` keeps and `lm`/`mgcv` reject, hence the
+one non-finite-to-NA line.
+**Revisit if:** a future parquet carries NA in `malaria_inc_rate` / `malaria_mort_rate` / `population` (then the count
+messages change and the sidecar's `n_rows_train` shows it), or a caller needs a preparation this contract cannot express.
+
+## 2026-09-18: Suitability variant is a per-spec column, not a run-level argument
+**Decision:** `spec_table.parquet` may carry `suit_variant` (absent → `mordecai_0_0`); the worker re-aliases
+`malaria_suit` / `logit_malaria_suitability` per spec immediately before the fit and records the variant in the summary
+row and the sidecar. `submit_malaria_fit_run` has no variant argument.
+**Why:** Bobby, 2026-09-18: sensitivity analyses will vary the variant, so one run must be able to mix variants. The archived
+final-fit script already had this shape (variant-independent cleaning once, `add_suit_terms` per formulation).
+**Revisit if:** a variant sweep needs a variant-specific row filter, which per-spec aliasing cannot express.
+
+## 2026-09-18: Saved refit objects are predict-stripped and carry no training frame
+**Decision:** `--save-fits` writes the predict-stripped object by default (`--strip-fits FALSE` keeps the full one), and
+`fit_one_mod` gives the formula a clean environment before fitting so the object never serialises the caller's frame.
+**Why:** The first probe's objects were 118–218 MB each: 18 MB of fit plus the 142 MB training frame captured through the
+formula's environment (the registered 2026_07_31 objects carry the same kind of payload, 83 MB each). With the fix a
+319,073-row scam object is a few MB, and the teardown segfault that had hit 14 of 44 switches-on tasks did not recur in the
+rerun. Stripped is the shape the consumer's saved-fit code already handles.
+**Revisit if:** a consumer method needs `model`/`residuals` from the object rather than the rebuilt frame (then
+`--strip-fits FALSE`).

@@ -30,8 +30,16 @@ uv sync --all-extras         # runtime + dev + notebooks extra
 ```
 
 Resolution needs IHME artifactory access (`jobmon_installer_ihme` is a core
-dependency of this cluster-only pipeline repo), plus sibling clones of the
-local path dependencies `../climate-data` and `../idd-tools`.
+dependency of this cluster-only pipeline repo), plus a sibling clone of the
+local path dependency `../idd-tools`. `climate-data` is the optional extra
+`climate` (`uv sync --extra climate`, from a sibling `../climate-data` clone);
+only the stage-01 suitability wrapper imports it.
+
+Another repo can drive the malaria fits from Python by depending on this
+package as a git source: `"idd-forecast-mbp"` in `dependencies` and
+`idd-forecast-mbp = { git = "ssh://git@github.com/ihmeuw/idd-forecast-mbp.git", rev = "<commit>" }`
+in `[tool.uv.sources]` (the consumer declares `idd-tools` and the IHME index
+itself). See `docs/model_selection/RUNBOOK.md`, "Refits from another repo".
 
 Run code via `.venv/bin/python` by absolute path (Slurm/jobmon scripts do
 exactly this — no activation of any kind); `source .venv/bin/activate` is

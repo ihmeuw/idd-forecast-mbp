@@ -24,8 +24,10 @@ mixed.
 - **jobmon:** `jobmon_installer_ihme==10.12.2` is a core dependency (cluster-only
   leaf pipeline); worker command templates invoke `.venv/bin/python` by
   absolute path.
-- **Local path deps:** `climate-data` and `idd-tools` resolve editable from
-  sibling clones (`../climate-data`, `../idd-tools`).
+- **Local path deps:** `idd-tools` resolves editable from the sibling clone
+  (`../idd-tools`); `climate-data` is the optional extra `climate` (same idiom,
+  `../climate-data`), imported only by `01_map_to_admin_2/run_suitability_pipeline.py`,
+  so the package resolves for a consumer that does not request it.
 - Interpreter downloads are deliberate only: the user-level uv policy is
   `python-downloads = "manual"` — a plain `uv venv`/`uv sync` must never
   trigger a CPython download.
