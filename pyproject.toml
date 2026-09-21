@@ -103,7 +103,7 @@ url = "https://artifactory.ihme.washington.edu/artifactory/api/pypi/pypi-shared/
 [tool.uv.sources]
 jobmon_installer_ihme = { index = "ihme" }
 climate-data = { path = "../climate-data", editable = true }
-idd-tools = { path = "../idd-tools", editable = true }
+idd-tools = { git = "ssh://git@github.com/ihmeuw/idd-tools.git", branch = "main" }
 
 [build-system]
 requires = ["uv_build>=0.11,<0.12"]
