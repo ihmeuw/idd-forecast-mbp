@@ -633,7 +633,7 @@ DEEP_DIVE_METRICS: tuple[str, ...] = ("oos_pfpr_rmse", "oos_pfpr_r", "oos_r_sq")
 def derive_windows(fit: dict[str, Any]) -> pd.DataFrame:
     """The temporal windows the ``fit:`` section implies, one row per window.
 
-    Same arithmetic as ``fit_malaria_models_orchestrator.py``: ``train_lo`` is the first
+    Same arithmetic as ``lib/modeling/malaria_fit_run.temporal_windows``: ``train_lo`` is the first
     modeling year plus ``max_lag``; each (gap, test window) pair gives ``train_hi = test_lo -
     gap`` and is kept only when at least ``min_training_years`` training years remain.
     """
