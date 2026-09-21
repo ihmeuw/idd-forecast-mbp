@@ -24,10 +24,15 @@ mixed.
 - **jobmon:** `jobmon_installer_ihme==10.12.2` is a core dependency (cluster-only
   leaf pipeline); worker command templates invoke `.venv/bin/python` by
   absolute path.
-- **Local path deps:** `idd-tools` resolves editable from the sibling clone
-  (`../idd-tools`); `climate-data` is the optional extra `climate` (same idiom,
-  `../climate-data`), imported only by `01_map_to_admin_2/run_suitability_pipeline.py`,
-  so the package resolves for a consumer that does not request it.
+- **Cross-repo deps are git sources, never local paths:** `idd-tools` is
+  `{ git = "ssh://git@github.com/ihmeuw/idd-tools.git", branch = "main" }` (the
+  commit lives in `uv.lock`; bump with `uv lock --upgrade-package idd-tools`). A path
+  source travels with this pyproject into every consumer's resolution and breaks it
+  (2026-09-21). To test an unpushed idd-tools change here: `uv pip install -e ../idd-tools`
+  after `uv sync`, and re-run it after the next sync. `climate-data` is the optional
+  extra `climate` (still a path source to `../climate-data`, a personal fork on a wip
+  branch; unrequested extras are never followed), imported only by
+  `01_map_to_admin_2/run_suitability_pipeline.py`.
 - Interpreter downloads are deliberate only: the user-level uv policy is
   `python-downloads = "manual"` — a plain `uv venv`/`uv sync` must never
   trigger a CPython download.
