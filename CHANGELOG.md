@@ -5,6 +5,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## Unreleased
 ### Added
+- Raking to external parent targets in `lib/processing/raking.py`: `rake_children_to_parent_targets` (count space,
+  explicit `leave` zero rule, factor frame at parent grain, excluded cells reported), `apply_raking_factors` (reference
+  factors applied to any arm), `check_raked_matches_targets` and `check_sum_identity` (2026-09-28).
+- `lib/processing/derived_measures.py`: the FHS measure table (incidence, death, yll, yld raked from our incidence and
+  mortality; daly = yll + yld) as data, with lookups and `sum_components` (2026-09-28).
+- `lib/data/fhs_returns.py`: reader for the FHS returns (round map from YAML, file-contract validation, one-draw reads
+  subset to our age groups, sexes and years) (2026-09-28).
 - `select/gate.py` + `reports/model_selection/malaria_selection_gate.ipynb`: the two-button selection gate
   (re-rank with the overridable `rank:` keys, Record pick, Flag best via idd-tools freeze/promote) as tested functions
   with an import-only ipywidgets notebook (2026-09-28).
