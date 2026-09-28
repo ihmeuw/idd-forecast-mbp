@@ -1622,3 +1622,40 @@ of figure and dengue code are tested, which is not this session's work and would
 permanent red. The 2026-08-25 STATUS diagnosis (untested vaccine stage scripts) was wrong; see DEAD_ENDS today.
 **Revisit if:** the `lib/viz` modules are tested or moved onto idd-figures (the largest block; then the floor jumps),
 or the fleet adopts a different gate convention in STANDARDS.
+
+## 2026-09-28: Result-output taxonomy and what is saved (Bobby's definition)
+**Decision (Bobby):** Every result output is a point in: location set {1 all lsae levels 0-5; 2 admin-2 (level 5); 3 all FHS;
+4 FHS most-detailed (a mix of levels 3 and 4); 5 levels 0-3, VETTING ONLY, never an output location set} x draws {A draw
+level; B mean + upper + lower} x age-sex {X age- and sex-specific; Y all-age both-sex} x years {alpha historical 2000-2023
+plus each SSP 2023-2100; beta each SSP 2023-2100 only} x measures {a incidence, mortality; b YLLs, YLDs, DALYs; c all
+five} x metric {m rate; n count}. The FHS deliverable is 3,A,X,beta,c,m. 1,A,X,* and 2,A,X,* are too large to save and
+are NEVER saved, but must be creatable reliably and repeatably for manipulation, including differences / counterfactual
+attributable outputs between two scenarios or sensitivities at 2,A,X,*. Raking is always in count space; counts and rates
+need not both be kept when population merge-and-divide is dependable. alpha need not be saved (history exists elsewhere),
+though a low-resolution alpha file such as 1,B,Y,beta,* as one netCDF is convenient.
+**Why:** Storage is set entirely by 2,A,X (first submission: 3.9 TB per run); correctness is set by aggregation, raking and
+draw-level manipulation being right every time rather than by what is on disk. Bobby, 2026-09-28, replacing the ad-hoc output
+tables of that morning.
+**Revisit if:** the FHS deliverable's specification changes (it is the paper repo's / FHS's ask), or a location set is added.
+
+## 2026-09-28: FHS raking is one pure function with an explicit zero rule; reference factors rake every arm
+**Decision (Bobby; implemented in `lib/processing/raking.py`, `lib/processing/derived_measures.py`, `lib/data/fhs_returns.py`):**
+(1) `rake_children_to_parent_targets` rakes admin-2 counts to external parent targets per (parent, year, age, sex):
+factor = target / sum(children), count space only. The zero rule is a named argument with one value, `leave`: a cell whose
+target is 0, whose children sum to 0, or whose parent has no target keeps factor 1 and is returned in `excluded` with its
+reason. (2) Factors are computed ONCE from the reference arm (Baseline DAH, no hold) per SSP, source measure and draw, and
+`apply_raking_factors` applies that frame to every other arm (other DAH scenarios, holds, vaccine arms, variant refits); a
+child cell without a factor refuses. This is what the first-submission chain did (`OLD_cause_as_aggregation_by_draw_raked.py`,
+raked/unraked Baseline ratios multiplied into every arm), stated as one rule. (3) The FHS measure table is data: incidence
+and yld are raked from our incidence, death and yll from our mortality, daly = yll + yld; a refit under another suitability
+variant takes the reference factors unless FHS returns on a new submission (deriving a fresh factor from the old return
+against a new input would attribute an adjustment learned on a different input). (4) Checks are numbers, not asserts:
+every raked outcome summed to the FHS set against the FHS return, and yll + yld against the FHS daly, both with the
+zero-rule cells excluded and counted, both failing beyond a tolerance Bobby sets. (5) The FHS round (dataset per SSP and
+measure) lives in a YAML the driver names, root from `constants.FHS_RESULTS_PATH`; nothing about a round is code.
+**Why:** The old chain had no tests and no check; the zero rule was silent and would make any comparison fail; the
+reference-factor rule was implicit in a folder template. First-submission intermediates are not a reference for the
+current work (anchored to GBD 2023), so the new functions are tested on synthetic fixtures and the FHS checks run when
+returns for the new submission exist.
+**Revisit if:** FHS changes the return layout (dims, one scenario per file), or a second zero rule is ever wanted (then it
+is a new named value, never a default change).

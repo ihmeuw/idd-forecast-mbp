@@ -279,6 +279,14 @@ stage-08 gained `malaria_suit` + single-realization `mean_low_temperature`). Now
 formulations and deciding a single winner vs an ensemble (matched per-draw weighted blend).
 
 ## Recent steps
+- 2026-09-28 (afternoon): **Result-output taxonomy fixed (Bobby) and the FHS raking standardised, items 1-3 of the driver
+  build.** Bobby's taxonomy of result outputs (location set 1-5, draws A/B, age-sex X/Y, years alpha/beta, measures
+  a/b/c, metric m/n; deliverable 3,A,X,beta,c,m; 2,A,X never saved, created on demand) is in DECISIONS 2026-09-28. The
+  first-submission FHS raking chain (`05_aggregation/OLD_*`) was read end to end: reference (Baseline, no hold) raking
+  factors are applied to every arm; no DALY check existed; the zero rule was silent. Built and committed: parent-target
+  raking + factor application + two checks in `lib/processing/raking.py` (legacy half untouched), the FHS measure table
+  `lib/processing/derived_measures.py`, the FHS return reader `lib/data/fhs_returns.py`; 54 typed tests, all three at
+  100%. Remaining for the chain: the finalize driver (item 4), its acceptance (5), forecast-side leftovers (6).
 - 2026-09-28: **Cleanup while the GDP re-run is pending** (commits 8971e2d..92d150f on `feature/importable-fitter`, branch
   fast-forwarded into `feature/refactor-shared-lib`, tag `importable-fitter-1`, all pushed). (1) Tracking files from the
   09-21 wrap committed; the 965 MB `core` dump, `Rplots.pdf`, `load_rds.ipynb` removed; jobmon local state gitignored.
@@ -718,9 +726,14 @@ formulations and deciding a single winner vs an ensemble (matched per-draw weigh
    Bobby's call), stage 05 into a new past-inputs snapshot (verify the 40 untouched columns equal `20260527`), GDP inputs,
    spec table into a new run dir (unchanged universe), `--probe` then `--full`, finalize, rank, the gate, forecast, finish.
    Touch list: `.claude/MALARIA_RESELECTION_ORIENTATION.md` §7.
-2. Paper's form asks, independent of the outcome and buildable now: draw-level all-age products at FHS levels 0-3
-   (Formalization item 4) and the stage-05 finalize driver for age/sex admin-2 draws (also the vaccine `protection` hook's
-   live caller).
+2. **The finalize driver** `05_aggregation/finalize_malaria_forecast_run.py` (build list of 2026-09-28, item 4): one named
+   forecast run dir x (ssp, dah) x draw chunk -> all-age counts -> on-demand 2,A,X (`finalize_forecast` core) -> vaccine
+   protection if any -> rake (reference arm computes + saves factors via `rake_children_to_parent_targets`; other arms
+   `apply_raking_factors`) -> derived measures (`derived_measures`) -> aggregate to the requested location set (1-5 by
+   hierarchy flags) -> A or B -> m or n -> versioned node; a `difference` mode over two run dirs at 2,A,X with a
+   draw-alignment assertion; jobmon manifest per cell and chunk. Acceptance (item 5): its 5,B,Y reproduces today's products;
+   its 2023 anchor check matches GBD 2023; FHS checks run once returns for the new submission exist (raking off until
+   then, measures a only). Needs from Bobby: the two check tolerances; later the FHS round YAML for `fhs_returns`.
 3. Bobby's calls from the README: whether `precipitation_days` / `wind_speed` join the universe; how a second draw-varying
    climate covariate enters the forecast (draw indices are not a shared identity across variables).
 
