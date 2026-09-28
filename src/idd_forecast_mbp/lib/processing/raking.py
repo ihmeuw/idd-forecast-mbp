@@ -15,6 +15,8 @@ and are not consolidatable (H4 finding from Phase 1 audit).
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
@@ -379,3 +381,279 @@ def logit_shift_rake(
     forecast_df = forecast_df.drop(columns=['shift', pred_raw_col], errors='ignore')
 
     return forecast_df
+
+# ---------------------------------------------------------------------------
+# Raking children to EXTERNAL parent targets (the FHS returns), and applying the
+# resulting factors to other arms. Count space only; rates are derived afterwards.
+#
+# Rule of record (DECISIONS 2026-09-28): factors are computed ONCE from the reference arm
+# (Baseline DAH, no hold) per SSP, measure and draw, and applied to every other arm. The
+# zero rule is explicit and has one value, "leave": a cell whose target is 0, whose children
+# sum to 0, or whose parent has no target keeps a factor of 1 and is REPORTED, so a check
+# against the targets can leave it out instead of always failing.
+# ---------------------------------------------------------------------------
+
+ZERO_RULES: frozenset[str] = frozenset({"leave"})
+REASON_RAKED = "raked"
+REASON_TARGET_ZERO = "target_zero"
+REASON_CHILDREN_ZERO = "children_zero"
+REASON_NO_TARGET = "no_target"
+FACTOR_COL = "factor"
+REASON_COL = "reason"
+
+
+def _require_columns(df: pd.DataFrame, cols: Sequence[str], what: str) -> None:
+    missing = [c for c in cols if c not in df.columns]
+    if missing:
+        msg = f"{what} lacks column(s) {missing}; has {list(df.columns)}"
+        raise ValueError(msg)
+
+
+def _require_unique(df: pd.DataFrame, cols: Sequence[str], what: str) -> None:
+    if df.duplicated(list(cols)).any():
+        msg = f"{what} has more than one row per {list(cols)}"
+        raise ValueError(msg)
+
+
+def _require_non_negative(df: pd.DataFrame, col: str, what: str) -> None:
+    if (df[col] < 0).any():
+        msg = f"{what}[{col!r}] has negative values; raking is defined on counts"
+        raise ValueError(msg)
+
+
+@dataclass(frozen=True)
+class RakeResult:
+    """One rake: the raked children, every factor with its reason, and the cells the zero rule touched."""
+
+    raked: pd.DataFrame
+    #: ``[parent_col, *keys, factor, reason]``, one row per (parent, keys) present in ``children``.
+    factors: pd.DataFrame
+    #: The rows of ``factors`` whose reason is not ``raked`` (factor forced to 1).
+    excluded: pd.DataFrame
+
+
+def rake_children_to_parent_targets(  # noqa: PLR0913 - one argument per raking knob
+    children: pd.DataFrame,
+    targets: pd.DataFrame,
+    *,
+    parent_col: str,
+    keys: Sequence[str],
+    value_col: str,
+    target_col: str | None = None,
+    zero_rule: str = "leave",
+) -> RakeResult:
+    """Rake child counts so that, per (parent, *keys), they sum to the parent's target.
+
+    ``factor = target / sum(children)`` per ``(parent_col, *keys)``, applied multiplicatively to
+    every child of that parent. ``children`` is ``[..., parent_col, *keys, value_col]`` (one row per
+    child cell; the child id column is whatever else is there); ``targets`` is
+    ``[parent_col, *keys, target_col]`` and must be unique per (parent, keys). Parents in
+    ``targets`` with no children are ignored; children whose parent has no target are kept at
+    factor 1 and reported as ``no_target`` (targets legitimately cover only the FHS set).
+    """
+    if zero_rule not in ZERO_RULES:
+        msg = f"zero_rule must be one of {sorted(ZERO_RULES)}; got {zero_rule!r}"
+        raise ValueError(msg)
+    key_list = list(keys)
+    tcol = value_col if target_col is None else target_col
+    _require_columns(children, [parent_col, *key_list, value_col], "children")
+    _require_columns(targets, [parent_col, *key_list, tcol], "targets")
+    _require_unique(targets, [parent_col, *key_list], "targets")
+    _require_non_negative(children, value_col, "children")
+    _require_non_negative(targets, tcol, "targets")
+
+    group = [parent_col, *key_list]
+    sums = (
+        children.groupby(group, as_index=False)[value_col]
+        .sum()
+        .rename(columns={value_col: "_children"})
+    )
+    merged = sums.merge(
+        targets[[*group, tcol]].rename(columns={tcol: "_target"}), on=group, how="left"
+    )
+    reason = np.full(len(merged), REASON_RAKED, dtype=object)
+    reason[merged["_target"].isna().to_numpy()] = REASON_NO_TARGET
+    reason[(merged["_target"] == 0).to_numpy()] = REASON_TARGET_ZERO
+    reason[(merged["_children"] == 0).to_numpy()] = REASON_CHILDREN_ZERO
+    ok = reason == REASON_RAKED
+    factor = np.ones(len(merged), dtype=float)
+    factor[ok] = (
+        merged.loc[ok, "_target"].to_numpy() / merged.loc[ok, "_children"].to_numpy()
+    )
+
+    factors = merged[group].copy()
+    factors[FACTOR_COL] = factor
+    factors[REASON_COL] = reason
+    raked = apply_raking_factors(
+        children, factors, parent_col=parent_col, keys=key_list, value_col=value_col
+    )
+    excluded = factors[factors[REASON_COL] != REASON_RAKED].reset_index(drop=True)
+    return RakeResult(raked=raked, factors=factors, excluded=excluded)
+
+
+def apply_raking_factors(
+    children: pd.DataFrame,
+    factors: pd.DataFrame,
+    *,
+    parent_col: str,
+    keys: Sequence[str],
+    value_col: str,
+) -> pd.DataFrame:
+    """Multiply every child cell by its parent's factor.
+
+    This is how every non-reference arm is raked: with the factor frame the reference arm
+    produced. A child cell with no factor is an error, not a 1: the reference frame must cover
+    every (parent, keys) cell of the arm it is applied to, or the two arms are not on one grid.
+    """
+    key_list = list(keys)
+    group = [parent_col, *key_list]
+    _require_columns(children, [*group, value_col], "children")
+    _require_columns(factors, [*group, FACTOR_COL], "factors")
+    _require_unique(factors, group, "factors")
+    out = children.merge(factors[[*group, FACTOR_COL]], on=group, how="left")
+    n_missing = int(out[FACTOR_COL].isna().sum())
+    if n_missing:
+        msg = f"{n_missing} child cell(s) have no raking factor: their (parent, keys) are not in the factor frame"
+        raise ValueError(msg)
+    out[value_col] = out[value_col] * out[FACTOR_COL]
+    return out.drop(columns=FACTOR_COL)
+
+
+@dataclass(frozen=True)
+class CheckReport:
+    """The outcome of one comparison, kept as numbers so the caller decides how loud to be."""
+
+    name: str
+    n_compared: int
+    n_excluded: int
+    max_abs_diff: float
+    max_rel_diff: float
+    rel_tol: float
+
+    @property
+    def ok(self) -> bool:
+        """True when something was compared and every relative difference is within tolerance."""
+        return self.n_compared > 0 and self.max_rel_diff <= self.rel_tol
+
+    def summary(self) -> str:
+        return (
+            f"{self.name}: {'OK' if self.ok else 'FAIL'}; compared {self.n_compared:,} cells, "
+            f"excluded {self.n_excluded:,}; max |diff| {self.max_abs_diff:.6g}, "
+            f"max rel diff {self.max_rel_diff:.3e} (tol {self.rel_tol:.1e})"
+        )
+
+    def assert_ok(self) -> None:
+        if not self.ok:
+            raise ValueError(self.summary())
+
+
+def _anti_join(
+    df: pd.DataFrame, exclude: pd.DataFrame | None, on: Sequence[str]
+) -> tuple[pd.DataFrame, int]:
+    """Drop the rows of ``df`` whose ``on`` columns appear in ``exclude``; return (kept, n dropped)."""
+    if exclude is None or exclude.empty:
+        return df, 0
+    on_list = list(on)
+    marker = exclude[on_list].drop_duplicates().assign(_drop=True)
+    merged = df.merge(marker, on=on_list, how="left")
+    keep = merged["_drop"].isna()
+    return merged.loc[keep].drop(columns="_drop"), int((~keep).sum())
+
+
+def _relative_diffs(left: pd.Series, right: pd.Series) -> tuple[float, float]:
+    abs_diff = (left - right).abs().to_numpy(dtype=float)
+    denom = right.abs().to_numpy(dtype=float)
+    rel = np.where(
+        denom > 0,
+        abs_diff / np.where(denom > 0, denom, 1.0),
+        np.where(abs_diff > 0, np.inf, 0.0),
+    )
+    if len(abs_diff) == 0:
+        return 0.0, 0.0
+    return float(abs_diff.max()), float(rel.max())
+
+
+def check_raked_matches_targets(  # noqa: PLR0913 - one argument per comparison knob
+    raked: pd.DataFrame,
+    targets: pd.DataFrame,
+    *,
+    parent_col: str,
+    keys: Sequence[str],
+    value_col: str,
+    target_col: str | None = None,
+    exclude: pd.DataFrame | None = None,
+    rel_tol: float,
+    name: str = "raked_vs_targets",
+) -> CheckReport:
+    """Do the raked children, summed per (parent, *keys), match the targets?
+
+    ``exclude`` is normally ``RakeResult.excluded``: the cells the zero rule left unraked are
+    dropped from the comparison and counted, so the check measures the rake, not the rule.
+    Only (parent, keys) cells present in both frames are compared.
+    """
+    key_list = list(keys)
+    group = [parent_col, *key_list]
+    tcol = value_col if target_col is None else target_col
+    _require_columns(raked, [*group, value_col], "raked")
+    _require_columns(targets, [*group, tcol], "targets")
+    sums = raked.groupby(group, as_index=False)[value_col].sum()
+    both = sums.merge(
+        targets[[*group, tcol]].rename(columns={tcol: "_target"}), on=group, how="inner"
+    )
+    kept, n_excluded = _anti_join(both, exclude, group)
+    max_abs, max_rel = _relative_diffs(kept[value_col], kept["_target"])
+    return CheckReport(name, len(kept), n_excluded, max_abs, max_rel, rel_tol)
+
+
+def check_sum_identity(  # noqa: PLR0913 - one argument per comparison knob
+    parts: Sequence[pd.DataFrame],
+    total: pd.DataFrame,
+    *,
+    keys: Sequence[str],
+    value_col: str,
+    total_col: str | None = None,
+    exclude: pd.DataFrame | None = None,
+    exclude_on: Sequence[str] | None = None,
+    rel_tol: float,
+    name: str = "sum_identity",
+) -> CheckReport:
+    """Does the sum of ``parts`` (aligned on ``keys``, absent cells as 0) match ``total``?
+
+    The DALY check: our YLL + our YLD against the FHS DALY. ``exclude`` rows are matched on
+    ``exclude_on`` (default: all ``keys``), so the zero-rule cells of the parts' rakes can be
+    left out at whatever grain they were recorded.
+    """
+    key_list = list(keys)
+    tcol = value_col if total_col is None else total_col
+    if not parts:
+        msg = "check_sum_identity needs at least one part"
+        raise ValueError(msg)
+    for i, part in enumerate(parts):
+        _require_columns(part, [*key_list, value_col], f"parts[{i}]")
+    _require_columns(total, [*key_list, tcol], "total")
+    summed: pd.DataFrame | None = None
+    for part in parts:
+        g = part.groupby(key_list, as_index=False)[value_col].sum()
+        summed = (
+            g
+            if summed is None
+            else summed.merge(g, on=key_list, how="outer", suffixes=("", "_r"))
+        )
+        if f"{value_col}_r" in summed.columns:
+            summed[value_col] = summed[value_col].fillna(0.0) + summed[
+                f"{value_col}_r"
+            ].fillna(0.0)
+            summed = summed.drop(columns=f"{value_col}_r")
+    if summed is None:  # pragma: no cover - unreachable: parts is non-empty
+        msg = "no parts to sum"
+        raise ValueError(msg)
+    both = summed.merge(
+        total[[*key_list, tcol]].rename(columns={tcol: "_total"}),
+        on=key_list,
+        how="inner",
+    )
+    kept, n_excluded = _anti_join(
+        both, exclude, exclude_on if exclude_on is not None else key_list
+    )
+    max_abs, max_rel = _relative_diffs(kept[value_col], kept["_total"])
+    return CheckReport(name, len(kept), n_excluded, max_abs, max_rel, rel_tol)
