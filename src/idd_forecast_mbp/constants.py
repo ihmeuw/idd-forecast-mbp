@@ -318,6 +318,16 @@ MAL_MODELS_READ_PATH  = _artifact_read(_A03_MAL_MODELS)
 MAL_MODELS_RDATA      = "malaria_models.RData"
 MAL_MODELS_RUN_JSON   = "run.json"
 
+# ── Malaria model-selection runs node ─────────────────────────────────────────
+# One dated run dir per spec build: <node>/<YYYYMMDD>_<tag>/ holding spec_table.parquet,
+# manifest.json, the per-cell select_summary_*.parquet, selection_summary.parquet and the
+# ranked selection_result.json + report.html. Created by 03_modeling/build_malaria_spec_design.py,
+# fanned out by fit_malaria_models_orchestrator.py, ranked in place by rank_selection_run.py;
+# the config's `run_dir` is relative to _MODELING_STAGE. Registered 2026-09-16 (`current` and
+# the label selected_2026_07_31 -> 20260727_efs).
+_A03_MAL_SELECTION = _MODELING_STAGE / "malaria" / "scam_prelim" / LSAE_HIERARCHY
+MAL_SELECTION_NODE = _A03_MAL_SELECTION
+
 
 def malaria_model_dir(version: str | None = None, node: Path = _A03_MAL_MODELS) -> Path:
     """Directory of a fitted malaria model: the current snapshot, or a snapshot name / label.

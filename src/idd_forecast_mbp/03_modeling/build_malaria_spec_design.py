@@ -17,6 +17,7 @@ from pathlib import Path
 import click
 import pandas as pd
 
+from idd_forecast_mbp import constants as mbpc
 from idd_forecast_mbp.select.malaria_spec_design import (
     build_universe,
     formula_text,
@@ -24,8 +25,8 @@ from idd_forecast_mbp.select.malaria_spec_design import (
     n_smooths,
 )
 
-# Same output root the R builder used (build_malaria_neighborhood_specs.r hardcoded it too).
-OUTPUT_ROOT = Path("/mnt/team/idd/pub/forecast-mbp/03-modeling_data/malaria/scam_prelim/lsae_1285")
+# The selection node (constants.MAL_SELECTION_NODE): one dated run dir per spec build.
+OUTPUT_ROOT = mbpc.MAL_SELECTION_NODE
 
 
 def spec_table_frame() -> pd.DataFrame:
