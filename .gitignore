@@ -103,3 +103,7 @@ notebooks/
 .Renviron
 .pytest_tmp/
 .r_test_tmp/
+
+# local jobmon run state (idd-tools probe history / version pins)
+.jobmon_probe_history.json
+.jobmon_versions.toml
