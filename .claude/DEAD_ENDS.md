@@ -365,3 +365,10 @@ does the job; the formula's `na.omit` decides which rows a fit uses. The elabora
 never name and would have diverged from the selection worker on hypothetical parquets while changing nothing on the real one.
 **Refs:** handoff `~/.claude/handoffs/2026-09-18-mbp-importable-fitter.md` (design amendments 14:33–14:35, folded into
 "Design (current)"); `lib/malaria_fit_frame.R`.
+
+## 2026-09-21: A path-source probe as a stand-in for the consumer's git pin
+**What I tried:** A throwaway consumer project depending on the mbp checkout by path, to prove resolution without the
+`climate` extra before anything was pushed.
+**Why I stopped:** It resolved (after an editable-flag mismatch of its own) and said nothing about the git case, which then
+failed on mbp's idd-tools path source. Only a git-source probe against a pushed commit reproduces what a consumer sees.
+**Refs:** `.claude/importable_fitter/consumer_probe/` (gitignored); handoff entries of 2026-09-21.

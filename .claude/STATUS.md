@@ -1,5 +1,5 @@
 # Project status
-Updated: 2026-09-16
+Updated: 2026-09-21
 
 ## Goals
 Infectious disease forecasting pipeline for malaria and dengue, projecting
@@ -20,7 +20,29 @@ Long-term axes:
 ## Orientation
 Pipeline infrastructure (stages 01–08) is built and largely run on lsae_1285. Since 2026-09-16
 every output node is on idd-tools versioning and the malaria model selection is a scripted chain;
-the older fronts below are kept as history where they say so.
+since 2026-09-21 the malaria fitting machinery is importable from another repo (block below).
+The older fronts below are kept as history where they say so.
+
+**The malaria fitting machinery is importable (2026-09-18/21).**
+`lib/modeling/malaria_fit_run.py::submit_malaria_fit_run(spec_table, output_dir, *, r_image, r_shell, past_inputs,
+prep_script=None, inc_count_min=1, pfpr_min=1e-4, save_fits=False, save_predictions=False, ...)` is the body of the
+selection orchestrator (`fit_malaria_models_orchestrator.py` is a thin click wrapper). It fans a spec table
+(`spec_index, n_smooths, n_scams, formula_text[, suit_variant]`) into an IS cell plus temporal OOS cells through
+`idd_tools.jobmon`, writes only under `output_dir`, and refuses a finished selection run, a registered snapshot, a
+`current` target or the models node. Data preparation is one short R function,
+`lib/malaria_fit_frame.R::prepare_malaria_fit_frame(parquet_path, inc_count_min, pfpr_min, suit_variant)`:
+unconditional column arithmetic, non-finite -> NA, the two thresholds, `A0_af`; the formula decides rows through
+`na.omit`; a caller may substitute its own file via `--prep-script`. (1, 1e-4) gives the selection frame (167,649 rows),
+(0, 0) the registered final model's (319,073). The selection worker and `fit_selected_malaria_model.r` both source it and
+`lib/scam_fit_helpers.R` (engine dispatch, predict-strip, atomic writers); the shared prep refits the registered 2026_07_31
+models to 5e-10 on coefficients through the real launcher (scratch node, 2026-09-21). Worker switches, off by default:
+`--save-fits` (`fits/<cell>/spec_<i>.rds` + a JSON sidecar with the rows, levels, thresholds, paths and hashes needed to
+rebuild the frame; objects are a few MB because the formula environment is cleaned before fitting) and
+`--save-predictions` (`predictions/<cell>/spec_<i>.parquet`). Packaging: `climate-data` is the optional extra `climate`;
+every cross-repo dependency is a git source (path sources propagate into consumers and break them; STANDARDS 2026-09-21).
+idd-forecast-malaria pins `idd-forecast-mbp` at the tip of `feature/importable-fitter`. Record:
+`~/.claude/handoffs/2026-09-18-mbp-importable-fitter.md`; `docs/model_selection/RUNBOOK.md` §Refits from another repo;
+probes and acceptance runs under `scam_prelim/lsae_1285/scratch/importable-fitter-*`.
 
 **Output versioning is `idd_tools.versions` (2026-09-16).** Every node writes to `working/`; a snapshot
 exists only through a freeze, by hand (`idd-versions <node> freeze "why" [--current]`) or by
@@ -237,6 +259,16 @@ stage-08 gained `malaria_suit` + single-realization `mean_low_temperature`). Now
 formulations and deciding a single winner vs an ensemble (matched per-draw weighted blend).
 
 ## Recent steps
+- 2026-09-21: **Importable fitter committed and pushed** (10 commits on `feature/importable-fitter`, tip a5ae9dd). Switched
+  idd-tools and climate-data from path to git sources after the consumer's git pin failed on the path source; promoted
+  "No path sources" to STANDARDS (and corrected its propagation claim); switched the same line in idd-aedes-spread,
+  idd-tc-mortality and idd-climate-models (uncommitted, in their trees) after pushing idd-spatial-analysis's two local
+  commits. Ran the switched final fitter end to end through the real launcher into a scratch node: pfpr / mort / inc match
+  the registered fit by name to 5e-10 / 0 / 0. Found and fixed the launcher's `execRscript.sh` argument quoting.
+- 2026-09-18: **Importable fitter built and verified** against the idd-forecast-malaria handoff: shared R prep + testthat
+  (152 checks), `submit_malaria_fit_run` (100% coverage), worker switches, `climate` extra; acceptance refit vs the
+  registered RData (3e-10); five probe workflows (metrics identical to 20260727_efs); saved-object bloat (118-218 MB) traced
+  to the training frame captured in the formula environment and removed.
 - 2026-09-16: **Repo converted to `idd_tools.versions`, all at once** (commit 41efc85): `lib/versioning`
   adapter, every write slot `working/`, 23 stage scripts on `finish_stage`, models node +
   `fit_selected_malaria_model.{r,py}`, forecaster on `--model-dir`/`--out-dir`, orchestrator and
@@ -647,11 +679,21 @@ formulations and deciding a single winner vs an ensemble (matched per-draw weigh
   carryover from when past inputs were NC instead of parquet.
 
 ## Next steps
+**Active — importable fitter (2026-09-21):**
+1. Merge `feature/importable-fitter` into `feature/refactor-shared-lib`; tag `importable-fitter-1`; the consumer re-pins
+   to the merge commit.
+2. Decide whether mbp keeps the `climate` extra at all: its only importer, `run_suitability_pipeline.py`, is a
+   climate-data production job that sits in this tree; mbp reads climate-data's outputs from disk.
+3. Scratch cleanup: ~4 GB under `scam_prelim/lsae_1285/scratch/importable-fitter-{probe,acceptance}/` (`gc` lists it
+   after 14 days).
+4. The three sibling repos commit their two-file source switch and `uv sync` in their own sessions.
+5. Known: the post-`fin` teardown segfault recurs under large saved objects (14 of 44 tasks) and vanished with small
+   ones; the mbp default branch shows 85 Dependabot findings.
+
 **Active — selection chain + versioning (2026-09-16):**
-1. **First real run of the R side** (not the 2026-09-16 session): `fit_selected_malaria_model.py` in an
-   srun session against `20260727_efs` as the gate test on `2026_07_31` (decision 2.3), then a
-   forecast launch with `--current --label`. Watch the orchestrator's finish path and the rocket's
-   `--model-dir`/`--out-dir` handling; neither has executed yet.
+1. **First real run of the R side**: `fit_selected_malaria_model.py` was exercised end to end on 2026-09-21 into a
+   scratch node (acceptance passed, decision 2.3 gate); the forecast launch with `--current --label`, the orchestrator's
+   finish path and the rocket's `--model-dir`/`--out-dir` handling remain unexercised.
 2. **Gate notebook** (`reports/model_selection/malaria_selection_gate.ipynb`, ipywidgets): toggles
    for the `rank:` parameters, Record pick (writes the result, re-renders, launches the fit),
    Flag best (`promote`). `.claude/SELECTION_PIPELINE_PLAN.md` step 3.
