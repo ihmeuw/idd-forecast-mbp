@@ -1,5 +1,5 @@
 # Project status
-Updated: 2026-09-21
+Updated: 2026-09-28
 
 ## Goals
 Infectious disease forecasting pipeline for malaria and dengue, projecting
@@ -22,6 +22,24 @@ Pipeline infrastructure (stages 01–08) is built and largely run on lsae_1285. 
 every output node is on idd-tools versioning and the malaria model selection is a scripted chain;
 since 2026-09-21 the malaria fitting machinery is importable from another repo (block below).
 The older fronts below are kept as history where they say so.
+
+**Re-selection on the corrected climate vintage is decided and BLOCKED on a GDP re-run (2026-09-28).**
+Bill Gustafson's `climate-aggregates/2026_09_09` (`current` since 2026-09-17) corrects `total_precipitation`,
+`precipitation_days`, `wind_speed` and `relative_humidity` (CLIMATE-34/35/39); its README says the other six measures
+(three temperatures, `days_over_30C`, `malaria_suitability`, `dengue_suitability`) are carried forward and still
+calendar-defective. mbp pins `CLIMATE_COVARIATE_RUN_DATE = 2026_05_28`. Two of the corrected variables are selection axes
+(precipitation, humidity); the selected spec 1486 uses none of them, so the registered fit, forecasts, products and vaccine
+results are numerically untouched by the correction; the SELECTION is what it can move, and Bobby decided to redo it. Then
+Bobby learned the corrected covariates require re-running GDP, which changes every forecast even under the same model, so
+the redo waits for GDP. The touch list and the paper/vaccine readiness read are in
+`.claude/MALARIA_RESELECTION_ORIENTATION.md` (§7, §8). While waiting, the 2026-09-28 session did the GDP- and model-independent
+cleanup: `feature/importable-fitter` merged (fast-forward) into `feature/refactor-shared-lib` and tagged
+`importable-fitter-1`; the gate notebook built (`select/gate.py` + `reports/model_selection/malaria_selection_gate.ipynb`);
+the spec builder reproduces `20260727_efs` exactly and writes under `constants.MAL_SELECTION_NODE`; the vaccine impact
+records the forecast snapshot it read (`--forecast-run-dir`) instead of a stale label; nine `06_upload` scripts read the
+1285 hierarchy node; `select/model_selection.py` archived; the coverage gate is a ratchet at the measured floor (84) with
+`--no-cov-on-fail` gone; the never-run forecast paths were exercised by a one-cell scratch run of the current model
+(wf 629743, `forecast_outputs/lsae_1285/scratch/neverrun-check-20260928`, outcome in Recent steps).
 
 **The malaria fitting machinery is importable (2026-09-18/21).**
 `lib/modeling/malaria_fit_run.py::submit_malaria_fit_run(spec_table, output_dir, *, r_image, r_shell, past_inputs,
@@ -68,9 +86,11 @@ into the models node's `working/`) → `idd-versions promote` → forecast (`--m
 workers get `--model-dir`/`--out-dir`; frozen on success under `--label`). The selected model is
 spec 1486 of `20260727_efs` (DAH mpd + GDP mpd + linear suitability + A0_af), the notebook's own
 parsimony pick under the 2026-07-01 rule (DECISIONS 2026-09-16); the random-CV 1-SE step is out
-(DEAD_ENDS 2026-09-16). Not yet exercised: the R worker, the rocket edits, the orchestrator's finish
-path (no R or jobmon in the 2026-09-16 session). Next build: the gate notebook (ipywidgets; Record
-pick → fit → Flag best = promote), `.claude/SELECTION_PIPELINE_PLAN.md` step 3.
+(DEAD_ENDS 2026-09-16). The R worker was exercised
+on 2026-09-21 (scratch node, 5e-10 vs the registered fit) and the rocket's `--model-dir`/`--out-dir` on 2026-09-28 (scratch run,
+see Recent steps); the orchestrator's real freeze-on-success path is still unexercised on the forecast node. The gate
+notebook exists since 2026-09-28: `select/gate.py` (tested) + `reports/model_selection/malaria_selection_gate.ipynb`
+(import-only ipywidgets; Record pick -> fit into `working/`; Flag best = freeze `--current` / promote).
 `reports/03_modeling/` is sorted into `archive/` (history), `dengue/` (the two live notebooks) and
 `malaria/` (empty); the canonical selection code is `src/idd_forecast_mbp/select/`.
 
@@ -259,6 +279,20 @@ stage-08 gained `malaria_suit` + single-realization `mean_low_temperature`). Now
 formulations and deciding a single winner vs an ensemble (matched per-draw weighted blend).
 
 ## Recent steps
+- 2026-09-28: **Cleanup while the GDP re-run is pending** (commits 8971e2d..92d150f on `feature/importable-fitter`, branch
+  fast-forwarded into `feature/refactor-shared-lib`, tag `importable-fitter-1`, all pushed). (1) Tracking files from the
+  09-21 wrap committed; the 965 MB `core` dump, `Rplots.pdf`, `load_rds.ipynb` removed; jobmon local state gitignored.
+  (2) `constants.MAL_SELECTION_NODE`; `build_malaria_spec_design.py` off its absolute path; its output is identical to
+  `20260727_efs/spec_table.parquet` on all four columns (test). (3) `vaccine_impact.MODEL_RUN` replaced by the resolved
+  forecast snapshot name + `--forecast-run-dir` on the impact stage and the one-command entry point (the label had said
+  the base run while `current` pointed at gdpscen since 09-16). (4) Nine `06_upload` scripts off `lsae_1209`. (5) Coverage:
+  measured 81.22% -> the shortfall is `lib/viz` (10 untested modules), dengue lib, and `select/model_selection.py`
+  (archived, imported only by archived notebooks) -> 84.89%; `fail_under = 84`, `--no-cov-on-fail` removed
+  (DECISIONS/DEAD_ENDS 2026-09-28; the 08-25 stage-script diagnosis was wrong). (6) Gate built: `select/gate.py` (20 tests) +
+  import-only notebook; rank tests typed; helpers shared via `tests/select/synthetic.py`. (7) One-cell scratch forecast of
+  `2026_07_31_full_model_selection_results` (ssp245 Baseline) launched through the orchestrator to exercise
+  `malaria_model_dir` -> `--model-dir`/`--out-dir` (wf 629743): wf 629743 status D, exit 0, nothing frozen; the scratch netCDF equals the frozen 2026_07_31 ssp245 Baseline file bit-for-bit (same coords, identical NaN pattern, max |diff| 0 on both log-rate variables, 79.3M / 78.5M finite cells) and the sidecar is identical (27,554 rows), so the rocket's --model-dir/--out-dir path reproduces the July run. ipywidgets was missing from the
+  venv (it is in the `notebooks` extra): `uv sync --inexact --extra notebooks`.
 - 2026-09-21: **Importable fitter committed and pushed** (10 commits on `feature/importable-fitter`, tip a5ae9dd). Switched
   idd-tools and climate-data from path to git sources after the consumer's git pin failed on the path source; promoted
   "No path sources" to STANDARDS (and corrected its propagation claim); switched the same line in idd-aedes-spread,
@@ -679,9 +713,20 @@ formulations and deciding a single winner vs an ensemble (matched per-draw weigh
   carryover from when past inputs were NC instead of parquet.
 
 ## Next steps
+**Active — re-selection on the corrected climate vintage (2026-09-28; BLOCKED on the GDP re-run):**
+1. Wait for the GDP re-run (Bobby). Then, in order: `CLIMATE_COVARIATE_RUN_DATE` -> 2026_09_09 (or a `current` follow;
+   Bobby's call), stage 05 into a new past-inputs snapshot (verify the 40 untouched columns equal `20260527`), GDP inputs,
+   spec table into a new run dir (unchanged universe), `--probe` then `--full`, finalize, rank, the gate, forecast, finish.
+   Touch list: `.claude/MALARIA_RESELECTION_ORIENTATION.md` §7.
+2. Paper's form asks, independent of the outcome and buildable now: draw-level all-age products at FHS levels 0-3
+   (Formalization item 4) and the stage-05 finalize driver for age/sex admin-2 draws (also the vaccine `protection` hook's
+   live caller).
+3. Bobby's calls from the README: whether `precipitation_days` / `wind_speed` join the universe; how a second draw-varying
+   climate covariate enters the forecast (draw indices are not a shared identity across variables).
+
 **Active — importable fitter (2026-09-21):**
-1. Merge `feature/importable-fitter` into `feature/refactor-shared-lib`; tag `importable-fitter-1`; the consumer re-pins
-   to the merge commit.
+1. DONE 2026-09-28: merged (fast-forward) into `feature/refactor-shared-lib`, tag `importable-fitter-1` pushed; the consumer
+   re-pins to 38cf6c6 or later.
 2. Decide whether mbp keeps the `climate` extra at all: its only importer, `run_suitability_pipeline.py`, is a
    climate-data production job that sits in this tree; mbp reads climate-data's outputs from disk.
 3. Scratch cleanup: ~4 GB under `scam_prelim/lsae_1285/scratch/importable-fitter-{probe,acceptance}/` (`gc` lists it
@@ -691,12 +736,13 @@ formulations and deciding a single winner vs an ensemble (matched per-draw weigh
    ones; the mbp default branch shows 85 Dependabot findings.
 
 **Active — selection chain + versioning (2026-09-16):**
-1. **First real run of the R side**: `fit_selected_malaria_model.py` was exercised end to end on 2026-09-21 into a
-   scratch node (acceptance passed, decision 2.3 gate); the forecast launch with `--current --label`, the orchestrator's
-   finish path and the rocket's `--model-dir`/`--out-dir` handling remain unexercised.
-2. **Gate notebook** (`reports/model_selection/malaria_selection_gate.ipynb`, ipywidgets): toggles
-   for the `rank:` parameters, Record pick (writes the result, re-renders, launches the fit),
-   Flag best (`promote`). `.claude/SELECTION_PIPELINE_PLAN.md` step 3.
+1. **First real run of the R side**: `fit_selected_malaria_model.py` exercised 2026-09-21 (scratch node, acceptance
+   passed); the rocket's `--model-dir`/`--out-dir` exercised 2026-09-28 by the one-cell scratch run (wf 629743, see Recent
+   steps). Still unexercised: the orchestrator's freeze-on-success path with `--current --label` on the forecast node
+   (it only runs on a real, non-scratch launch).
+2. DONE 2026-09-28: **Gate notebook** built as `select/gate.py` + `reports/model_selection/malaria_selection_gate.ipynb`.
+   First use is Bobby's: open on `20260727_efs`, confirm pick 1486, and decide plan §6.3 (attach the selection to the
+   existing 2026_07_31 snapshot vs re-fit under a new key and promote it).
 3. **Reply to idd-tools' inbox**: `finish_run` / `versions_options` / CLI `finish` are consumed;
    the jobmon `submit_with_manifest` target knob remains the follow-up.
 4. Optional: `pandas-stubs` + `types-PyYAML` so mypy types those imports (currently an
@@ -710,12 +756,9 @@ formulations and deciding a single winner vs an ensemble (matched per-draw weigh
    vaccine-receiving countries); **#11** country choropleths of amount and % averted at 2050 /
    2100 / cumulative-2050 / cumulative-2100 (reuse `lib/viz/maps.py`); **#9** deaths averted per
    dose by super-region; **#13** super-region cuts.
-2. **Restore the 100% coverage gate.** `fail_under = 100` fails at **79.31%** repo-wide because the
-   new stage scripts (`run_malaria_vaccine_pipeline.py`, three `plot_vaccine_*.py`,
-   `vaccine_impact_scenarios.py`, `apply_vaccine_coverage_to_population.py`,
-   `09_build_vaccine_efficacy_curves.py`) have no tests. `--no-cov-on-fail` means the suite still
-   exits 0, so it is silent. Either test the scripts' arg-assembly/IO seams, or exclude stage
-   scripts in `[tool.coverage.run]` deliberately and say so — do not leave it ambiguous.
+2. Coverage gate: RESOLVED 2026-09-28 as a ratchet (`fail_under = 84`, no `--no-cov-on-fail`; DECISIONS 2026-09-28). The 08-25
+   diagnosis was wrong: stage scripts are outside the denominator; the debt is `lib/viz`, dengue lib and readers
+   (listed in `pyproject.toml`). Raising the floor means testing `lib/viz` or moving it onto idd-figures.
 3. **Wire the `protection` hook to a live caller.** `finalize_age_sex_draws` accepts and applies it
    correctly, but nothing on the running path imports `finalize_forecast.py`. One argument at the
    call site once stage-05 finalization lands.
@@ -749,14 +792,9 @@ formulations and deciding a single winner vs an ensemble (matched per-draw weigh
    no sensitivities. **Measure one arm's stage-04 draw footprint before submitting**: products are
    80 MB/arm but `lsae_1209` totals 921 GB, and the draw number was never taken. Probe one variant
    end-to-end and extrapolate explicitly first.
-6. **Fix pre-commit — it cannot execute at all (found 2026-08-21).** `.pre-commit-config.yaml`
-   still uses `entry: poetry run ruff check …` / `poetry run mypy .`, and poetry is gone after the
-   venv-only migration (`c29b24d`), so **ruff-format, ruff and mypy all fail with "Executable
-   `poetry` not found" on any file, repo-wide**. The file-hygiene hooks (docstring-first, debug
-   statements, EOF, whitespace, line endings) do pass. Fix the entries first (`uv run` / a direct
-   `.venv/bin` path); only THEN is the older debt reachable — `pyproject.toml` sets
-   `select = ["ALL"]`, which no committed file satisfies. Until both are done every commit needs
-   `--no-verify`.
+6. Pre-commit: FIXED 2026-09-16 (hooks on the venv; all 14 pass on clean files). Remaining debt: legacy files
+   (`constants.py` 220 findings, `06_upload/*` ~130 each, `lib/processing/vaccine_impact.py` 27) still need
+   `--no-verify` when touched, per DECISIONS 2026-09-21; each such commit says so in its body (2026-09-28: four did).
 7. **Still unrun: the mortality-vs-incidence R diagnostic.** Compare
    `2025_10_10_malaria_models.RData` against the current `.RData` `mort_mod` smooths. Income is
    ruled out, and now so is GDP coupling (both arms drop ~11%). Deaths-per-case is already 5.7%

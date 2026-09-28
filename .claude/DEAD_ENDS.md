@@ -372,3 +372,17 @@ never name and would have diverged from the selection worker on hypothetical par
 **Why I stopped:** It resolved (after an editable-flag mismatch of its own) and said nothing about the git case, which then
 failed on mbp's idd-tools path source. Only a git-source probe against a pushed commit reproduces what a consumer sees.
 **Refs:** `.claude/importable_fitter/consumer_probe/` (gitignored); handoff entries of 2026-09-21.
+
+## 2026-09-28: "The coverage gate fails because the vaccine stage scripts are untested"
+**What I tried:** Took STATUS's 2026-08-25 diagnosis at face value and planned to omit the vaccine stage scripts
+(`04_forecasting/run_malaria_vaccine_pipeline.py`, `vaccine_impact_scenarios.py`, `apply_vaccine_coverage_to_population.py`,
+`08_visualization/plot_vaccine_*.py`) from `[tool.coverage.run]` to restore the 100% gate.
+**Why I stopped:** Measured first (`pytest -m "not slow"`, 1,056 passed): 81.22%, 2,446 missed statements in 46 files, and none of
+them is a stage script. coverage.py only discovers unexecuted files inside importable packages, and the numbered stage
+directories have no `__init__.py`, so the stage scripts were never in the denominator. The shortfall is ten untested
+`lib/viz` modules (~850 statements), `select/model_selection.py` (503, imported only by archived notebooks; now archived),
+dengue lib modules (`dengue_forecast_covariates`, `dengue_forecast`, `dengue_pipeline`), `lib/processing/dah_scenarios`,
+`lib/io/covariate_registry`, `lib/data/vaccine_inputs`, partial test files whose slow half is deselected, and `rank.py`'s
+report helpers. Omitting stage scripts would have changed nothing. Also: running the whole suite (slow tests included) for
+the measurement was killed at exit 137 after 12 tests on the login node; measure with `-m "not slow"`.
+**Refs:** `.claude/coverage_run_20260928*.txt`; DECISIONS 2026-09-28 (coverage gate ratchet).

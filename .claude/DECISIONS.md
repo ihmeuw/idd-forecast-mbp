@@ -1571,3 +1571,54 @@ positionals) are outside the change; the commit bodies say so.
 hidden behind a per-file ignore.
 **Revisit if:** that wrapper is next worked on (fix its findings then), or the test tree is renamed away from numeric
 package names.
+
+## 2026-09-28: The selection gate is functions in `select/gate.py`; the notebook only calls them
+**Decision:** `GateSession.open/params/rerank/record_pick`, `fit_command`/`launch_fit`, `fit_status`, `flag_best` hold every
+action of the two-button gate; `reports/model_selection/malaria_selection_gate.ipynb` is import-only ipywidgets over them.
+The gate may change only `OVERRIDABLE = {tau_prune_threshold, focus_metric, tolerance_value, profile_top_n,
+cull_nonconverged}`; every other value stays as committed. Record pick writes `selection_result.json` with status
+`recorded` and the parameters in force, re-renders the report, and runs `fit_selected_malaria_model.py` with NO freeze
+flag, so the fit lands in the models node's `working/`. Flag best is `idd_tools.versions.freeze(current=True[, label])`
+on that `working/` fit, or `promote` (+ `label`) on an already-frozen snapshot, and refuses unless the fit's `run.json`
+`selection.result_file` is the open run's result file. The R image and shell come from `MBP_R_IMAGE`/`MBP_R_SHELL` or
+text boxes; the notebook carries no paths.
+**Why:** The 2026-09-16 decision asked for an ipywidgets gate whose parameters are recorded at the click; putting the
+logic in a tested module (20 tests) keeps the notebook a thin surface and lets the same actions run from the CLI. The
+plan's open question about a registry write is moot since the versioning conversion: "flag best" is freeze/promote.
+The refusal exists so a stale `working/` fit from another run can never be flagged from a gate open on this run.
+**Revisit if:** more than one person needs the gate (Shiny), or the final fit becomes fast enough to run inside the
+Record-pick click without a blocking subprocess.
+
+## 2026-09-28: The vaccine impact records the forecast snapshot it read, never a typed label
+**Decision:** `vaccine_impact.MODEL_RUN` is gone. `forecast_run_name(forecast_dir)` is the resolved basename of the
+forecast directory (the node's `current` by default), and `vaccine_impact_scenarios.py` /
+`run_malaria_vaccine_pipeline.py` take `--forecast-run-dir` to name a snapshot explicitly. The summary's `model_run`
+column is that name.
+**Why:** The label said `2026_07_31_full_model_selection_results` while the forecast node's `current` has pointed at
+`...__gdpscen` since 2026-09-16, so a re-run would have read gdpscen draws and labelled them as the base run. The same
+principle as `finish_run.py` (a named run dir, never `current`) and the hybrid deliverable's `--forecast_run_date`.
+**Revisit if:** the vaccine impact moves onto the stage-05 finalize driver, where the forecast run is already an
+explicit argument.
+
+## 2026-09-28: Spec-table builder writes under `constants.MAL_SELECTION_NODE`; upload scripts read the hierarchy node
+**Decision:** `_A03_MAL_SELECTION = _MODELING_STAGE / "malaria" / "scam_prelim" / LSAE_HIERARCHY` (`MAL_SELECTION_NODE`)
+replaces the absolute path in `build_malaria_spec_design.py`; the run-dir layout (`<node>/<YYYYMMDD>_<tag>/`) is unchanged
+and the builder reproduces `20260727_efs/spec_table.parquet` exactly (test). The nine `06_upload` scripts that read
+`full_hierarchy[_2023]_lsae_1209.{parquet,nc}` now read `HIERARCHY_READ_PATH / full_hierarchy_2023_{LSAE_HIERARCHY}.*`;
+both 1285 artifacts exist on the hierarchy node. The notebook `06_make_mega_as_draws.ipynb` still names 1209.
+**Why:** No committed absolute paths (CLAUDE.md); the 1209 reads were the third stale-hierarchy finding
+(DELIVERY_INTEGRATION.md). Legacy scripts otherwise untouched; they are the path the formalized finalize driver replaces.
+**Revisit if:** the upload scripts are retired (then delete rather than maintain).
+
+## 2026-09-28: The coverage gate is a ratchet at the measured floor, and a shortfall fails the suite
+**Decision:** `--no-cov-on-fail` is removed from `addopts`; `[tool.coverage.report] fail_under` is the floor of the fast
+suite as last measured (84, from 84.89% on 2026-09-28 after archiving `select/model_selection.py`), with the untested
+modules listed beside it in `pyproject.toml`. Raise it whenever coverage rises; never lower it. 100% stays the
+requirement for every lib module touched or added; stage scripts are outside the denominator by construction
+(numbered directories without `__init__.py`), not by an omit entry.
+**Why:** `fail_under = 100` with `--no-cov-on-fail` meant the suite exited 0 at 81% for a month; a gate that cannot bite
+is not a gate. The alternative, keeping 100 and letting every run fail, would make the suite red until ~1,900 statements
+of figure and dengue code are tested, which is not this session's work and would hide real test failures behind a
+permanent red. The 2026-08-25 STATUS diagnosis (untested vaccine stage scripts) was wrong; see DEAD_ENDS today.
+**Revisit if:** the `lib/viz` modules are tested or moved onto idd-figures (the largest block; then the floor jumps),
+or the fleet adopts a different gate convention in STANDARDS.
