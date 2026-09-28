@@ -28,7 +28,7 @@ cause_map = rfc.cause_map
 ssp_scenarios = rfc.ssp_scenarios
 aa_merge_variables = rfc.aa_merge_variables
 
-hierarchy_ds_path = f"{PROCESSED_DATA_PATH}/full_hierarchy_2023_lsae_1209.nc"
+hierarchy_ds_path = str(rfc.HIERARCHY_READ_PATH / f"full_hierarchy_2023_{rfc.LSAE_HIERARCHY}.nc")
 hierarchy_ds = read_netcdf_with_integer_ids(hierarchy_ds_path, engine='netcdf4')
 
 # Read the NetCDF versions instead of Parquet

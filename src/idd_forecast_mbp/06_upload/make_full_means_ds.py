@@ -50,7 +50,7 @@ cause_map = mbpc.cause_map
 measure_map = mbpc.measure_map
 ssp_scenarios = mbpc.ssp_scenarios
 
-hierarchy_ds_path = f"{PROCESSED_DATA_PATH}/full_hierarchy_2023_lsae_1209.nc"
+hierarchy_ds_path = str(mbpc.HIERARCHY_READ_PATH / f"full_hierarchy_2023_{mbpc.LSAE_HIERARCHY}.nc")
 hierarchy_ds = read_netcdf_with_integer_ids(hierarchy_ds_path, engine="netcdf4")
 
 aa_full_malaria_ds = read_netcdf_with_integer_ids(

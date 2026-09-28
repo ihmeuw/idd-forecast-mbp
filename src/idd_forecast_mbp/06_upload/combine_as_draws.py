@@ -96,7 +96,7 @@ print(f"Upload folder: {upload_folder_path}")
 age_metadata_path = f"{FHS_DATA_PATH}/age_metadata.parquet"
 
 # Hierarchy path
-hierarchy_df_path = f'{PROCESSED_DATA_PATH}/full_hierarchy_lsae_1209.parquet'
+hierarchy_df_path = str(rfc.HIERARCHY_READ_PATH / f"full_hierarchy_2023_{rfc.LSAE_HIERARCHY}.parquet")
 hierarchy_df = read_parquet_with_integer_ids(hierarchy_df_path)
 
 as_full_population_ds_path = f"{PROCESSED_DATA_PATH}/as_2023_full_population_ds.nc"

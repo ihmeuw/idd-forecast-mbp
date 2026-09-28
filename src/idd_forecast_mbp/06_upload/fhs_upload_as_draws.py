@@ -63,7 +63,7 @@ print(f"Output: {upload_file_path}")
 # --- HIERARCHY: FHS LOCATIONS ---
 
 hierarchy_df = read_parquet_with_integer_ids(
-    f"{PROCESSED_DATA_PATH}/full_hierarchy_2023_lsae_1209.parquet"
+    str(mbpc.HIERARCHY_READ_PATH / f"full_hierarchy_2023_{mbpc.LSAE_HIERARCHY}.parquet")
 )
 fhs_hierarchy_df = hierarchy_df[hierarchy_df["in_fhs_hierarchy"] == True]
 # These three Ethiopian sub-nationals are aggregated into 44858 for FHS.

@@ -77,7 +77,7 @@ as_upload_mean_file_path = f"{as_upload_folder_path}/mean.nc"
 aa_upload_draws_file_path = f"{aa_upload_folder_path}/draws.nc"
 aa_upload_mean_file_path = f"{aa_upload_folder_path}/mean.nc"
 age_metadata_path = f"{FHS_DATA_PATH}/age_metadata.parquet"
-hierarchy_df_path = f'{PROCESSED_DATA_PATH}/full_hierarchy_2023_lsae_1209.parquet'
+hierarchy_df_path = str(mbpc.HIERARCHY_READ_PATH / f"full_hierarchy_2023_{mbpc.LSAE_HIERARCHY}.parquet")
 as_full_population_ds_path = f"{PROCESSED_DATA_PATH}/as_2023_full_population_ds.nc"
 
 # --- HIERARCHY AND FILTER PREP ---

@@ -50,7 +50,7 @@ as_mean_path = as_test_folder / "mean.nc"
 
 # --- HIERARCHY: all locations ---
 hierarchy_df = read_parquet_with_integer_ids(
-    f'{PROCESSED_DATA_PATH}/full_hierarchy_2023_lsae_1209.parquet'
+    str(mbpc.HIERARCHY_READ_PATH / f"full_hierarchy_2023_{mbpc.LSAE_HIERARCHY}.parquet")
 )
 all_location_ids = sorted(hierarchy_df["location_id"].unique().tolist())
 
