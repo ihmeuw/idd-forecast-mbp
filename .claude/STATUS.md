@@ -23,7 +23,7 @@ every output node is on idd-tools versioning and the malaria model selection is 
 since 2026-09-21 the malaria fitting machinery is importable from another repo (block below).
 The older fronts below are kept as history where they say so.
 
-**Re-selection on the corrected climate vintage is decided and BLOCKED on a GDP re-run (2026-09-28).**
+**Re-selection is decided and BLOCKED on a GDP re-run; the result-output driver is the active build (2026-09-28).**
 Bill Gustafson's `climate-aggregates/2026_09_09` (`current` since 2026-09-17) corrects `total_precipitation`,
 `precipitation_days`, `wind_speed` and `relative_humidity` (CLIMATE-34/35/39); its README says the other six measures
 (three temperatures, `days_over_30C`, `malaria_suitability`, `dengue_suitability`) are carried forward and still
@@ -40,6 +40,16 @@ records the forecast snapshot it read (`--forecast-run-dir`) instead of a stale 
 1285 hierarchy node; `select/model_selection.py` archived; the coverage gate is a ratchet at the measured floor (84) with
 `--no-cov-on-fail` gone; the never-run forecast paths were exercised by a one-cell scratch run of the current model
 (wf 629743, `forecast_outputs/lsae_1285/scratch/neverrun-check-20260928`, outcome in Recent steps).
+Afternoon: Bobby fixed the result-output taxonomy (DECISIONS 2026-09-28: location set 1-5, draws A/B, age-sex X/Y, years
+alpha/beta, measures a/b/c, metric m/n; the FHS deliverable is 3,A,X,beta,c,m; 1,A,X and 2,A,X are never saved but created
+on demand, including arm-vs-arm differences). The first-submission FHS raking chain (`05_aggregation/OLD_*`) was read end to
+end and its rule stated (DECISIONS 2026-09-28): reference (Baseline, no hold) factors rake every arm, the zero rule is
+explicit (`leave`, cells reported), checks are numbers on the reference arm only, a variant refit takes the reference factors
+unless FHS returns on a new submission. Items 1-3 of the finalize-driver build are committed (8825b43, 9fc1891):
+`lib/processing/raking.py` parent-target rake + factor application + two checks (legacy half untouched),
+`lib/processing/derived_measures.py` (the FHS measure table as data), `lib/data/fhs_returns.py` (round map from YAML,
+file contract, one-draw reads); 54 typed tests, all three at 100%. Item 4, the driver
+`05_aggregation/finalize_malaria_forecast_run.py`, is the next build and does not depend on GDP or the selection outcome.
 
 **The malaria fitting machinery is importable (2026-09-18/21).**
 `lib/modeling/malaria_fit_run.py::submit_malaria_fit_run(spec_table, output_dir, *, r_image, r_shell, past_inputs,
@@ -754,8 +764,8 @@ formulations and deciding a single winner vs an ensemble (matched per-draw weigh
    steps). Still unexercised: the orchestrator's freeze-on-success path with `--current --label` on the forecast node
    (it only runs on a real, non-scratch launch).
 2. DONE 2026-09-28: **Gate notebook** built as `select/gate.py` + `reports/model_selection/malaria_selection_gate.ipynb`.
-   First use is Bobby's: open on `20260727_efs`, confirm pick 1486, and decide plan §6.3 (attach the selection to the
-   existing 2026_07_31 snapshot vs re-fit under a new key and promote it).
+   First use is Bobby's: open on the new run when it exists. Decided 2026-09-28: the pick is refit under a NEW key
+   (into `working/`, frozen, promoted); nothing is ever re-attached to the legacy 2026_07_31 snapshot.
 3. **Reply to idd-tools' inbox**: `finish_run` / `versions_options` / CLI `finish` are consumed;
    the jobmon `submit_with_manifest` target knob remains the follow-up.
 4. Optional: `pandas-stubs` + `types-PyYAML` so mypy types those imports (currently an

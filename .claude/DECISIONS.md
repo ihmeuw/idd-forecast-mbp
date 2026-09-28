@@ -1659,3 +1659,11 @@ current work (anchored to GBD 2023), so the new functions are tested on syntheti
 returns for the new submission exist.
 **Revisit if:** FHS changes the return layout (dims, one scenario per file), or a second zero rule is ever wanted (then it
 is a new named value, never a default change).
+
+## 2026-09-28: Gate first use refits under a new key
+**Decision (Bobby):** The selected model is never re-attached to the legacy `2026_07_31_full_model_selection_results`
+snapshot. When the gate is first used (on the re-selection run), Record pick fits the spec into the models node's
+`working/`, Flag best freezes it as a new snapshot and promotes it; the legacy snapshot stays as history.
+**Why:** One provenance path for every fitted model from here on: `run.json` with a `selection` block pointing at the
+run and spec that produced it. SELECTION_PIPELINE_PLAN §6.3 closed.
+**Revisit if:** never; a refit is cheap (three scams, minutes) and the alternative writes a provenance record by hand.

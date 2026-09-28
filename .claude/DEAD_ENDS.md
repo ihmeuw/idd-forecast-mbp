@@ -386,3 +386,11 @@ dengue lib modules (`dengue_forecast_covariates`, `dengue_forecast`, `dengue_pip
 report helpers. Omitting stage scripts would have changed nothing. Also: running the whole suite (slow tests included) for
 the measurement was killed at exit 137 after 12 tests on the login node; measure with `-m "not slow"`.
 **Refs:** `.claude/coverage_run_20260928*.txt`; DECISIONS 2026-09-28 (coverage gate ratchet).
+
+## 2026-09-28: First-submission files as the fixture for the new raking
+**What I tried:** Proposed testing `rake_children_to_parent_targets` by reproducing the 2025_08_28 raked outputs from the
+July-2025 FHS returns, and called them "the 2025 files".
+**Why I stopped:** Bobby: those are first-submission intermediates and not a reference for current work, which is anchored
+to GBD 2023; the vintage shorthand also read as a raking target. The functions are tested on synthetic fixtures with
+hand-computed targets; the FHS checks run on the new submission's returns when they exist.
+**Refs:** `lib/processing/raking.py` (appended section), `tests/lib/processing/test_raking_targets.py`; corrections log 2026-09-28.
