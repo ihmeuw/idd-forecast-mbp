@@ -26,7 +26,6 @@ from idd_forecast_mbp import constants as rfc
 from idd_forecast_mbp.lib.io.parquet import read_parquet_with_integer_ids
 from idd_forecast_mbp.lib.processing.disaggregation import compute_as_rr, malaria_as_fractions
 
-MODEL_RUN = "2026_07_31_full_model_selection_results"
 DAH_SCENARIO = "Baseline"
 SSP_SCENARIOS = ("ssp126", "ssp245", "ssp585")
 ANCHOR_YEAR = 2023
@@ -48,6 +47,21 @@ def _tick(clock, message: str) -> None:
 def _null_ctx(obj):
     """Use an already-open dataset without closing it on exit."""
     yield obj
+
+
+def forecast_dir_or_default(forecast_dir: Path | str | None) -> Path:
+    """The forecast run directory the impact reads: the one given, else the node's `current`."""
+    return Path(forecast_dir) if forecast_dir is not None else rfc.MAL_FORECAST_OUTPUTS_READ_PATH
+
+
+def forecast_run_name(forecast_dir: Path | str | None = None) -> str:
+    """Name of the forecast snapshot the impact is computed on.
+
+    The resolved directory's basename, so a `current` link reports the snapshot it points at
+    rather than a label typed into the code. The old hardcoded label went stale the day
+    `current` moved to the gdpscen arm (2026-09-16) while the label still said the base run.
+    """
+    return forecast_dir_or_default(forecast_dir).resolve().name
 
 
 def _read_hierarchy(columns: list[str]) -> pd.DataFrame:  # pragma: no cover - thin
@@ -143,8 +157,12 @@ def _aligned(df: pd.DataFrame, value_col: str, locs: list[int],
 
 def scenario_totals(ssp: str, reduction: pd.DataFrame, aa_pop: pd.DataFrame,
                     locs: list[int], years: list[int], clock=None,
-                    dataset: "xr.Dataset | None" = None) -> pd.DataFrame:
+                    dataset: "xr.Dataset | None" = None,
+                    forecast_dir: Path | str | None = None) -> pd.DataFrame:
     """Totals over eligible locations per (year, draw) for both scenarios.
+
+    Reads ``malaria_forecast_{ssp}_{DAH_SCENARIO}.nc`` from ``forecast_dir`` (the forecast
+    node's `current` when None), or uses an already-open ``dataset``.
 
     Reads each variable CONTIGUOUSLY and subsets positionally in numpy. Measured
     on this file: a contiguous read of the whole 317 MB variable takes ~3.0s and
@@ -153,8 +171,7 @@ def scenario_totals(ssp: str, reduction: pd.DataFrame, aa_pop: pd.DataFrame,
     pulls whole chunks, so naming fewer locations does not read less -- it just
     reads them badly. Do not "optimize" this back into a lazy .sel.
     """
-    path = (rfc.MAL_FORECAST_OUTPUTS_READ_PATH
-            / f"malaria_forecast_{ssp}_{DAH_SCENARIO}.nc")
+    path = forecast_dir_or_default(forecast_dir) / f"malaria_forecast_{ssp}_{DAH_SCENARIO}.nc"
     pop = _aligned(aa_pop, "population", locs, years, fill=None).to_numpy()
 
     frames = []

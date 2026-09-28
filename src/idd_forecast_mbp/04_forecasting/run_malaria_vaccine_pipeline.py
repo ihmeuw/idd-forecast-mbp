@@ -61,6 +61,9 @@ def parse_args(argv=None):
                         "coverage series. 'backcast' recovers it, 'zero' discards it.")
     p.add_argument("--out-dir", type=Path, required=True,
                    help="Where impact tables and figures are written.")
+    p.add_argument("--forecast-run-dir", type=Path, default=None,
+                   help="Stage-04 forecast snapshot to compute impact on (default: the forecast "
+                        "node's current/). Recorded as model_run in the summary either way.")
     p.add_argument("--skip-curves", action="store_true",
                    help="Reuse the VE curves already in the processed node.")
     p.add_argument("--skip-figures", action="store_true")
@@ -75,6 +78,7 @@ def main(argv=None) -> None:
     print("assumption set")
     for k in ("ve_variant", "product_scenario", "age_reference", "prelag"):
         print(f"    {k:18s} {getattr(args, k)}")
+    print(f"    {'forecast_run_dir':18s} {args.forecast_run_dir or '(forecast node current/)'}")
     print(f"    {'out_dir':18s} {args.out_dir}")
 
     if not args.skip_curves:
@@ -89,11 +93,13 @@ def main(argv=None) -> None:
     _run("2/4  coverage -> cohort protection",
          STAGE_DIR / "apply_vaccine_coverage_to_population.py", cohort_argv)
 
+    impact_argv = ["--ve-variant", args.ve_variant,
+                   "--product-scenario", args.product_scenario,
+                   "--out-dir", str(args.out_dir)]
+    if args.forecast_run_dir is not None:
+        impact_argv += ["--forecast-run-dir", str(args.forecast_run_dir)]
     _run("3/4  protection -> scenario totals",
-         STAGE_DIR / "vaccine_impact_scenarios.py",
-         ["--ve-variant", args.ve_variant,
-          "--product-scenario", args.product_scenario,
-          "--out-dir", str(args.out_dir)])
+         STAGE_DIR / "vaccine_impact_scenarios.py", impact_argv)
 
     if not args.skip_figures:
         _run("4/4  figures: impact", VIZ_DIR / "plot_vaccine_impact.py",

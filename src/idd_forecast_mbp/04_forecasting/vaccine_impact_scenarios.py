@@ -1,8 +1,8 @@
 """
 Post-hoc malaria vaccine impact scenarios.
 
-Takes the all-age malaria forecast produced by the
-2026_07_31_full_model_selection_results model run, disaggregates it to age/sex
+Takes the all-age malaria forecast of one run (``--forecast-run-dir``; default the
+forecast node's `current`), disaggregates it to age/sex
 using the frozen as_rr pattern, applies the vaccine cohort protection, and
 re-aggregates to no-vaccine / vaccine / difference series per ssp scenario.
 
@@ -34,11 +34,12 @@ from idd_forecast_mbp import constants as rfc
 from idd_forecast_mbp.lib.io.parquet import read_parquet_with_integer_ids, write_parquet
 from idd_forecast_mbp.lib.processing.vaccine_impact import (
     DAH_SCENARIO,
-    MODEL_RUN,
     SSP_SCENARIOS,
     burden_weighted_reduction,
     draw_level,
     eligible_locations,
+    forecast_dir_or_default,
+    forecast_run_name,
     scenario_totals,
     summarize,
 )
@@ -64,6 +65,10 @@ def parse_args(argv=None):
     p.add_argument("--ve-variant", choices=rfc.VE_VARIANTS, required=True)
     p.add_argument("--product-scenario", choices=rfc.PRODUCT_SCENARIOS, default="projected")
     p.add_argument("--out-dir", type=Path, required=True)
+    p.add_argument("--forecast-run-dir", type=Path, default=None,
+                   help="Stage-04 forecast run directory (a snapshot of the forecast_outputs "
+                        "node). Default: the node's current/. The summary's model_run column "
+                        "records the resolved snapshot name either way.")
     return p.parse_args(argv)
 
 
@@ -84,8 +89,10 @@ def main(argv=None) -> pd.DataFrame:
     )
     clock(f"protection loaded: {len(protection):,} rows")
 
-    ds = xr.open_dataset(rfc.MAL_FORECAST_OUTPUTS_READ_PATH
-                         / f"malaria_forecast_{SSP_SCENARIOS[0]}_{DAH_SCENARIO}.nc")
+    forecast_dir = forecast_dir_or_default(args.forecast_run_dir)
+    model_run = forecast_run_name(forecast_dir)
+    clock(f"forecast: {forecast_dir} -> snapshot {model_run}, DAH {DAH_SCENARIO}")
+    ds = xr.open_dataset(forecast_dir / f"malaria_forecast_{SSP_SCENARIOS[0]}_{DAH_SCENARIO}.nc")
     fc_locs = {int(x) for x in ds.location_id.values}
     years = [int(y) for y in ds.year_id.values]
     ds.close()
@@ -104,12 +111,13 @@ def main(argv=None) -> pd.DataFrame:
         filters=[("location_id", "in", locs), ("year_id", "in", years)],
     )
 
-    totals = pd.concat([scenario_totals(s, reduction, aa_pop, locs, years, clock) for s in SSP_SCENARIOS],
+    totals = pd.concat([scenario_totals(s, reduction, aa_pop, locs, years, clock,
+                                        forecast_dir=forecast_dir) for s in SSP_SCENARIOS],
                        ignore_index=True)
     summary = summarize(totals)
     summary["ve_variant"] = variant
     summary["product_scenario"] = products
-    summary["model_run"] = MODEL_RUN
+    summary["model_run"] = model_run
     summary["dah_scenario"] = DAH_SCENARIO
 
     draws = draw_level(totals)

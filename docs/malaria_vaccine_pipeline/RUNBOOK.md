@@ -28,6 +28,7 @@ Useful flags: `--skip-curves` (reuse the built VE curves), `--skip-figures`.
 | `--product-scenario` | `projected`, `all_r21` | `projected` | which product each location uses; dose *counts* are unchanged |
 | `--age-reference` | `start_of_year`, `mid_year`, `end_of_year` | `start_of_year` | where in the reporting year age is evaluated — moves the 50/50 blend between dose 3 and dose 4. **PARKED decision**, see DECISIONS.md 2026-08-24 |
 | `--prelag` | `backcast`, `zero`, `none` | `backcast` | dose_4 whose dose-3 antecedent predates the coverage series |
+| `--forecast-run-dir` | a forecast_outputs snapshot dir | the node's `current/` | which malaria forecast the impact is computed on; the resolved snapshot name is written to the summary's `model_run` column (added 2026-09-28; the column used to be a hardcoded label) |
 
 Non-default `--age-reference` keys its own output filename, so it cannot
 overwrite the default run.
@@ -49,7 +50,7 @@ overwrite the default run.
 | coverage | `01-raw_data/malaria_vaccine_coverage/current/` | received; an LME **projection** to 2100, not observed |
 | age-sex population | `02-processed_data/population/<hier>/current/as_2023_full_population_df.parquet` | 2.97 GB — always read with predicate pushdown |
 | age metadata | `02-processed_data/age_specific_fhs/age_metadata.parquet` | bin bounds; never hardcode them |
-| malaria forecast | `04-forecasting_data/malaria/forecast_outputs/<hier>/current/` | model `2026_07_31_full_model_selection_results`, DAH **Baseline** |
+| malaria forecast | `04-forecasting_data/malaria/forecast_outputs/<hier>/current/` or `--forecast-run-dir` | DAH **Baseline**; `current` has pointed at the `__gdpscen` arm since 2026-09-16, so name the snapshot you mean |
 | age/sex pattern | `02-processed_data/malaria/raked_as/<hier>/current/` | historical only, 2000–2023 |
 
 ## Gotchas that have already cost time

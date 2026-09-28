@@ -9,6 +9,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from idd_forecast_mbp import constants as rfc
 from idd_forecast_mbp.lib.processing.vaccine_impact import (
     _aligned,
     apply_protection_to_age_sex,
@@ -17,6 +18,8 @@ from idd_forecast_mbp.lib.processing.vaccine_impact import (
     _with_cumulative,
     draw_level,
     eligible_locations,
+    forecast_dir_or_default,
+    forecast_run_name,
     summarize,
     super_region_map,
 )
@@ -370,3 +373,39 @@ def test_uniform_collapse_and_cellwise_agree_on_the_total_but_not_by_age():
     uniform_by_age = counts.malaria_inc_count_pred * (1 - r)
     assert not np.allclose(cellwise.malaria_inc_count_pred.to_numpy(),
                            uniform_by_age.to_numpy())
+
+
+# ---------------------------------------------------------------------------
+# forecast run identity: the resolved snapshot, never a typed label
+# ---------------------------------------------------------------------------
+def test_forecast_run_name_is_the_resolved_snapshot_behind_a_current_link(tmp_path):
+    snapshot = tmp_path / "2026_07_31_something__gdpscen"
+    snapshot.mkdir()
+    current = tmp_path / "current"
+    current.symlink_to(snapshot.name)
+    assert forecast_run_name(current) == "2026_07_31_something__gdpscen"
+    assert forecast_run_name(snapshot) == "2026_07_31_something__gdpscen"
+
+
+def test_forecast_dir_defaults_to_the_node_read_path(monkeypatch, tmp_path):
+    snapshot = tmp_path / "snap"
+    snapshot.mkdir()
+    current = tmp_path / "current"
+    current.symlink_to(snapshot.name)
+    monkeypatch.setattr(rfc, "MAL_FORECAST_OUTPUTS_READ_PATH", current)
+    assert forecast_dir_or_default(None) == current
+    assert forecast_run_name() == "snap"
+    assert forecast_dir_or_default(tmp_path / "other") == tmp_path / "other"
+
+
+def test_scenario_totals_reads_the_file_from_the_given_forecast_dir(tmp_path):
+    locs, years, rate, pop = [300, 301], [2024, 2025], 0.02, 500.0
+    _forecast_ds(locs, years, rate=rate).to_netcdf(tmp_path / "malaria_forecast_ssp245_Baseline.nc")
+    reduction = pd.DataFrame([dict(location_id=l, year_id=y, r_inc=0.5, r_mort=0.5)
+                              for l in locs for y in years])
+    aa_pop = pd.DataFrame([dict(location_id=l, year_id=y, population=pop)
+                           for l in locs for y in years])
+    out = scenario_totals("ssp245", reduction, aa_pop, locs, years, forecast_dir=tmp_path)
+    inc = out[out.measure == "incidence"]
+    assert inc.count_novacc.unique() == pytest.approx([rate * pop * len(locs)])
+    assert (inc.count_vacc / inc.count_novacc).unique() == pytest.approx([0.5])
