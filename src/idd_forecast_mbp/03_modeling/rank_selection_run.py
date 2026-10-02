@@ -17,7 +17,7 @@ from pathlib import Path
 import click
 
 from idd_forecast_mbp import constants as mbpc
-from idd_forecast_mbp.select.malaria_spec_design import build_universe
+from idd_forecast_mbp.select.malaria_spec_design import load_design
 from idd_forecast_mbp.select.rank import (
     format_pick,
     load_config,
@@ -78,7 +78,7 @@ def main(
     cfg = load_config(config_path)
     target = resolve_run_dir(cfg.run_dir, run_dir, root=mbpc._MODELING_STAGE)  # noqa: SLF001 - stage roots are underscore-named in constants
     summary = load_summary(target)
-    result = run_selection(summary, build_universe(), cfg.rank)
+    result = run_selection(summary, load_design(target), cfg.rank)
     click.echo(f"run dir: {target}")
     click.echo(format_pick(result))
     if no_write:

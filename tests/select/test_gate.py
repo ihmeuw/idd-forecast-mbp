@@ -14,7 +14,11 @@ import pytest
 from idd_forecast_mbp import constants as mbpc
 from idd_forecast_mbp.select import gate
 from idd_forecast_mbp.select import rank as rk
-from idd_forecast_mbp.select.malaria_spec_design import build_universe
+from idd_forecast_mbp.select.malaria_spec_design import (
+    CURRENT_DESIGN,
+    DESIGN_FILE,
+    write_design,
+)
 from tests.select.synthetic import ANCHOR_SPEC, subset_with_downset, synthetic_summary
 
 if TYPE_CHECKING:
@@ -26,7 +30,7 @@ CONFIG = REPO / "reports" / "model_selection" / "malaria_selection_config.yaml"
 
 @pytest.fixture(scope="module")
 def universe() -> ModelUniverse:
-    return build_universe()
+    return CURRENT_DESIGN.universe
 
 
 @pytest.fixture
@@ -41,6 +45,7 @@ def run_dir(tmp_path: Path, universe: ModelUniverse) -> Path:
     pd.DataFrame({"spec_index": specs}).to_parquet(
         d / "spec_table.parquet", index=False
     )
+    write_design(CURRENT_DESIGN, d)
     return d
 
 
@@ -67,6 +72,7 @@ def test_open_without_override_uses_the_config_run_dir_under_root(
     target = root / cfg.run_dir
     target.mkdir(parents=True)
     (run_dir / "selection_summary.parquet").rename(target / "selection_summary.parquet")
+    (run_dir / DESIGN_FILE).rename(target / DESIGN_FILE)
     s = gate.GateSession.open(CONFIG, root=root)
     assert s.run_dir == target
 

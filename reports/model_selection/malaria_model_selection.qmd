@@ -22,7 +22,7 @@ from IPython.display import Markdown, display
 from idd_tools.model_selection import kendall_tau_matrix, plot_kendall_tau
 
 from idd_forecast_mbp.select import rank as rk
-from idd_forecast_mbp.select.malaria_spec_design import build_universe
+from idd_forecast_mbp.select.malaria_spec_design import load_design
 
 # The run dir comes from rank_selection_run.py (render_report) through the environment.
 run_dir = os.environ.get(rk.RUN_DIR_ENV, "")
@@ -32,8 +32,8 @@ run_dir = Path(run_dir)
 record = rk.read_result(run_dir)
 params = rk.rank_params_from_dict(record["rank"])
 summary = rk.load_summary(run_dir)
-universe = build_universe()
-result = rk.run_selection(summary, universe, params)
+design = load_design(run_dir)
+result = rk.run_selection(summary, design, params)
 pick, anchor = int(result.pick["spec_index"]), int(result.anchor["spec_index"])
 matches = pick == record["pick"]["spec_index"] and anchor == record["anchor"]["spec_index"]
 pd.set_option("display.max_colwidth", None)
@@ -93,7 +93,7 @@ display(Markdown("Recorded `fit:` section:\n\n```\n" + "\n".join(f"{k}: {v}" for
 `{python} len(result.criteria)` criteria = `{python} len(result.criteria) // len(result.windows)` PfPR-space OOS metrics x `{python} len(result.windows)` windows. Pairs with |Kendall tau| at or above `{python} params.tau_prune_threshold` are pruned greedily; the survivors are the ranking criteria.
 
 ```{python}
-tau = kendall_tau_matrix(rk.attach_universe(summary, universe), result.criteria)
+tau = kendall_tau_matrix(rk.attach_universe(summary, design), result.criteria)
 plot_kendall_tau(tau);
 ```
 
@@ -129,7 +129,7 @@ display(result.profile)
 ## Structural neighbourhood of the winner
 
 ```{python}
-sl = rk.slice_tables(result, universe)
+sl = rk.slice_tables(result, design)
 cols = rk.slice_columns(result)
 display(Markdown(f"Consensus winner: spec {sl['reference']}  \n`{sl['reference_terms']}`  \n"
                  f"Settled axes (unanimous in the top tier): {sl['settled']}  \nContested: {sl['contested']}"))

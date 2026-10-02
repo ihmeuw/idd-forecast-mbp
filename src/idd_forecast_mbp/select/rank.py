@@ -10,8 +10,8 @@ Pipeline (one call each, so the gate can re-run the cheap tail with new paramete
 
     cfg      = load_config(path)
     summary  = load_summary(run_dir)
-    universe = build_universe()
-    result   = run_selection(summary, universe, cfg.rank)
+    design   = load_design(run_dir)            # the groups this run was built from
+    result   = run_selection(summary, design, cfg.rank)
     write_result(result, cfg, run_dir)          # selection_result.json + parquets
 """
 
@@ -44,18 +44,10 @@ from idd_tools.model_selection import (
 
 from idd_forecast_mbp.lib.io.parquet import write_parquet
 from idd_forecast_mbp.select.malaria_metrics import register_malaria_metrics, windowed
-from idd_forecast_mbp.select.malaria_spec_design import (
-    AXIS_ORDER,
-    formula_text,
-    n_scams,
-    n_smooths,
-    n_terms,
-)
 
 if TYPE_CHECKING:
-    from idd_tools.model_selection.space import ModelUniverse
+    from idd_forecast_mbp.select.malaria_spec_design import SpecDesign
 
-AXES: tuple[str, ...] = tuple(AXIS_ORDER)
 WINDOW_SEP = "__"
 RUN_DIR_ENV = (
     "MBP_SELECTION_RUN_DIR"  # how render_report hands the run dir to the report
@@ -235,7 +227,7 @@ def load_summary(run_dir: str | Path) -> pd.DataFrame:
     return pd.read_parquet(path)
 
 
-def attach_universe(summary: pd.DataFrame, universe: ModelUniverse) -> pd.DataFrame:
+def attach_universe(summary: pd.DataFrame, design: SpecDesign) -> pd.DataFrame:
     """Bridge ``spec_index`` to the typed model space (``configs[i] <-> spec_index i+1``).
 
     Adds the axis columns and the complexity counts the parsimony step orders on. Counts
@@ -245,22 +237,23 @@ def attach_universe(summary: pd.DataFrame, universe: ModelUniverse) -> pd.DataFr
     if "spec_index" not in summary.columns:
         msg = "summary has no spec_index column"
         raise ValueError(msg)
-    configs = pd.DataFrame(universe.configs)
+    axes = list(design.axes)
+    configs = pd.DataFrame(design.universe.configs)
     configs["spec_index"] = range(1, len(configs) + 1)
     df = summary.merge(configs, on="spec_index", how="left", validate="1:1")
-    if not df[list(AXES)].notna().all().all():
-        bad = df.loc[df[list(AXES)].isna().any(axis=1), "spec_index"].tolist()
+    if not df[axes].notna().all().all():
+        bad = df.loc[df[axes].isna().any(axis=1), "spec_index"].tolist()
         shown = bad[:_MAX_SHOWN]
         tail = "..." if len(bad) > _MAX_SHOWN else ""
         msg = f"spec_index -> Config bridge is incomplete for {shown}{tail}"
         raise ValueError(msg)
-    cfg_of = {i + 1: c for i, c in enumerate(universe.configs)}
-    df["n_scams"] = [n_scams(cfg_of[i]) for i in df["spec_index"]]
-    df["n_terms"] = [n_terms(cfg_of[i]) for i in df["spec_index"]]
+    cfg_of = {i + 1: c for i, c in enumerate(design.universe.configs)}
+    df["n_scams"] = [design.n_scams(cfg_of[i]) for i in df["spec_index"]]
+    df["n_terms"] = [design.n_terms(cfg_of[i]) for i in df["spec_index"]]
     if "n_smooths" not in df.columns:
-        df["n_smooths"] = [n_smooths(cfg_of[i]) for i in df["spec_index"]]
+        df["n_smooths"] = [design.n_smooths(cfg_of[i]) for i in df["spec_index"]]
     if "formula_text" not in df.columns:
-        df["formula_text"] = [formula_text(cfg_of[i]) for i in df["spec_index"]]
+        df["formula_text"] = [design.formula_text(cfg_of[i]) for i in df["spec_index"]]
     return df
 
 
@@ -304,16 +297,18 @@ class SelectionResult:
     pick: pd.Series
     candidates: pd.DataFrame
     n_specs: int
+    axes: tuple[str, ...]
     n_culled: int = 0
     extras: dict[str, Any] = field(default_factory=dict)
 
 
 def run_selection(
-    summary: pd.DataFrame, universe: ModelUniverse, params: RankParams
+    summary: pd.DataFrame, design: SpecDesign, params: RankParams
 ) -> SelectionResult:
     """Rank every spec on the windowed OOS criteria and return the parsimonious pick."""
     register_malaria_metrics()
-    df = attach_universe(summary, universe)
+    axes = list(design.axes)
+    df = attach_universe(summary, design)
 
     n_culled = 0
     if params.cull_nonconverged and "is_converged" in df.columns:
@@ -348,7 +343,7 @@ def run_selection(
         )
         .merge(dominance_df[["spec_index", "dominance_rank"]], on="spec_index")
     )
-    id_cols = ["spec_index", "n_smooths", "n_scams", "n_terms", "formula_text", *AXES]
+    id_cols = ["spec_index", "n_smooths", "n_scams", "n_terms", "formula_text", *axes]
     focus_rank_col = METHOD_RANK_COL[params.focus_metric.removesuffix("_score")]
     consensus = (
         consensus_rank(ranks, rank_cols=params.rank_cols)
@@ -358,7 +353,7 @@ def run_selection(
     )
     pareto_ids = [int(i) for i in pareto["spec_index"]]
     consensus["on_pareto"] = consensus["spec_index"].isin(set(pareto_ids))
-    profile = winner_profile(consensus, id_cols=list(AXES), top_n=params.profile_top_n)
+    profile = winner_profile(consensus, id_cols=axes, top_n=params.profile_top_n)
 
     scored = df.merge(topsis_df[["spec_index", "topsis_score"]], on="spec_index").merge(
         borda_df[["spec_index", "borda_score"]], on="spec_index"
@@ -370,8 +365,8 @@ def run_selection(
         complexity=list(params.complexity_order),
         tol=tolerance,
         direction=params.focus_direction,
-        config_cols=list(AXES),
-        space=universe.space,
+        config_cols=axes,
+        space=design.space,
     )
     return SelectionResult(
         params=params,
@@ -390,6 +385,7 @@ def run_selection(
         pick=picked["pick"],
         candidates=picked["candidates"],
         n_specs=len(df),
+        axes=tuple(axes),
         n_culled=n_culled,
     )
 
@@ -438,14 +434,16 @@ def git_info(repo_dir: str | Path | None = None) -> dict[str, Any]:
     return {"commit": head, "dirty": dirty}
 
 
-def _row_record(row: pd.Series, extra_cols: list[str]) -> dict[str, Any]:
+def _row_record(
+    row: pd.Series, extra_cols: list[str], axes: tuple[str, ...]
+) -> dict[str, Any]:
     keep = [
         "spec_index",
         "n_smooths",
         "n_scams",
         "n_terms",
         "formula_text",
-        *AXES,
+        *axes,
         *extra_cols,
     ]
     out: dict[str, Any] = {}
@@ -513,8 +511,8 @@ def result_record(
         "borda_cutpoint": result.borda_cutpoint,
         "tolerance": result.tolerance,
         "n_candidates": len(result.candidates),
-        "anchor": _row_record(result.anchor, scores),
-        "pick": _row_record(result.pick, scores),
+        "anchor": _row_record(result.anchor, scores, result.axes),
+        "pick": _row_record(result.pick, scores, result.axes),
         "candidates": [int(i) for i in result.candidates["spec_index"]],
         "pareto_spec_indices": result.pareto_spec_indices,
         "winner_profile": {
@@ -534,13 +532,13 @@ def result_record(
     }
 
 
-def _typed_ranking(frame: pd.DataFrame) -> pd.DataFrame:
+def _typed_ranking(frame: pd.DataFrame, axes: tuple[str, ...]) -> pd.DataFrame:
     """Explicit dtypes for the parquet outputs (repo I/O rule: never rely on inference)."""
     out = frame.copy()
     for c in ("spec_index", "n_smooths", "n_scams", "n_terms"):
         if c in out.columns:
             out[c] = out[c].astype("int32")
-    for c in ("formula_text", *AXES):
+    for c in ("formula_text", *axes):
         if c in out.columns:
             out[c] = out[c].astype("string")
     for c in out.columns:
@@ -572,7 +570,7 @@ def write_result(
     tmp = paths["result"].with_suffix(".json.tmp")
     tmp.write_text(json.dumps(record, indent=1))
     tmp.replace(paths["result"])
-    write_parquet(_typed_ranking(result.consensus), paths["ranking"])
+    write_parquet(_typed_ranking(result.consensus, result.axes), paths["ranking"])
     cand_cols = [
         c
         for c in [
@@ -583,11 +581,13 @@ def write_result(
             "topsis_score",
             "borda_score",
             "formula_text",
-            *AXES,
+            *result.axes,
         ]
         if c in result.candidates.columns
     ]
-    write_parquet(_typed_ranking(result.candidates[cand_cols]), paths["candidates"])
+    write_parquet(
+        _typed_ranking(result.candidates[cand_cols], result.axes), paths["candidates"]
+    )
     return paths
 
 
@@ -738,7 +738,7 @@ def winner_of(result: SelectionResult) -> int:
 
 
 def slice_tables(
-    result: SelectionResult, universe: ModelUniverse, *, reference: int | None = None
+    result: SelectionResult, design: SpecDesign, *, reference: int | None = None
 ) -> dict[str, Any]:
     """Structural neighbourhood of a reference spec (default: the consensus winner).
 
@@ -757,7 +757,8 @@ def slice_tables(
     )
 
     ref = reference if reference is not None else winner_of(result)
-    space = universe.space
+    space = design.space
+    universe = design.universe
     key_to_spec = {config_key(c): i + 1 for i, c in enumerate(universe.configs)}
     cfg_by_spec = {i + 1: c for i, c in enumerate(universe.configs)}
     ref_cfg = cfg_by_spec[ref]
@@ -773,7 +774,7 @@ def slice_tables(
             .copy()
         )
         out["n_changed"] = [
-            sum(cfg_by_spec[s][a] != ref_cfg[a] for a in AXES)
+            sum(cfg_by_spec[s][a] != ref_cfg[a] for a in design.axes)
             for s in out["spec_index"]
         ]
         out["changed_from_winner"] = [
@@ -782,8 +783,8 @@ def slice_tables(
         return out
 
     prof = result.profile
-    settled = [a for a in AXES if float(prof.loc[a, "mode_pct"]) >= 100]  # noqa: PLR2004 - unanimous means 100 percent
-    contested = [a for a in AXES if a not in settled]
+    settled = [a for a in design.axes if float(prof.loc[a, "mode_pct"]) >= 100]  # noqa: PLR2004 - unanimous means 100 percent
+    contested = [a for a in design.axes if a not in settled]
     return {
         "reference": ref,
         "reference_terms": format_config(ref_cfg, space),

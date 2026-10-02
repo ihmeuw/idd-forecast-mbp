@@ -10,13 +10,17 @@ import pytest
 from click.testing import CliRunner
 
 from idd_forecast_mbp import constants as mbpc
+from idd_forecast_mbp.select.malaria_spec_design import (
+    CURRENT_DESIGN,
+    DESIGN_FILE,
+    load_design,
+)
 
 REPO = Path(__file__).resolve().parents[2]
 SCRIPT = (
     REPO / "src" / "idd_forecast_mbp" / "03_modeling" / "build_malaria_spec_design.py"
 )
-RECORDED_RUN = mbpc.MAL_SELECTION_NODE / "20260727_efs" / "spec_table.parquet"
-N_SPECS = 1620
+N_SPECS = 2 * 2 * 3 * 5 * 3 * 5 * 3 * 3  # 8,100: levels per group axis, "out" included
 
 
 @pytest.fixture(scope="module")
@@ -64,20 +68,11 @@ def test_main_writes_a_dated_run_dir_and_never_overwrites(builder, tmp_path):
     assert run_dir.name.endswith("_t")
     table = pd.read_parquet(run_dir / "spec_table.parquet")
     assert len(table) == N_SPECS
+    assert (run_dir / DESIGN_FILE).is_file()
+    assert load_design(run_dir).groups == CURRENT_DESIGN.groups
 
     second = runner.invoke(builder.main, ["--output-root", str(tmp_path), "--tag", "t"])
     assert second.exit_code == 0, second.output
     second_dir = Path(second.output.strip().splitlines()[-1])
     assert second_dir != run_dir
     assert second_dir.name.endswith("_t_v2")
-
-
-@pytest.mark.skipif(
-    not RECORDED_RUN.is_file(), reason="recorded 20260727_efs spec table not on disk"
-)
-def test_reproduces_the_recorded_selection_run(frame):
-    """Same indices, engines and formula strings as the run the 1486 pick came from."""
-    recorded = (
-        pd.read_parquet(RECORDED_RUN).sort_values("spec_index").reset_index(drop=True)
-    )
-    pd.testing.assert_frame_equal(frame, recorded[frame.columns])

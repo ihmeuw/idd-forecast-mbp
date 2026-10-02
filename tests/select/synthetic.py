@@ -23,9 +23,7 @@ METRICS: dict[str, str] = {
     "oos_pfpr_rmse": "lower",
     "oos_pfpr_mae": "lower",
 }
-ANCHOR_SPEC = (
-    1585  # the fullest config in the 20260727_efs top tier; its down-set is large
-)
+ANCHOR_SPEC = 1585  # an arbitrary mid-grid spec with a non-trivial down-set
 
 
 def synthetic_summary(

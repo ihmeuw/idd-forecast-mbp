@@ -36,7 +36,7 @@ from idd_tools.versions import label as attach_label
 
 import idd_forecast_mbp
 from idd_forecast_mbp import constants as mbpc
-from idd_forecast_mbp.select.malaria_spec_design import build_universe
+from idd_forecast_mbp.select.malaria_spec_design import SpecDesign, load_design
 from idd_forecast_mbp.select.rank import (
     RESULT_FILE,
     RankParams,
@@ -54,7 +54,6 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
 
     import pandas as pd
-    from idd_tools.model_selection.space import ModelUniverse
 
 PACKAGE_DIR = Path(idd_forecast_mbp.__file__).resolve().parent
 REPO_DIR = PACKAGE_DIR.parents[1]
@@ -77,12 +76,12 @@ RESERVED_DIRS: frozenset[str] = frozenset({"working", "scratch"})
 # --------------------------------------------------------------------------- the session
 @dataclass
 class GateSession:
-    """One ranked run open in the gate: its config, run dir, summary and the typed universe."""
+    """One ranked run open in the gate: its config, run dir, summary and the run's spec design."""
 
     config: SelectionConfig
     run_dir: Path
     summary: pd.DataFrame
-    universe: ModelUniverse
+    design: SpecDesign
 
     @classmethod
     def open(
@@ -101,7 +100,7 @@ class GateSession:
             config=cfg,
             run_dir=target,
             summary=load_summary(target),
-            universe=build_universe(),
+            design=load_design(target),
         )
 
     @property
@@ -120,7 +119,7 @@ class GateSession:
 
     def rerank(self, **overrides: Any) -> SelectionResult:
         """Re-run the ranking with the overrides; cheap, so the widgets can call it live."""
-        return run_selection(self.summary, self.universe, self.params(**overrides))
+        return run_selection(self.summary, self.design, self.params(**overrides))
 
     def record_pick(
         self,
