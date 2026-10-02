@@ -13,7 +13,7 @@ REPO_ROOT = Path("/mnt/share/homes/bcreiner/repos")
 # RUN_DATE: "20260527" Run with 'new' gridded population: '2026_05_15.001'
 GRIDDED_RD_2026_05_15 = "20260527"
 RUN_DATE: str = os.environ.get("IDD_RUN_DATE", GRIDDED_RD_2026_05_15)
-CLIMATE_COVARIATE_RUN_DATE: str = "2026_05_28"
+CLIMATE_COVARIATE_RUN_DATE: str = "2026_09_09"
 MALARIA_SUITABILITY_RUN_DATE: str = "2026_05_27"
 # Rapidresponse-aggregated population.parquet lives under the climate-aggregates
 # tree but is published by a different upstream pipeline than the climate
@@ -465,8 +465,14 @@ PREVIOUS_COVARIATE_NC = (
 GDPPC_SOURCE_PATH = (
     Path("/mnt/share/resource_tracking/forecasting/poverty")
     / "climate_2025_income_distribution_forecasts"
-    / "V5_consumption_forecasting_admin2_scenarios"
+    / "V6_consumption_forecasting_admin2_scenarios"
     / "LSAEadmin2_gdppc_mean_forecasts_scenarios_2010PPP.csv"
+)
+# Source for malaria DAH by program area, FGH reference scenario (external, read-only).
+DAH_SOURCE_PATH = (
+    Path("/mnt/share/resource_tracking/forecasting/dah_channel_HFA")
+    / "FGH_2026_Sept"
+    / "dah_by_channel_pa_recip_1990_2100.csv"
 )
 VISUALIZATION_PATH    = _VIZ_STAGE         / RUN_DATE
 FIGURES_PATH          = _FIGURES_STAGE     / RUN_DATE

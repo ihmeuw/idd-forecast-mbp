@@ -1,4 +1,4 @@
-"""Build the DAH covariate parquet from the FGH 2026 July program-area DAH CSV.
+"""Build the DAH covariate parquet from the FGH program-area DAH CSV (mbpc.DAH_SOURCE_PATH).
 
 Reads dah_by_channel_pa_recip_1990_2100.csv (DAH_reference), filters to malaria
 program areas (``pa`` codes prefixed ``mal_``) and sums them per (year, recip),
@@ -18,10 +18,8 @@ from idd_forecast_mbp import constants as mbpc
 from idd_forecast_mbp.lib.io.parquet import read_parquet_with_integer_ids, write_parquet
 from idd_forecast_mbp.lib.versioning import finish_stage
 
-DAH_SOURCE_PATH = (
-    "/mnt/share/resource_tracking/forecasting/dah_channel_HFA/FGH_2026_July"
-    "/dah_by_channel_pa_recip_1990_2100.csv"
-)
+# Source path lives in constants.py so no absolute path is committed in a stage script.
+DAH_SOURCE_PATH = mbpc.DAH_SOURCE_PATH
 
 
 def main() -> None:
