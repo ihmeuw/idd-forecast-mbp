@@ -117,7 +117,9 @@ def temporal_windows(
 # --- resources ------------------------------------------------------------------------------
 
 # per-spec wall-seconds upper bound by (template, n_smooths), calibrated from the full census
-# run (wf 599407, dir 20260710_efs; 17,820 per-spec fit times).
+# run (wf 599407, dir 20260710_efs; 17,820 per-spec fit times). ("is_cell", 7) and both n=8
+# entries come from the 2026-10 probe (wf 631498): is_cell max 264 s at 7 and 223 s at 8,
+# oos_temporal max 398 s at 8; the census had only two 7-smooth IS fits.
 PER_SPEC_SEC: Mapping[tuple[str, int], int] = {
     ("is_cell", 0): 5,
     ("is_cell", 1): 172,
@@ -126,7 +128,8 @@ PER_SPEC_SEC: Mapping[tuple[str, int], int] = {
     ("is_cell", 4): 396,
     ("is_cell", 5): 307,
     ("is_cell", 6): 284,
-    ("is_cell", 7): 168,
+    ("is_cell", 7): 284,
+    ("is_cell", 8): 284,
     ("oos_temporal", 0): 5,
     ("oos_temporal", 1): 115,
     ("oos_temporal", 2): 203,
@@ -135,6 +138,7 @@ PER_SPEC_SEC: Mapping[tuple[str, int], int] = {
     ("oos_temporal", 5): 251,
     ("oos_temporal", 6): 250,
     ("oos_temporal", 7): 186,
+    ("oos_temporal", 8): 450,
 }
 
 
