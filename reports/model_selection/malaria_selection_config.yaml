@@ -14,7 +14,7 @@
 # orchestrator and the final-fit script as they stood for the 20260727_efs run.
 
 cause: malaria
-run_dir: malaria/scam_prelim/lsae_1285/20260727_efs   # relative to the 03-modeling_data stage root
+run_dir: malaria/scam_prelim/lsae_1285/20261001_efs   # relative to the 03-modeling_data stage root
 
 fit:
   cv_strategy: temporal
