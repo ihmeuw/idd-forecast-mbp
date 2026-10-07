@@ -5,6 +5,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## Unreleased
 ### Added
+- `--spec-index` on `fit_selected_malaria_model.py` / `.r`: fit a person-chosen row of the selection run's
+  `spec_table.parquet`; `run.json` records `chosen_by` and the rank's pick (2026-10-07).
 - Raking to external parent targets in `lib/processing/raking.py`: `rake_children_to_parent_targets` (count space,
   explicit `leave` zero rule, factor frame at parent grain, excluded cells reported), `apply_raking_factors` (reference
   factors applied to any arm), `check_raked_matches_targets` and `check_sum_identity` (2026-09-28).
@@ -20,6 +22,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 - `--forecast-run-dir` on `vaccine_impact_scenarios.py` and `run_malaria_vaccine_pipeline.py`; the impact summary's
   `model_run` column is the resolved forecast snapshot name (2026-09-28).
 ### Changed
+- Removed the selection gate (`select/gate.py`, `malaria_selection_gate.ipynb`, `test_gate.py`): models are chosen
+  from the score distributions and fitted with `--spec-index` (2026-10-07).
 - Coverage: `--no-cov-on-fail` removed, so a shortfall fails the suite; `fail_under` set to the measured fast-suite
   floor with the untested modules listed in `pyproject.toml` (2026-09-28).
 - `select/model_selection.py` moved to `03_modeling/archive/superseded/` (imported only by archived notebooks) (2026-09-28).

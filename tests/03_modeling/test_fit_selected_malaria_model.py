@@ -80,7 +80,7 @@ def test_prep_script_is_passed_through_only_when_given(launcher, tmp_path):
         tmp_path / "out",
         tmp_path / "p.parquet",
         cfg.final_fit,
-        tmp_path / "my_prep.R",
+        prep_script=tmp_path / "my_prep.R",
     )
     assert with_prep[: len(base)] == base
     assert with_prep[len(base) :] == ["--prep-script", str(tmp_path / "my_prep.R")]
@@ -160,3 +160,84 @@ def test_missing_result_is_refused(launcher, tmp_path):
     result = CliRunner().invoke(launcher.main, args)
     assert result.exit_code != 0
     assert isinstance(result.exception, FileNotFoundError)
+
+
+def _spec_table(selection_dir: Path) -> None:
+    import pandas as pd  # noqa: PLC0415 - only these tests need a spec table
+
+    pd.DataFrame(
+        {
+            "spec_index": pd.array([1, 7426], dtype="int32"),
+            "formula_text": pd.array(
+                [
+                    "logit_malaria_pfpr ~ A0_af",
+                    "logit_malaria_pfpr ~ gdppc_mean + A0_af",
+                ],
+                dtype="string",
+            ),
+        }
+    ).to_parquet(selection_dir / "spec_table.parquet", index=False)
+
+
+def test_spec_index_adds_the_spec_table_and_index_to_the_worker_args(
+    launcher, tmp_path
+):
+    cfg = load_config(CONFIG)
+    base = launcher.build_worker_args(
+        tmp_path / "sel" / "r.json",
+        tmp_path / "out",
+        tmp_path / "p.parquet",
+        cfg.final_fit,
+    )
+    chosen = launcher.build_worker_args(
+        tmp_path / "sel" / "r.json",
+        tmp_path / "out",
+        tmp_path / "p.parquet",
+        cfg.final_fit,
+        spec_index=7426,
+    )
+    assert "--spec-index" not in base
+    assert chosen[: len(base)] == base
+    assert chosen[len(base) :] == [
+        "--spec-table",
+        str(tmp_path / "sel" / "spec_table.parquet"),
+        "--spec-index",
+        "7426",
+    ]
+
+
+def test_chosen_spec_reads_the_formula_and_refuses_an_unknown_index(
+    launcher, selection_dir
+):
+    _spec_table(selection_dir)
+    assert (
+        launcher.chosen_spec(selection_dir, 7426)
+        == "logit_malaria_pfpr ~ gdppc_mean + A0_af"
+    )
+    with pytest.raises(launcher.click.ClickException, match="spec 99 is not in"):
+        launcher.chosen_spec(selection_dir, 99)
+
+
+def test_dry_run_with_spec_index_names_the_chosen_spec(
+    launcher, tmp_path, selection_dir
+):
+    _spec_table(selection_dir)
+    result = CliRunner().invoke(
+        launcher.main,
+        [*_common(tmp_path, selection_dir), "--spec-index", "7426", "--dry-run"],
+    )
+    assert result.exit_code == 0, result.output
+    assert "chosen spec 7426" in result.output
+    assert "rank pick was 1486" in result.output
+    assert "logit_malaria_pfpr ~ gdppc_mean + A0_af" in result.output
+    assert "--spec-index 7426" in result.output
+
+
+def test_dry_run_refuses_a_spec_index_the_run_lacks(launcher, tmp_path, selection_dir):
+    _spec_table(selection_dir)
+    result = CliRunner().invoke(
+        launcher.main,
+        [*_common(tmp_path, selection_dir), "--spec-index", "5", "--dry-run"],
+    )
+    assert result.exit_code != 0
+    assert "spec 5 is not in" in result.output

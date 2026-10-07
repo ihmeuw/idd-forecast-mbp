@@ -2,7 +2,8 @@
 # ============================================================================
 # fit_selected_malaria_model.r
 #
-# Fit the SELECTED malaria PfPR spec (read from a selection_result.json) plus the
+# Fit the SELECTED malaria PfPR spec (the selection_result.json pick, or with --spec-index the
+# row a person chose from the run's spec_table.parquet) plus the
 # standard incidence / mortality scams on the past inputs, strip them to a
 # predict-only core, and write malaria_models.RData + run.json into --out-dir.
 #
@@ -44,7 +45,9 @@ opt <- parse_args(OptionParser(option_list = list(
   make_option("--suit-variant",  type = "character", default = NA, help = "malaria_suitability_<variant> column for logit_malaria_suitability"),
   make_option("--inc-mort-rhs",  type = "character", default = NA, help = "RHS shared by the incidence and mortality scams"),
   make_option("--prep-script",   type = "character", default = NA, help = "R file defining prepare_malaria_fit_frame(); default <lib-dir>/malaria_fit_frame.R"),
-  make_option("--lib-dir",       type = "character", default = NA, help = "directory holding scam_fit_helpers.R; default ../lib relative to this file")
+  make_option("--lib-dir",       type = "character", default = NA, help = "directory holding scam_fit_helpers.R; default ../lib relative to this file"),
+  make_option("--spec-table",    type = "character", default = NA, help = "the run's spec_table.parquet; required with --spec-index"),
+  make_option("--spec-index",    type = "integer",   default = NA, help = "fit this spec_table row instead of the result's pick")
 )))
 names(opt) <- gsub("-", "_", names(opt))
 required <- c("result", "out_dir", "past_inputs", "inc_count_min", "pfpr_min",
@@ -64,7 +67,18 @@ if (!exists("prepare_malaria_fit_frame", mode = "function")) stop("prep script d
 
 # -------------------------- The selected spec --------------------------
 res  <- jsonlite::fromJSON(opt$result, simplifyVector = TRUE)
-pick <- res$pick
+rank_pick <- res$pick
+if (is.na(opt$spec_index)) {
+  pick <- rank_pick
+  chosen_by <- "result_pick"
+} else {
+  if (is.na(opt$spec_table) || !file.exists(opt$spec_table)) stop("--spec-index needs an existing --spec-table")
+  st  <- as.data.table(arrow::read_parquet(opt$spec_table, col_select = c("spec_index", "formula_text")))
+  row <- st[spec_index == opt$spec_index]
+  if (nrow(row) != 1L) stop(glue("spec {opt$spec_index} not found exactly once in {opt$spec_table}"))
+  pick <- list(spec_index = opt$spec_index, formula_text = as.character(row$formula_text))
+  chosen_by <- "spec_index"
+}
 pfpr_fml <- as.formula(pick$formula_text)
 if (!identical(as.character(pfpr_fml[[2]]), "logit_malaria_pfpr")) {
   stop(glue("selected formula response is {deparse1(pfpr_fml[[2]])}, expected logit_malaria_pfpr"))
@@ -134,7 +148,8 @@ run <- list(
   mgcv_version = as.character(packageVersion("mgcv")),
   selection = list(
     result_file = normalizePath(opt$result), run_dir = res$run_dir, result_status = res$status,
-    spec_index = pick$spec_index, formula_text = pick$formula_text,
+    spec_index = pick$spec_index, formula_text = pick$formula_text, chosen_by = chosen_by,
+    result_pick_spec_index = rank_pick$spec_index,
     spec_table_fingerprint = res$spec_table_fingerprint, rank = res$rank, code = res$code,
     config_source = res$config_source
   )

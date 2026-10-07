@@ -3,9 +3,10 @@
     .venv/bin/python src/idd_forecast_mbp/03_modeling/fit_selected_malaria_model.py \\
         --config reports/model_selection/malaria_selection_config.yaml \\
         --r-image <singularity .img> --r-shell <execRscript.sh> \\
-        [--run-dir <selection run dir>] [--current --description "why" --label <name>] [--dry-run]
+        [--run-dir <selection run dir>] [--spec-index N] [--current --description "why" --label <name>] [--dry-run]
 
-Reads the pick from ``<run_dir>/selection_result.json``, runs fit_selected_malaria_model.r
+Fits the rank's pick from ``<run_dir>/selection_result.json``, or with ``--spec-index`` the spec a
+person chose from that run's ``spec_table.parquet`` (the run.json records which), runs fit_selected_malaria_model.r
 into the node's ``working/`` slot with the ``final_fit:`` settings of the config, verifies
 the two outputs exist, then ``finish_if_requested``: with ``--current`` the snapshot is
 frozen and promoted in one go (a chained-stage launch); without it the fit sits in
@@ -21,6 +22,7 @@ from pathlib import Path
 from typing import Any
 
 import click
+import pandas as pd
 from idd_tools.versions import VersionsOptions, resolve_target, versions_options
 
 from idd_forecast_mbp import constants as mbpc
@@ -33,19 +35,35 @@ from idd_forecast_mbp.select.rank import (
 )
 
 WORKER = Path(__file__).resolve().with_name("fit_selected_malaria_model.r")
+SPEC_TABLE = "spec_table.parquet"
 
 
-def build_worker_args(
+def chosen_spec(selection_dir: Path, spec_index: int) -> str:
+    """The formula of ``spec_index`` in the run's spec table; refuses an index the run does not have."""
+    table = pd.read_parquet(
+        selection_dir / SPEC_TABLE, columns=["spec_index", "formula_text"]
+    )
+    row = table[table["spec_index"] == spec_index]
+    if row.empty:
+        msg = f"spec {spec_index} is not in {selection_dir / SPEC_TABLE}"
+        raise click.ClickException(msg)
+    return str(row["formula_text"].iloc[0])
+
+
+def build_worker_args(  # noqa: PLR0913 - the four required inputs plus two optional overrides
     result_path: Path,
     out_dir: Path,
     past_inputs: Path,
     final_fit: dict[str, Any],
+    *,
     prep_script: Path | None = None,
+    spec_index: int | None = None,
 ) -> list[str]:
     """The worker's flags from the config's ``final_fit:`` section; nothing defaulted here.
 
     ``prep_script`` is passed through only when given; the worker's own default is the
-    package's ``lib/malaria_fit_frame.R``.
+    package's ``lib/malaria_fit_frame.R``. ``spec_index`` makes the worker fit that row of the
+    run's spec table instead of the result's pick.
     """
     filt = final_fit["data_filter"]
     args = [
@@ -70,6 +88,13 @@ def build_worker_args(
     ]
     if prep_script is not None:
         args += ["--prep-script", str(prep_script)]
+    if spec_index is not None:
+        args += [
+            "--spec-table",
+            str(result_path.parent / SPEC_TABLE),
+            "--spec-index",
+            str(int(spec_index)),
+        ]
     return args
 
 
@@ -145,6 +170,12 @@ def worker_command(
     help="R file defining prepare_malaria_fit_frame(); default the package's lib/malaria_fit_frame.R.",
 )
 @click.option(
+    "--spec-index",
+    default=None,
+    type=int,
+    help="Fit this spec from the run's spec_table.parquet instead of the rank's pick.",
+)
+@click.option(
     "--dry-run",
     is_flag=True,
     help="Print the worker command and the target; run nothing.",
@@ -160,6 +191,7 @@ def main(  # noqa: PLR0913 - one option per launcher knob
     node: str | None,
     past_inputs: str | None,
     prep_script: str | None,
+    spec_index: int | None,
     versions: VersionsOptions,
     dry_run: bool,
 ) -> None:
@@ -183,12 +215,20 @@ def main(  # noqa: PLR0913 - one option per launcher knob
             target,
             inputs,
             cfg.final_fit,
-            Path(prep_script) if prep_script else None,
+            prep_script=Path(prep_script) if prep_script else None,
+            spec_index=spec_index,
         ),
     )
-    click.echo(
-        f"selected spec {record['pick']['spec_index']} ({record['status']}) from {selection_dir}"
-    )
+    if spec_index is None:
+        click.echo(
+            f"selected spec {record['pick']['spec_index']} ({record['status']}) from {selection_dir}"
+        )
+    else:
+        formula = chosen_spec(selection_dir, spec_index)
+        click.echo(
+            f"chosen spec {spec_index} from {selection_dir} (rank pick was {record['pick']['spec_index']})"
+        )
+        click.echo(f"  {formula}")
     click.echo(f"target: {target}")
     click.echo("command: " + " ".join(cmd))
     if dry_run:

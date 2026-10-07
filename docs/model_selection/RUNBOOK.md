@@ -45,17 +45,14 @@ and `execRscript.sh` wrapper passed to every R launcher.
    --config reports/model_selection/malaria_selection_config.yaml [--run-dir <run_dir>]`
    applies the `rank:` parameters, writes `selection_result.json` (status tentative),
    `ranking.parquet`, `candidates.parquet` and renders `report.html` into the run dir. Read the report.
-   **Gate** (built 2026-09-28): `reports/model_selection/malaria_selection_gate.ipynb`, run with the venv
-   kernel from its directory. Toggles for the `rank:` keys the gate may change (`select/gate.py::OVERRIDABLE`)
-   re-rank live; **Record pick** rewrites `selection_result.json` with status `recorded` and the toggle
-   values in force, re-renders the report and runs step 5 into the models node's `working/`; **Flag best**
-   (enabled once a fit whose `run.json` points at this result exists) freezes that fit and promotes it, i.e.
-   step 6. The R image and shell come from `MBP_R_IMAGE` / `MBP_R_SHELL` or the notebook's text boxes; the
-   notebook carries no paths. Steps 5 and 6 below are the same actions from the command line.
+   **Choose.** A person picks the model(s) from the run's distribution of scores (report, score plots); the rank's
+   `pick` is one candidate, not the decision. The choice is recorded in DECISIONS.md and enacted by step 5's
+   `--spec-index`. (The ipywidgets gate notebook and `select/gate.py` were removed 2026-10-07.)
 5. **Fit the selected model.** `.venv/bin/python src/idd_forecast_mbp/03_modeling/fit_selected_malaria_model.py
    --config reports/model_selection/malaria_selection_config.yaml --r-image <image> --r-shell <shell>
-   [--run-dir <run_dir>] [--freeze --description "why" --label <name>]` runs
-   `fit_selected_malaria_model.r` with the config's `final_fit:` settings into the models node
+   [--run-dir <run_dir>] [--spec-index N] [--freeze | --current] [--description "why" --label <name>]` runs
+   `fit_selected_malaria_model.r` with the config's `final_fit:` settings (on the rank's pick, or with `--spec-index`
+   on that row of the run's `spec_table.parquet`; `run.json` records `chosen_by` and the rank's pick) into the models node
    (`<modeling stage>/malaria/models/<hierarchy>/working/`) and writes `malaria_models.RData` +
    `run.json`. With `--freeze` it becomes a snapshot; with `--current` it is promoted at once.
    Run it in an interactive Slurm session: three scam fits on the full past inputs.
