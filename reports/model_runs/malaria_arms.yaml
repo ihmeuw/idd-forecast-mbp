@@ -1,0 +1,34 @@
+# Malaria result arms for the 2026-10 models (Bobby's definition: DECISIONS 2026-10-07,
+# "The malaria result arms and outputs" and the entries after it). Each arm is Baseline with
+# exactly ONE change. Read by lib/data/malaria_arms.py; every finishing step and every
+# admin-2 recreation names an arm from here, so the arms cannot drift between products.
+
+ve_variant: loglinear_severe0          # DECISIONS 2026-10-07: both vaccine arms
+hold_year: 2023
+selection_run: malaria/scam_prelim/lsae_1285/20261001_efs
+
+# forecast_runs: labels on the forecast_outputs node, one per forecast LAUNCH. A launch carries
+# the covariate changes (dah scenario axis, covariate holds); finishing-side arms reuse "base".
+models:
+  spec7426_best:
+    spec_index: 7426
+    forecast_runs:
+      base: spec7426_best__base
+      gdppc_hold2023: spec7426_best__gdppc_hold2023
+  spec7427_alternate:
+    spec_index: 7427
+    forecast_runs:
+      base: spec7427_alternate__base
+      gdppc_hold2023: spec7427_alternate__gdppc_hold2023
+      wind_hold2023: spec7427_alternate__wind_hold2023
+
+# vaccine: none | projected (delivered product mix) | all_r21 (everyone covered gets R21)
+arms:
+  Baseline:                          {forecast: base,           dah: Baseline, vaccine: projected}
+  DAH_Constant:                      {forecast: base,           dah: Constant, vaccine: projected}
+  gdppc_hold2023:                    {forecast: gdppc_hold2023, dah: Baseline, vaccine: projected}
+  wind_hold2023:                     {forecast: wind_hold2023,  dah: Baseline, vaccine: projected}
+  population_hold2023:               {forecast: base,           dah: Baseline, vaccine: projected, population_hold: true}
+  population_age_structure_hold2023: {forecast: base,           dah: Baseline, vaccine: projected, age_structure_hold: true}
+  no_vaccine:                        {forecast: base,           dah: Baseline, vaccine: none}
+  good_vaccine:                      {forecast: base,           dah: Baseline, vaccine: all_r21}
