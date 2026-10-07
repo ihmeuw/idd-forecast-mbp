@@ -5,6 +5,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## Unreleased
 ### Added
+- `wind_speed` as a draw-varying malaria forecast covariate: in the 08a defaults, read by the rocket only when the
+  pfpr model names it and joined by draw number with suitability; `--hold-covariate wind` keyed on (location, draw);
+  a hold on an input the model lacks is refused. R tests in `tests/testthat/test-forecast_rocket.R` (2026-10-07).
 - `--spec-index` on `fit_selected_malaria_model.py` / `.r`: fit a person-chosen row of the selection run's
   `spec_table.parquet`; `run.json` records `chosen_by` and the rank's pick (2026-10-07).
 - Raking to external parent targets in `lib/processing/raking.py`: `rake_children_to_parent_targets` (count space,

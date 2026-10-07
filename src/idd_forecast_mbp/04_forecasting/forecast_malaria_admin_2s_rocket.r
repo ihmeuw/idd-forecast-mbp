@@ -103,8 +103,19 @@ HOLD_TARGETS <- list(
   suitability = list(table = "suit_dt", cols = "malaria_suitability",           by = c("location_id", "draw")),
   temp        = list(table = "temp_dt", cols = "mean_low_temperature",          by = "location_id"),
   flood       = list(table = "fld_dt",  cols = "people_flood_days_per_capita",  by = "location_id"),
-  dah         = list(table = "dah_dt",  cols = "mal_DAH_total_per_capita",      by = "location_id")
+  dah         = list(table = "dah_dt",  cols = "mal_DAH_total_per_capita",      by = "location_id"),
+  wind        = list(table = "wind_dt", cols = "wind_speed",                    by = c("location_id", "draw"))
 )
+
+# Draw-varying climate covariates beyond suitability. Each enters by DRAW NUMBER, paired with
+# suitability's draw of the same index (DECISIONS 2026-10-07), and is read only when the pfpr
+# model names it, so a model without it pays no memory for it.
+DRAW_COVARIATES <- c(wind_speed = "wind_dt")
+
+#' The extra draw-varying covariates a fitted pfpr model uses.
+model_draw_vars <- function(mod) {
+  intersect(names(DRAW_COVARIATES), all.vars(stats::formula(mod)))
+}
 
 #' Apply every requested hold to the input list, in place of the raw trajectories.
 apply_covariate_holds <- function(inputs, holds, hold_year) {
@@ -117,6 +128,9 @@ apply_covariate_holds <- function(inputs, holds, hold_year) {
   }
   for (h in holds) {
     spec <- HOLD_TARGETS[[h]]
+    if (is.null(inputs[[spec$table]])) {
+      stop(glue("--hold-covariate {h} needs {spec$cols}, which this model's inputs do not carry"))
+    }
     message(glue("  holding {h} ({spec$cols}) at {hold_year}"))
     inputs[[spec$table]] <- freeze_at_year(
       inputs[[spec$table]], spec$cols, hold_year, by_cols = spec$by)
@@ -126,7 +140,7 @@ apply_covariate_holds <- function(inputs, holds, hold_year) {
 
 #' Read every 08 input variable for the requested locs/years/dah scenario.
 #' Returns a named list of data.tables + the draw vector + the location universe.
-read_forecast_inputs <- function(nc_file, read_years, dah_scenario_sel) {
+read_forecast_inputs <- function(nc_file, read_years, dah_scenario_sel, draw_vars = character()) {
   src      <- tidync(nc_file)
   all_locs <- as.integer(src$transforms$location_id$location_id)  # coords only, no read
   a0_dt    <- pull_grid(src, "A0_location_id", all_locs)                          # loc-only
@@ -137,8 +151,10 @@ read_forecast_inputs <- function(nc_file, read_years, dah_scenario_sel) {
   # select scenario post-realize; param is named *_sel so it doesn't collide with the column
   dah_dt   <- dah_dt[dah_scenario == dah_scenario_sel]
   suit_dt  <- pull_grid(src, "malaria_suitability", all_locs, read_years)         # loc x year x draw
-  list(all_locs = all_locs, a0_dt = a0_dt, gdp_dt = gdp_dt, fld_dt = fld_dt,
-       temp_dt = temp_dt, dah_dt = dah_dt, suit_dt = suit_dt, draws = sort(unique(suit_dt$draw)))
+  out <- list(all_locs = all_locs, a0_dt = a0_dt, gdp_dt = gdp_dt, fld_dt = fld_dt,
+              temp_dt = temp_dt, dah_dt = dah_dt, suit_dt = suit_dt, draws = sort(unique(suit_dt$draw)))
+  for (v in draw_vars) out[[DRAW_COVARIATES[[v]]]] <- pull_grid(src, v, all_locs, read_years)  # loc x year x draw
+  out
 }
 
 # ============================================================================
@@ -258,11 +274,17 @@ make_predict_one_draw <- function(inputs, obs, models, fb,
   # key on draw ONCE here in the parent so each fork's suit_dt[.(d)] is a binary-search
   # subset (inherited sorted via copy-on-write) instead of a ~210M-row scan per draw.
   setkey(suit_dt, draw)
+  wind_dt <- inputs$wind_dt   # NULL unless the pfpr model uses wind_speed
+  if (!is.null(wind_dt)) setkey(wind_dt, draw)
 
   function(d) {
     # keyed (binary-search) subset on draw — suit_dt is setkey'd on draw in the parent
     df <- merge(suit_dt[.(d), .(location_id, year_id, malaria_suitability), nomatch = NULL],
                 base_xy, by = c("location_id", "year_id"))
+    if (!is.null(wind_dt)) {   # same draw number as suitability (DECISIONS 2026-10-07)
+      df <- merge(df, wind_dt[.(d), .(location_id, year_id, wind_speed), nomatch = NULL],
+                  by = c("location_id", "year_id"))
+    }
     df <- df[location_id %in% kept_ids]    # all read_years; trimmed to forecast_years after shifting
     df[, `:=`(
       malaria_suit              = malaria_suitability,  # raw suitability; for formulations using s(malaria_suit,...). MUST match the fit's malaria_suit (raw variant value).
@@ -396,7 +418,7 @@ main <- function() {
     make_option("--zero-burden-policy", type = "character", default = "drop"),
     make_option("--hold-covariate",     type = "character", default = "",
                 help = paste("comma-separated covariates to hold constant:",
-                             "gdppc, suitability, temp, flood, dah. Empty = none.")),
+                             "gdppc, suitability, temp, flood, dah, wind. Empty = none.")),
     make_option("--hold-year",          type = "integer",   default = 2023L,
                 help = "year at which --hold-covariate values are frozen"),
     make_option("--outcomes",           type = "character", default = "both",
@@ -460,7 +482,9 @@ main <- function() {
   read_years     <- sort(unique(c(forecast_years, as.integer(rake_years_vec))))
 
   # inputs + observed
-  inputs <- read_forecast_inputs(forecast_inputs_nc(ssp_scenario), read_years, dah_scenario)
+  draw_vars <- model_draw_vars(models$pfpr)
+  if (length(draw_vars)) message(glue("  extra draw-varying covariates: {paste(draw_vars, collapse = ', ')}"))
+  inputs <- read_forecast_inputs(forecast_inputs_nc(ssp_scenario), read_years, dah_scenario, draw_vars)
   # Holds are applied to the covariate trajectories BEFORE any transform or predict,
   # so a frozen gdppc_mean also freezes the log_gdppc_mean the inc/mort models use.
   inputs <- apply_covariate_holds(inputs, hold_covariates, hold_year)

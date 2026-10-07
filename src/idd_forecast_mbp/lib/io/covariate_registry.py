@@ -272,6 +272,7 @@ DEFAULT_MALARIA_FORECAST_COVARIATES: tuple[str, ...] = (
     "people_flood_days_per_capita",
     "malaria_suitability",
     "mean_low_temperature",   # single-realization (climate_mean); used by formulations f1-f4
+    "wind_speed",             # draw-varying, paired by draw number with suitability (spec 7427; DECISIONS 2026-10-07)
     "A0_location_id",
 )
 
