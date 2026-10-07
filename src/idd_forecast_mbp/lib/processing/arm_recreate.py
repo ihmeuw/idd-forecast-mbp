@@ -21,6 +21,7 @@ import xarray as xr
 
 from idd_forecast_mbp import constants as mbpc
 from idd_forecast_mbp.lib.io.parquet import read_parquet_with_integer_ids
+from idd_forecast_mbp.lib.processing.aggregation import roll_up_hierarchy
 from idd_forecast_mbp.lib.processing.arm_factors import (
     KEYS_AA,
     KEYS_AS,
@@ -74,7 +75,7 @@ def _read_as_malaria(
     )
 
 
-def _read_population(
+def read_population(
     name: str, keys: list[str], locations: Sequence[int], years: Sequence[int]
 ) -> pd.DataFrame:  # pragma: no cover
     return read_parquet_with_integer_ids(
@@ -125,7 +126,7 @@ def arm_weights(  # noqa: PLR0913 - the arm plus four injectable inputs
     as_pop = (
         as_population
         if as_population is not None
-        else _read_population(
+        else read_population(
             "as_2023_full_population_df.parquet", KEYS_AS, locations, want_years
         )
     )
@@ -213,13 +214,21 @@ def recreate_admin2_age_sex(  # noqa: PLR0913 - arm, scenario and the optional s
     node: Path = FORECAST_NODE,
     weights: pd.DataFrame | None = None,
     aa_population: pd.DataFrame | None = None,
+    log_rates: pd.DataFrame | None = None,
 ) -> pd.DataFrame:
     """The arm's admin-2 age/sex counts per draw (2,A,X) for ``ssp``; never written anywhere.
 
     Returns ``[location_id, year_id, age_group_id, sex_id, draw, inc_count, mort_count]``. A
     masked outcome (the forecast's zero-burden policy) is NaN; non-endemic locations have no rows.
+    ``log_rates`` (from ``read_admin2_log_rates``) skips the read when a caller loops over draws.
     """
-    rates = read_admin2_log_rates(forecast_nc(arm, ssp, node), years=years, draws=draws)
+    rates = (
+        log_rates
+        if log_rates is not None
+        else read_admin2_log_rates(
+            forecast_nc(arm, ssp, node), years=years, draws=draws
+        )
+    )
     locs = sorted(rates.location_id.unique().tolist())
     yrs = sorted(rates.year_id.unique().tolist())
     if aa_population is None:  # pragma: no cover - constant-path I/O
@@ -227,7 +236,7 @@ def recreate_admin2_age_sex(  # noqa: PLR0913 - arm, scenario and the optional s
             set(yrs)
             | ({arm.population_hold_year} if arm.population_hold_year else set())
         )
-        aa_population = _read_population(
+        aa_population = read_population(
             "aa_2023_full_population_df.parquet", KEYS_AA, locs, want
         )
     if arm.population_hold_year is not None:
@@ -260,3 +269,50 @@ def draw_aligned_difference(
     for c in value_cols:
         out[c] = merged[f"{c}_a"] - merged[f"{c}_b"]
     return out
+
+
+def roll_up_age_sex_to_nodes(  # noqa: PLR0913 - the counts, the hierarchy and the full output grid
+    as_counts: pd.DataFrame,
+    hierarchy_df: pd.DataFrame,
+    node_ids: Sequence[int],
+    *,
+    years: Sequence[int],
+    draws: Sequence[int],
+    ages: Sequence[int],
+    sexes: Sequence[int],
+) -> pd.DataFrame:
+    """Admin-2 age/sex counts rolled up in count space to ``node_ids``, on the complete grid.
+
+    A node with no endemic admin-2 below it is a true zero, not a gap, so the result is
+    zero-filled over node x year x age x sex x draw. A masked outcome (NaN) contributes nothing.
+    """
+    grid = pd.MultiIndex.from_product(
+        [
+            sorted(int(n) for n in node_ids),
+            list(years),
+            list(ages),
+            list(sexes),
+            list(draws),
+        ],
+        names=[*KEYS_AS, "draw"],
+    )
+    out = pd.DataFrame(index=grid)
+    for m in ("inc", "mort"):
+        col = f"{m}_count"
+        part = as_counts.loc[as_counts[col].notna(), [*KEYS_AS, "draw", col]]
+        rolled = roll_up_hierarchy(
+            part,
+            hierarchy_df,
+            col,
+            preserve_age_sex=True,
+            extra_group_cols=["draw"],
+            start_level=5,
+        )
+        rolled = rolled[rolled.location_id.isin({int(n) for n in node_ids})]
+        out[col] = (
+            rolled.set_index([*KEYS_AS, "draw"])[col]
+            .reindex(grid)
+            .fillna(0.0)
+            .to_numpy()
+        )
+    return out.reset_index()

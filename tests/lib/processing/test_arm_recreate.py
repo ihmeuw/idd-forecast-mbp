@@ -19,6 +19,7 @@ from idd_forecast_mbp.lib.processing.arm_recreate import (
     forecast_nc,
     read_admin2_log_rates,
     recreate_admin2_age_sex,
+    roll_up_age_sex_to_nodes,
 )
 
 if TYPE_CHECKING:
@@ -231,3 +232,81 @@ def test_draw_aligned_difference_and_its_refusals() -> None:
         draw_aligned_difference(a, b.iloc[:1], ["inc_count"])
     with pytest.raises(ValueError, match="different key columns"):
         draw_aligned_difference(a, b.rename(columns={"draw": "d"}), ["inc_count"])
+
+
+def test_roll_up_age_sex_to_nodes_sums_children_and_zero_fills() -> None:
+    # contiguous levels 0-5, as in the real hierarchy (the root is its own parent)
+    hier = pd.DataFrame(
+        {
+            "location_id": [1, 2, 3, 4, 10, 20, 101, 102, 201],
+            "parent_id": [1, 1, 2, 3, 4, 4, 10, 10, 20],
+            "level": [0, 1, 2, 3, 4, 4, 5, 5, 5],
+        }
+    )
+    rows = [
+        (101, 2030, 3, 1, 0, 2.0, 1.0),
+        (102, 2030, 3, 1, 0, 3.0, np.nan),  # mortality masked at 102
+    ]
+    counts = pd.DataFrame(
+        rows,
+        columns=[
+            "location_id",
+            "year_id",
+            "age_group_id",
+            "sex_id",
+            "draw",
+            "inc_count",
+            "mort_count",
+        ],
+    )
+    out = roll_up_age_sex_to_nodes(
+        counts, hier, [1, 10, 20], years=[2030], draws=[0], ages=[3, 6], sexes=[1]
+    )
+    got = out.set_index(["location_id", "age_group_id"])
+    assert got.loc[(10, 3), "inc_count"] == 5.0
+    assert got.loc[(10, 3), "mort_count"] == 1.0
+    assert got.loc[(1, 3), "inc_count"] == 5.0
+    assert got.loc[(20, 3), "inc_count"] == 0.0  # no endemic child: a true zero
+    assert (
+        got.loc[(10, 6), "inc_count"] == 0.0
+    )  # an age with no counts is zero, not missing
+    assert len(out) == 3 * 2
+
+
+def test_recreation_accepts_pre_read_log_rates(
+    node: Path,
+    as_population: pd.DataFrame,
+    aa_population: pd.DataFrame,
+    as_malaria: pd.DataFrame,
+    protection: pd.DataFrame,
+) -> None:
+    arm = _arm()
+    w = arm_weights(
+        arm,
+        LOCS,
+        YEARS,
+        "v",
+        as_malaria=as_malaria,
+        as_population=as_population,
+        protection=protection,
+    )
+    rates = read_admin2_log_rates(forecast_nc(arm, "ssp245", node), draws=[1])
+    a = recreate_admin2_age_sex(
+        arm,
+        "ssp245",
+        ve_variant="v",
+        node=node,
+        weights=w,
+        aa_population=aa_population,
+        draws=[1],
+    )
+    b = recreate_admin2_age_sex(
+        arm,
+        "ssp245",
+        ve_variant="v",
+        node=node / "nowhere",
+        weights=w,
+        aa_population=aa_population,
+        log_rates=rates,
+    )
+    pd.testing.assert_frame_equal(a.reset_index(drop=True), b.reset_index(drop=True))
