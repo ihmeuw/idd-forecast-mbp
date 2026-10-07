@@ -2,14 +2,16 @@
 
 from __future__ import annotations
 
+import dataclasses
 import importlib.util
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import pytest
 from click.testing import CliRunner
 
 from idd_forecast_mbp.lib.data.malaria_arms import Arm
+from idd_forecast_mbp.lib.processing.arm_recreate import forecast_nc
 
 if TYPE_CHECKING:
     from types import ModuleType
@@ -28,17 +30,19 @@ def driver() -> ModuleType:
     return module
 
 
-def _arm(**kw: object) -> Arm:
-    base = {
-        "name": "no_vaccine",
-        "model": "m",
-        "forecast_label": "m__base",
-        "dah": "Baseline",
-        "vaccine": "none",
-        "population_hold_year": None,
-        "age_structure_hold_year": None,
-    }
-    return Arm(**{**base, **kw})
+BASE_ARM = Arm(
+    name="no_vaccine",
+    model="m",
+    forecast_label="m__base",
+    dah="Baseline",
+    vaccine="none",
+    population_hold_year=None,
+    age_structure_hold_year=None,
+)
+
+
+def _arm(**kw: Any) -> Arm:
+    return dataclasses.replace(BASE_ARM, **kw)
 
 
 def test_forecast_nc_is_the_launch_label_on_the_node(
@@ -46,7 +50,7 @@ def test_forecast_nc_is_the_launch_label_on_the_node(
 ) -> None:
     arm = _arm(dah="Constant")
     assert (
-        driver.forecast_nc(arm, "ssp245", tmp_path)
+        forecast_nc(arm, "ssp245", tmp_path)
         == tmp_path / "m__base" / "malaria_forecast_ssp245_Constant.nc"
     )
 

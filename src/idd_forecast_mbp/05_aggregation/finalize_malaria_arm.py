@@ -29,20 +29,9 @@ from idd_tools.versions import VersionsOptions, versions_options
 from idd_forecast_mbp import constants as mbpc
 from idd_forecast_mbp.lib.data.hierarchy import load_hierarchy
 from idd_forecast_mbp.lib.data.malaria_arms import Arm, load_arms
-from idd_forecast_mbp.lib.io.parquet import read_parquet_with_integer_ids, write_parquet
-from idd_forecast_mbp.lib.processing.arm_factors import (
-    KEYS_AS,
-    admin2_protection,
-    all_age_factors,
-    cell_weights,
-    hold_population,
-    structure_multiplier,
-)
-from idd_forecast_mbp.lib.processing.disaggregation import (
-    compute_as_rr,
-    malaria_as_fractions,
-)
-from idd_forecast_mbp.lib.processing.vaccine_impact import eligible_locations
+from idd_forecast_mbp.lib.io.parquet import write_parquet
+from idd_forecast_mbp.lib.processing.arm_factors import all_age_factors
+from idd_forecast_mbp.lib.processing.arm_recreate import arm_weights, forecast_nc
 from idd_forecast_mbp.lib.versioning import finish_stage, stage_target
 
 if TYPE_CHECKING:
@@ -50,7 +39,6 @@ if TYPE_CHECKING:
 
 REPO = Path(mbpc.__file__).resolve().parents[2]
 ARMS_FILE = REPO / "reports" / "model_runs" / "malaria_arms.yaml"
-FORECAST_NODE = mbpc.MAL_FORECAST_OUTPUTS_READ_PATH.parent
 ANCHOR_YEAR = 2023
 LEVELS = (0, 1, 2, 3, 4, 5)
 SSPS = ("ssp126", "ssp245", "ssp585")
@@ -68,11 +56,6 @@ def _finish_run() -> ModuleType:
     return module
 
 
-def forecast_nc(arm: Arm, ssp: str, node: Path = FORECAST_NODE) -> Path:
-    """The arm's forecast netCDF for ``ssp``: the launch's label on the forecast node."""
-    return node / arm.forecast_label / f"malaria_forecast_{ssp}_{arm.dah}.nc"
-
-
 def arm_factor_frames(
     arm: Arm,
     locations: list[int],
@@ -81,8 +64,9 @@ def arm_factor_frames(
 ) -> dict[str, pd.DataFrame] | None:
     """``{measure: [location_id, year_id, factor]}`` for the arm, or None when every factor is 1.
 
-    Locations with no age/sex pattern (fraction sum 0: no observed burden at 2023, so the
-    forecast dropped them) keep factor 1; they carry no counts either way.
+    The factor is ``sum_as(w)`` from the same ``arm_weights`` the admin-2 recreation uses. A location
+    whose weights all vanish has no age/sex pattern (no observed burden at 2023, so the forecast
+    dropped it; protection never reaches 1) and keeps factor 1: it carries no counts either way.
     """
     if (
         arm.vaccine == "none"
@@ -90,65 +74,15 @@ def arm_factor_frames(
         and arm.population_hold_year is None
     ):
         return None
-    loc_filter = [("location_id", "in", locations)]
-    as_mal = read_parquet_with_integer_ids(
-        mbpc.MAL_RAKED_AS_READ_PATH / "as_full_malaria_df.parquet",
-        columns=[
-            *KEYS_AS,
-            "malaria_inc_rate",
-            "aa_malaria_inc_rate",
-            "malaria_mort_rate",
-            "aa_malaria_mort_rate",
-        ],
-        filters=[*loc_filter, ("year_id", "==", ANCHOR_YEAR)],
-    )
-    rr = compute_as_rr(as_mal, anchor_year=ANCHOR_YEAR)
-    hold = arm.population_hold_year or arm.age_structure_hold_year
-    want_years = sorted(set(years) | ({hold} if hold else set()))
-    as_pop = read_parquet_with_integer_ids(
-        mbpc.POPULATION_READ_PATH / "as_2023_full_population_df.parquet",
-        columns=[*KEYS_AS, "population"],
-        filters=[*loc_filter, ("year_id", "in", want_years)],
-    )
-    if arm.population_hold_year is not None:
-        as_pop = hold_population(as_pop, arm.population_hold_year, keys=KEYS_AS)
-    multiplier = (
-        structure_multiplier(as_pop, arm.age_structure_hold_year)
-        if arm.age_structure_hold_year is not None
-        else None
-    )
-    as_pop = as_pop[as_pop.year_id.isin(years)]
-    fractions = malaria_as_fractions(rr, as_pop)
-    protection = None
-    if arm.vaccine != "none":
-        prot = read_parquet_with_integer_ids(
-            mbpc.MAL_VACCINE_COHORTS_READ_PATH
-            / mbpc.MAL_VACCINE_COHORTS_FILENAME_TEMPLATE.format(
-                variant=ve_variant, products=arm.vaccine
-            ),
-            columns=[
-                *KEYS_AS,
-                "effective_protection_case",
-                "effective_protection_death",
-            ],
-        )
-        mapping = eligible_locations(mbpc.VACCINE_COVERAGE_FILE, set(locations))
-        protection = admin2_protection(prot, mapping)
-    factors = all_age_factors(
-        cell_weights(fractions, protection=protection, multiplier=multiplier)
-    )
-    fsum = fractions.groupby(["location_id", "year_id"], as_index=False)[
-        ["inc_fraction", "mort_fraction"]
-    ].sum()
-    factors = factors.merge(fsum, on=["location_id", "year_id"])
+    factors = all_age_factors(arm_weights(arm, locations, years, ve_variant))
     out = {}
     for m in ("inc", "mort"):
-        f = np.where(factors[f"{m}_fraction"] > 0, factors[f"{m}_factor"], 1.0)
+        f = factors[f"{m}_factor"].to_numpy()
         out[m] = pd.DataFrame(
             {
                 "location_id": factors.location_id,
                 "year_id": factors.year_id,
-                "factor": f,
+                "factor": np.where(f > 0, f, 1.0),
             }
         )
     return out
