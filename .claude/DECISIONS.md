@@ -1667,3 +1667,69 @@ snapshot. When the gate is first used (on the re-selection run), Record pick fit
 **Why:** One provenance path for every fitted model from here on: `run.json` with a `selection` block pointing at the
 run and spec that produced it. SELECTION_PIPELINE_PLAN §6.3 closed.
 **Revisit if:** never; a refit is cheap (three scams, minutes) and the alternative writes a provenance record by hand.
+
+## 2026-10-07: The malaria result arms and outputs (Bobby's definition; canonical list)
+**Decision (Bobby, 2026-10-07, stated for the 4th time in 6 sessions; this entry is the record):**
+Models: spec 7426 (best; DAH mpd + GDP mpd + logit suitability + A0_af) and spec 7427 (also try; 7426 + linear wind_speed),
+both from selection run `scam_prelim/lsae_1285/20261001_efs`.
+Arms, for each model:
+- Baseline
+- DAH Constant
+- gdppc_hold2023
+- population_hold2023
+- population_age_structure_hold2023
+- wind_hold2023 (new; the wind model 7427 only)
+- no_vaccine (new)
+- good_vaccine (new; everyone who gets either vaccine gets the good vaccine)
+Each arm runs by draw for each of the three climate scenarios and historical. All rake to 2023, in count space.
+Outputs (taxonomy of the 2026-09-28 entry):
+- FHS deliverable: reference only, all three climate scenarios, by draw, age and sex, at all FHS locations, rate only,
+  mortality and incidence (3,A,X,beta,a,m).
+- Paper (to start): all arms, all climate scenarios, every location admin 2 up to global, mean + upper/lower, all-age,
+  rate and count for mortality and incidence; only one of rate/count if the other is exactly derivable (1,B,Y,*,a).
+- In memory, never saved: admin-2 draw-level age- and sex-specific values for any arm/scenario (2,A,X), recreated 100%
+  consistently, so draw- and scenario-matched differences across arms or across scenarios can be taken at admin 2 and
+  integrated up. Other than the FHS deliverable, nothing needs saving if it is exactly recreatable.
+**Why:** Bobby: "this REALLY SHOULD ALREADY BE WRITTEN DOWN." Earlier statements lived only in session chat and in
+partial form in MALARIA_RESELECTION_ORIENTATION.md §4/§8b (paper inbox arms 1-7, holds named __denom/__asstruct).
+**Revisit if:** Bobby changes the arm list or the outputs; then append a new entry, never edit this one.
+
+## 2026-10-07: Malaria arms are single changes from Baseline; forecasts include historical
+**Decision (Bobby, 2026-10-07):** (1) Each arm in the 2026-10-07 arm list is Baseline with exactly one change; no permutations
+of counterfactuals (no "constant GDP AND no vaccine" etc.), at least not yet. (2) Every forecast launch covers historical
+as well as the three SSPs, so there are anchored predictions in the past (2000-2023), not only 2023-2100.
+**Why:** Bobby, in review of `.claude/MALARIA_RUN_PLAN.md`.
+**Revisit if:** a combined counterfactual is requested (append a new entry naming it).
+
+## 2026-10-07: Run-plan answers: good vaccine = R21; paper keeps historical; admin-2 checks at machine tolerance
+**Decision (Bobby, 2026-10-07):** (1) good_vaccine: everyone covered by either vaccine gets R21 (VE_ANCHORS.yaml: R21 clinical VE
+0.80/0.72/0.62 at 9/15/21 months vs RTS,S 0.68/0.41/0.26). (2) The paper output includes historical (alpha years).
+(3) Checks at admin-2 hold to machine tolerance.
+**Why:** Bobby's answers to MALARIA_RUN_PLAN.md open items 3-5.
+**Revisit if:** a product other than R21 becomes the comparator.
+
+## 2026-10-07: Climate draws are paired by draw number across covariates; the draw multiplicity is intentional
+**Decision (Bobby, 2026-10-07):** (1) Every draw-varying covariate enters the forecast by DRAW NUMBER: draw NNN of wind_speed
+is used with draw NNN of malaria suitability (and any other draw-varying covariate). We know they are not the same GCM;
+there is no alternative. So 7427's wind_speed enters by draw, paired by index with suitability. (2) The uneven count of
+each GCM member across the 100 draw slots is the design: members are sampled so that each modelling TEAM has the same
+chance of being selected for each draw, then each variant within a team has an equal chance, so a team with 50 variants
+does not count 50 times more than a team with 1. Summaries over the 100 draws are therefore the intended weighting;
+the README's "equal-model statistics" (deduplicate to distinct values) is NOT to be applied.
+**Why:** The climate-aggregates/2026_09_09 README (not written or agreed by Bobby) says "Do not pair measures draw-wise"
+and calls the multiplicity a distortion; Bobby: the README is wrong on both points and is not authoritative for mbp.
+Claude had presented it as a constraint on this repo.
+**Revisit if:** the climate team publishes a draw->member map AND Bobby decides to pair by member.
+
+## 2026-10-07: Vaccine VE curves are loglinear for every vaccine arm
+**Decision (Bobby, 2026-10-07):** The malaria vaccine arms use the loglinear VE curve family everywhere (Baseline = projected
+product mix; good_vaccine = `--product-scenario all_r21`, R21 being the good product). The linear_* variants are not used.
+**Why:** Bobby, reviewing the August vaccine run (07-figures/20260824_vaccine_impact: loglinear_severe0 and
+loglinear_severeSmooth, each projected and all_r21; no linear runs).
+**Revisit if:** the VE anchors change.
+
+## 2026-10-07: Vaccine VE variant is loglinear_severe0 for both vaccine arms
+**Decision (Bobby, 2026-10-07):** Baseline (projected product mix) and good_vaccine (all_r21) both use `--ve-variant
+loglinear_severe0`. Refines the loglinear entry above.
+**Why:** Bobby's answer to the last open run-plan question.
+**Revisit if:** the VE anchors change.
