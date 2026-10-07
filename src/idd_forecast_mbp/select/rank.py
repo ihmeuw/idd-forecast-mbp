@@ -766,11 +766,14 @@ def slice_tables(
         result.consensus[["spec_index", "consensus_rank"]], on="spec_index"
     )
 
+    focus = result.params.focus_metric
+    ascending = result.params.focus_direction == "lower"  # best first
+
     def rows_for(cfgs: Any) -> pd.DataFrame:
         idx = [key_to_spec[config_key(c)] for c in cfgs]
         out = (
             base[base["spec_index"].isin(idx)]
-            .sort_values("consensus_rank", kind="stable")
+            .sort_values(focus, ascending=ascending, kind="stable")
             .copy()
         )
         out["n_changed"] = [

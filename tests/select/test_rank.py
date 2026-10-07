@@ -274,6 +274,10 @@ def test_slice_tables_and_window_table(
     assert sl["reference"] == ANCHOR_SPEC
     assert set(sl["settled"]) | set(sl["contested"]) == set(DESIGN.axes)
     assert (sl["neighbors"]["n_changed"] == 1).all()
+    for frame in ("neighbors", "down_set", "up_set", "fiber"):
+        assert sl[frame][
+            "topsis_score"
+        ].is_monotonic_decreasing  # TOPSIS order, best first
     assert ANCHOR_SPEC in set(
         sl["down_set"]["spec_index"]
     )  # the down-set includes the reference itself

@@ -70,7 +70,7 @@ Tolerance rule: `{python} params.tolerance_rule` x `{python} params.tolerance_va
 
 ```{python}
 cand_cols = ["spec_index", "n_smooths", "n_scams", "n_terms", params.focus_metric, "formula_text"]
-display(result.candidates.sort_values([*params.complexity_order, params.focus_metric])[cand_cols].reset_index(drop=True))
+display(result.candidates.sort_values(params.focus_metric, ascending=params.focus_direction == "lower")[cand_cols].reset_index(drop=True))
 ```
 
 ## Fit-time settings
