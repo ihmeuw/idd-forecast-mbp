@@ -140,7 +140,7 @@ def build_forecast_manifest(ssp_scenarios, dah_scenarios, run_level, *, workflow
 @click.option("--output-key", default=None, hidden=True,
               help="gone: the run's identity is the --label it is frozen under")
 @click.option("--hold-covariate", "hold_covariates", multiple=True,
-              type=click.Choice(["gdppc", "suitability", "temp", "flood", "dah"]),
+              type=click.Choice(["gdppc", "suitability", "temp", "flood", "dah", "wind"]),
               help="repeatable; hold this covariate constant at --hold-year. Does NOT "
                    "change the fitted model, only the forecast trajectory.")
 @click.option("--hold-year", default=2023, show_default=True, type=int,
