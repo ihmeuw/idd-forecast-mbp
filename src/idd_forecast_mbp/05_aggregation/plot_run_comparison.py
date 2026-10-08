@@ -302,6 +302,8 @@ def figure_timeseries(
     out_path: Path,
     main_label: str = "current",
     comp_label: str = "previous",
+    *,
+    predicted_past: bool = True,
 ) -> None:
     fig, axes = plt.subplots(1, 2, figsize=(13, 5))
 
@@ -327,7 +329,7 @@ def figure_timeseries(
                 zorder=5,
             )
 
-        h = historical_series(cur, ssps, col)
+        h = historical_series(cur, ssps, col) if predicted_past else cur.iloc[0:0]
         if not h.empty:
             ax.plot(
                 h.year_id,
@@ -1413,6 +1415,7 @@ def figure_timeseries_over_bars(  # noqa: PLR0913
     comp_label: str = "previous",
     overlay: dict[str, pd.DataFrame] | None = None,
     overlay_label: str = "2025 run",
+    predicted_past: bool = True,
 ) -> None:
     """The trajectory and the horizon totals in one figure.
 
@@ -1445,7 +1448,7 @@ def figure_timeseries_over_bars(  # noqa: PLR0913
             o = obs.sort_values("year_id")
             ax.plot(o.year_id, o[colname] / divisor, color=OBSERVED_COLOR,
                     linewidth=2.0, label="Observed", zorder=5)
-        h = historical_series(cur, ssps, colname)
+        h = historical_series(cur, ssps, colname) if predicted_past else cur.iloc[0:0]
         if not h.empty:
             ax.plot(h.year_id, h[colname] / divisor, color=HIST_COLOR, linewidth=2.0,
                     label=f"Predicted to {HIST_END} ({main_label}, all SSPs)", zorder=4)
@@ -1574,6 +1577,10 @@ def figure_timeseries_over_bars(  # noqa: PLR0913
               show_default=True, type=int)
 @click.option("--output-dir", default=None, type=click.Path(file_okay=False, path_type=Path),
               help="defaults to <product-dir>/figures")
+@click.option("--predicted-past/--no-predicted-past", default=True, show_default=True,
+              help="draw the current run's anchored predictions before the anchor year (one grey line)")
+@click.option("--no-comparison", is_flag=True,
+              help="no dashed series: the current run alone (timeseries and within-run scenario differences)")
 def main(  # noqa: PLR0913
     product_dir: Path,
     previous_run_dir: Path,
@@ -1594,6 +1601,8 @@ def main(  # noqa: PLR0913
     observed_start: int,
     horizon_years: tuple[int, ...],
     output_dir: Path | None,
+    predicted_past: bool,
+    no_comparison: bool,
 ) -> None:
     """Build the global and super-region comparison figures."""
     out_dir = output_dir or (product_dir / "figures")
@@ -1649,6 +1658,13 @@ def main(  # noqa: PLR0913
             previous_run_dir, ssps, dah_scenario, have_current, population,
             hold=previous_hold,
         )
+    if no_comparison:
+        reference = reference.iloc[0:0]
+        comp_label = "none"
+    elif sensitivity_mode:
+        # the dashed series is this run's baseline: its predicted past equals the solid series' (a
+        # finishing-side arm changes nothing before 2024), so it starts at the anchor year
+        reference = reference[reference.year_id >= anchor_year]
     previous = reference
     observed = load_observed(have_current, observed_start, anchor_year)
 
@@ -1702,8 +1718,18 @@ def main(  # noqa: PLR0913
                 loc, name, measure, observed, current, previous, ssps,
                 out_dir / f"timeseries_{measure}_{loc}.png",
                 main_label=main_label, comp_label=comp_label,
+                predicted_past=predicted_past,
             )
             n += 1
+        if no_comparison:
+            globe = have_current[0] if 1 not in have_current else 1
+            figure_differences(
+                globe, names.get(globe, str(globe)), measure, current, previous,
+                anchor_year, out_dir / f"differences_{measure}_{globe}.png",
+                comp_label=comp_label,
+            )
+            n += 1
+            continue
         # Bars for global AND every super-region; the difference panels stay global.
         for loc in have_current:
             figure_bars(
@@ -1740,6 +1766,7 @@ def main(  # noqa: PLR0913
                     {"previous": prev_base, "current": prev_sens}
                     if effect_mode else None
                 ),
+                predicted_past=predicted_past,
             )
             n += 3
         globe = have_current[0] if 1 not in have_current else 1
