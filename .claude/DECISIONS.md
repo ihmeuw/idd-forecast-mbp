@@ -1733,3 +1733,14 @@ loglinear_severeSmooth, each projected and all_r21; no linear runs).
 loglinear_severe0`. Refines the loglinear entry above.
 **Why:** Bobby's answer to the last open run-plan question.
 **Revisit if:** the VE anchors change.
+
+## 2026-10-07: Malaria arms are data; one product node per (model, arm); 2,A,X is a library call
+**Decision:** `reports/model_runs/malaria_arms.yaml` holds the arms (DECISIONS 2026-10-07 list) and each model's forecast
+launch labels; `lib/data/malaria_arms.py` resolves them. Finishing writes one product node per `<model>__<arm>`
+(all_age_summary per SSP, levels 0-5, 2000-2100) and the FHS deliverable to `<model>__fhs_deliverable`. Finishing-side
+changes (vaccine, population hold, age-structure hold) are per-cell weights `w = f*m*(1-p)` (`lib/processing/arm_factors.py`)
+shared by the all-age products (sum of w) and the 2,A,X recreation (w cell-wise; `lib/processing/arm_recreate.py`).
+**Why:** one definition of every arm, so saved summaries and on-demand recreations agree (checked: 3e-8). Forecast launches
+are labelled snapshots on the forecast node, run sequentially (one run per working slot).
+**Revisit if:** an arm needs two changes at once (the YAML refuses it today), or the age-structure definition is changed
+(open question in MALARIA_RUN_REPORT_20261007.md).
