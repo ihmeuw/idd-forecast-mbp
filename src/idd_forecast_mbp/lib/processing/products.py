@@ -1,7 +1,7 @@
 """The product contract: what a finished all-age product must look like, and how to check it.
 
 Two causes produce these files with two different producers — malaria via
-``05_aggregation/finish_run.py``, dengue via its own F4 driver — and one consumer reads both
+``05_aggregation/finalize_malaria_arm.py``, dengue via its own F4 driver — and one consumer reads both
 (``plot_run_comparison.py``). Sharing the *producer* was rejected as needlessly expensive; what
 has to be shared is the **contract**. A contract with no enforcement drifts, so the schema and
 its validator live together here and both producers call :func:`validate_products`.

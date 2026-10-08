@@ -33,7 +33,6 @@ from idd_forecast_mbp.lib.data.malaria_arms import load_arms
 from idd_forecast_mbp.lib.processing.arm_factors import (
     KEYS_AA,
     KEYS_AS,
-    hold_population,
 )
 from idd_forecast_mbp.lib.processing.arm_recreate import (
     arm_weights,
@@ -102,10 +101,6 @@ def chunk(model: str, ssp: str, draw_start: int, draw_end: int, arms_file: str) 
     rates = read_admin2_log_rates(forecast_nc(arm, ssp), years=YEARS, draws=draws)
     locs = sorted(rates.location_id.unique().tolist())
     aa_pop = read_population("aa_2023_full_population_df.parquet", KEYS_AA, locs, YEARS)
-    if (
-        arm.population_hold_year is not None
-    ):  # the reference arm has none; kept for any arm
-        aa_pop = hold_population(aa_pop, arm.population_hold_year, keys=KEYS_AA)
     weights = arm_weights(arm, locs, YEARS, cfg.ve_variant)
     hierarchy = load_hierarchy()
     fhs_ids = (

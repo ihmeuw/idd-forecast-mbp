@@ -409,7 +409,7 @@ def test_anchor_filename_takes_the_anchor_rather_than_storing_it():
 
 
 def test_mixed_level_flag_drives_the_rollup_choice():
-    """finish_run must use roll_up_to_ancestors, not a fixed start_level, when True."""
+    """A finishing driver must use roll_up_to_ancestors, not a fixed start_level, when True."""
     assert get_cause_spec("dengue").uses_mixed_level_leaves is True
     assert get_cause_spec("malaria").uses_mixed_level_leaves is False
 

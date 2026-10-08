@@ -28,7 +28,7 @@ from idd_forecast_mbp.lib.processing.arm_factors import (
     admin2_protection,
     arm_age_sex_counts,
     cell_weights,
-    hold_population,
+    population_multiplier,
     structure_multiplier,
 )
 from idd_forecast_mbp.lib.processing.disaggregation import (
@@ -114,9 +114,8 @@ def arm_weights(  # noqa: PLR0913 - the arm plus four injectable inputs
 ) -> pd.DataFrame:
     """The arm's per-cell weights ``w = f * m * (1 - p)`` at ``locations`` x ``years``.
 
-    ``f`` is the forecast's own split (``as_rr`` frozen at 2023 x the year's age/sex population, or
-    the hold-year population for the population hold). Inputs default to the canonical artifacts;
-    tests inject frames.
+    ``f`` is the forecast's own split (``as_rr`` frozen at 2023 x the year's age/sex population); a
+    hold enters only through ``m``. Inputs default to the canonical artifacts; tests inject frames.
     """
     years = [int(y) for y in years]
     hold = arm.population_hold_year or arm.age_structure_hold_year
@@ -130,13 +129,12 @@ def arm_weights(  # noqa: PLR0913 - the arm plus four injectable inputs
             "as_2023_full_population_df.parquet", KEYS_AS, locations, want_years
         )
     )
+    multiplier = None
     if arm.population_hold_year is not None:
-        as_pop = hold_population(as_pop, arm.population_hold_year, keys=KEYS_AS)
-    multiplier = (
-        structure_multiplier(as_pop, arm.age_structure_hold_year)
-        if arm.age_structure_hold_year is not None
-        else None
-    )
+        multiplier = population_multiplier(as_pop, arm.population_hold_year)
+    if arm.age_structure_hold_year is not None:
+        m = structure_multiplier(as_pop, arm.age_structure_hold_year)
+        multiplier = m if multiplier is None else _times(multiplier, m)
     fractions = malaria_as_fractions(rr, as_pop[as_pop.year_id.isin(years)])
     if arm.vaccine == "none":
         prot = None
@@ -147,6 +145,13 @@ def arm_weights(  # noqa: PLR0913 - the arm plus four injectable inputs
             else _read_protection(ve_variant, arm.vaccine, locations)
         )
     return cell_weights(fractions, protection=prot, multiplier=multiplier)
+
+
+def _times(a: pd.DataFrame, b: pd.DataFrame) -> pd.DataFrame:
+    """Cell-wise product of two multiplier frames (a missing cell counts as 1)."""
+    m = a.merge(b, on=KEYS_AS, how="outer", suffixes=("_a", "_b")).fillna(1.0)
+    m["multiplier"] = m.multiplier_a * m.multiplier_b
+    return m[[*KEYS_AS, "multiplier"]]
 
 
 def read_admin2_log_rates(
@@ -232,16 +237,8 @@ def recreate_admin2_age_sex(  # noqa: PLR0913 - arm, scenario and the optional s
     locs = sorted(rates.location_id.unique().tolist())
     yrs = sorted(rates.year_id.unique().tolist())
     if aa_population is None:  # pragma: no cover - constant-path I/O
-        want = sorted(
-            set(yrs)
-            | ({arm.population_hold_year} if arm.population_hold_year else set())
-        )
         aa_population = read_population(
-            "aa_2023_full_population_df.parquet", KEYS_AA, locs, want
-        )
-    if arm.population_hold_year is not None:
-        aa_population = hold_population(
-            aa_population, arm.population_hold_year, keys=KEYS_AA
+            "aa_2023_full_population_df.parquet", KEYS_AA, locs, yrs
         )
     if weights is None:  # pragma: no cover - reads the canonical artifacts
         weights = arm_weights(arm, locs, yrs, ve_variant)

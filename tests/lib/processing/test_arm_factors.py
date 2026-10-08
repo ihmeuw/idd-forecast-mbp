@@ -12,6 +12,7 @@ from idd_forecast_mbp.lib.processing.arm_factors import (
     arm_age_sex_counts,
     cell_weights,
     hold_population,
+    population_multiplier,
     structure_multiplier,
 )
 from idd_forecast_mbp.lib.processing.disaggregation import malaria_as_fractions
@@ -216,3 +217,21 @@ def test_protection_outside_unit_interval_refuses(
     bad.loc[bad.index[0], "effective_protection_case"] = 1.5
     with pytest.raises(ValueError, match="protection outside"):
         cell_weights(malaria_as_fractions(rr, as_pop), protection=bad)
+
+
+def test_population_multiplier_freezes_size_and_composition(
+    as_pop: pd.DataFrame,
+) -> None:
+    m = population_multiplier(as_pop, 2023).merge(
+        as_pop, on=["location_id", "year_id", "age_group_id", "sex_id"]
+    )
+    ref = (
+        as_pop[as_pop.year_id == 2023]
+        .rename(columns={"population": "ref"})
+        .drop(columns="year_id")
+    )
+    m = m.merge(ref, on=["location_id", "age_group_id", "sex_id"])
+    np.testing.assert_allclose(m.multiplier, m.ref / m.population)
+    np.testing.assert_allclose(m.loc[m.year_id == 2023, "multiplier"], 1.0)
+    with pytest.raises(ValueError, match="no rows for hold year 1999"):
+        population_multiplier(as_pop, 1999)

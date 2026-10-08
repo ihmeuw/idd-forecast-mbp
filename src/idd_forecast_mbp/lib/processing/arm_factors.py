@@ -5,15 +5,17 @@ An arm (DECISIONS 2026-10-07) is Baseline with exactly one change. Changes to a 
 no re-forecast and act on admin-2 age/sex counts (DECISIONS 2026-07-31, 2026-08-04, 2026-08-25):
 
 - vaccine protection ``p`` (none, projected product mix, or R21 everywhere),
-- the population hold (the whole population frame replaced by its hold-year value),
-- the age-structure hold (each age/sex group's count times ``as_ref_frac / aa_ref_frac``).
+- the population hold: each age/sex count times ``as_pop[ref] / as_pop[t]`` (size and composition
+  frozen; the 2025 first-submission method, OLD_make_population_hold_variables_by_draw.py),
+- the age-structure hold: each age/sex count times ``as_ref_frac / aa_ref_frac`` (composition frozen,
+  size free; same source).
 
 The forecast's own age/sex split is ``count[l,y,a,s,d] = aa_count[l,y,d] * f[l,y,a,s]`` with ``f``
 draw-free (``malaria_as_fractions``). So every arm is
 
     arm_count[l,y,a,s,d] = aa_count[l,y,d] * w[l,y,a,s],     w = f * m * (1 - p)
 
-with ``m`` the structure multiplier (1 unless the age-structure hold is on). Because ``w`` carries
+with ``m`` the hold multiplier (1 unless a hold is on). Because ``w`` carries
 no draw, the all-age arm count is exactly ``aa_count * sum_as(w)``: the all-age products use that
 scalar (``all_age_factors``) and the admin-2 age/sex recreation uses ``w`` cell-wise
 (``arm_age_sex_counts``). The two agree by construction, which is what lets a recreated 2,A,X
@@ -57,6 +59,30 @@ def hold_population(
         msg = f"{missing} rows have no {hold_year} population to hold at"
         raise ValueError(msg)
     return out
+
+
+def population_multiplier(as_pop: pd.DataFrame, hold_year: int) -> pd.DataFrame:
+    """``m = as_pop[ref] / as_pop[t]`` per age/sex cell: ``N(t) p(t) r(t)`` becomes ``N(ref) p(ref) r(t)``.
+
+    The population hold of the 2025 first submission (OLD_make_population_hold_variables_by_draw.py,
+    reference year 2022 then). A cell with no population in year t gets 0.
+    """
+    pop = as_pop[[*KEYS_AS, "population"]]
+    ref = pop.loc[
+        pop.year_id == int(hold_year),
+        ["location_id", "age_group_id", "sex_id", "population"],
+    ]
+    if ref.empty:
+        msg = f"age/sex population has no rows for hold year {hold_year}"
+        raise ValueError(msg)
+    out = pop.merge(
+        ref.rename(columns={"population": "pop_ref"}),
+        on=["location_id", "age_group_id", "sex_id"],
+        how="left",
+    )
+    out["pop_ref"] = out.pop_ref.fillna(0.0)
+    out["multiplier"] = np.where(out.population > 0, out.pop_ref / out.population, 0.0)
+    return out[[*KEYS_AS, "multiplier"]]
 
 
 def structure_multiplier(as_pop: pd.DataFrame, hold_year: int) -> pd.DataFrame:

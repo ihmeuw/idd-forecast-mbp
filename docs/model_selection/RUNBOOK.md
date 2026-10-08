@@ -64,8 +64,12 @@ and `execRscript.sh` wrapper passed to every R launcher.
    The model dir is resolved from the models node and passed to the workers; output goes to the
    forecast_outputs node's `working/` and is frozen under the label on success. A hold run
    (`--hold-covariate`) is a separate launch with its own label after the baseline is finished.
-   Then `src/idd_forecast_mbp/05_aggregation/finish_run.py --forecast-run-dir <snapshot dir> ...
-   --current --description "why"` for the products.
+   Then, per model and arm (`reports/model_runs/malaria_arms.yaml`),
+   `src/idd_forecast_mbp/05_aggregation/finalize_malaria_arm.py --model <model> --arm <arm> --current
+   --description "why"` for the all-age products, and
+   `src/idd_forecast_mbp/05_aggregation/fhs_deliverable_malaria.py chunk|combine` for the FHS deliverable.
+   (`finish_run.py` was deleted 2026-10-08: its hold code did not match the 2025 first-submission
+   definitions.)
 
 ## Where the record lives
 

@@ -7,18 +7,17 @@
 Resolves the arm in ``reports/model_runs/malaria_arms.yaml`` (``lib/data/malaria_arms.py``), reads the
 forecast launch that arm uses (by its label on the forecast_outputs node), builds the arm's draw-free
 all-age factors (``lib/processing/arm_factors.py``: vaccine protection, population hold, age-structure
-hold) and runs finish_run's count-space roll-up and draw summary at every LSAE level (0-5) for every
+hold) and runs the count-space roll-up and draw summary (``lib/processing/all_age_products.py``) at every LSAE level (0-5) for every
 year the forecast holds (historical 2000-2022 plus the SSP years). Writes, per SSP,
 ``all_age_summary_{ssp}.parquet`` (counts and rates, mean/lower/upper, with the level's own population)
-and the 2023 anchor check, into the product node ``<model>__<arm>``.
+and the 2023 anchor check, into the product node ``<model>__<arm>``. The population-hold arm's
+rates divide by the 2023 population (its world's population); every other arm's by the real one.
 """
 
 from __future__ import annotations
 
-import importlib.util
 import json
 from pathlib import Path
-from typing import TYPE_CHECKING
 
 import click
 import numpy as np
@@ -30,30 +29,20 @@ from idd_forecast_mbp import constants as mbpc
 from idd_forecast_mbp.lib.data.hierarchy import load_hierarchy
 from idd_forecast_mbp.lib.data.malaria_arms import Arm, load_arms
 from idd_forecast_mbp.lib.io.parquet import write_parquet
-from idd_forecast_mbp.lib.processing.arm_factors import all_age_factors
+from idd_forecast_mbp.lib.processing.all_age_products import (
+    build_all_age_summary,
+    build_anchor_check,
+    load_population,
+)
+from idd_forecast_mbp.lib.processing.arm_factors import all_age_factors, hold_population
 from idd_forecast_mbp.lib.processing.arm_recreate import arm_weights, forecast_nc
 from idd_forecast_mbp.lib.versioning import finish_stage, stage_target
-
-if TYPE_CHECKING:
-    from types import ModuleType
 
 REPO = Path(mbpc.__file__).resolve().parents[2]
 ARMS_FILE = REPO / "reports" / "model_runs" / "malaria_arms.yaml"
 ANCHOR_YEAR = 2023
 LEVELS = (0, 1, 2, 3, 4, 5)
 SSPS = ("ssp126", "ssp245", "ssp585")
-
-
-def _finish_run() -> ModuleType:
-    """The sibling stage script ``finish_run.py``, loaded as a module (stage dirs are not packages)."""
-    path = Path(__file__).with_name("finish_run.py")
-    spec = importlib.util.spec_from_file_location("finish_run", path)
-    if spec is None or spec.loader is None:
-        msg = f"cannot load {path}"
-        raise ImportError(msg)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
 
 
 def arm_factor_frames(
@@ -139,15 +128,21 @@ def main(  # noqa: PLR0913 - one option per knob
         )
         return
     out_dir = stage_target(node_root, versions)
-    fr = _finish_run()
     hierarchy = load_hierarchy()
     verdicts = {}
     for ssp, nc in ncs.items():
         with xr.open_dataset(nc) as ds:
             years = [int(y) for y in ds.year_id.to_numpy()]
             locations = [int(x) for x in ds.location_id.to_numpy()]
-        population = fr.load_population(
-            sorted(set(years) | {ANCHOR_YEAR}), hold_year=arm.population_hold_year
+        population = load_population(sorted(set(years) | {ANCHOR_YEAR}))
+        # counts always come from the real population; the population-hold arm's rates divide by
+        # its own world's population, which is the hold-year population at every level
+        denominator = (
+            hold_population(
+                population, arm.population_hold_year, keys=["location_id", "year_id"]
+            )
+            if arm.population_hold_year is not None
+            else None
         )
         factors = arm_factor_frames(arm, locations, years, cfg.ve_variant)
         if factors is not None:
@@ -155,18 +150,19 @@ def main(  # noqa: PLR0913 - one option per knob
                 click.echo(
                     f"  [{ssp}] {m} factor: min {f.factor.min():.4f} max {f.factor.max():.4f}"
                 )
-        summary = fr.build_all_age_summary(
+        summary = build_all_age_summary(
             nc,
             hierarchy,
             population,
             list(LEVELS),
             (lower_quantile, upper_quantile),
-            as_factors=factors,
+            factors=factors,
+            denominator_population=denominator,
         )
         write_parquet(
             summary, out_dir / f"all_age_summary_{ssp}.parquet", validate=True
         )
-        check, verdict = fr.build_anchor_check(summary, ANCHOR_YEAR, rel_tol)
+        check, verdict = build_anchor_check(summary, ANCHOR_YEAR, rel_tol)
         write_parquet(
             check, out_dir / f"anchor_{ANCHOR_YEAR}_{ssp}.parquet", validate=True
         )

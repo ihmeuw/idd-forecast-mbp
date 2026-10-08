@@ -25,6 +25,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 - `--forecast-run-dir` on `vaccine_impact_scenarios.py` and `run_malaria_vaccine_pipeline.py`; the impact summary's
   `model_run` column is the resolved forecast snapshot name (2026-09-28).
 ### Changed
+- Deleted `05_aggregation/finish_run.py`. Its verified roll-up/summary/anchor code moved to
+  `lib/processing/all_age_products.py`; its population hold (size only) and age-structure hold (2023 burden-share
+  weights) did not match the 2025 first-submission definitions. Holds now follow the 2025 method on admin-2 age/sex
+  counts: population `x as_pop(ref)/as_pop(t)`, age structure `x as_ref_frac/aa_ref_frac` (2026-10-08).
 - Removed the selection gate (`select/gate.py`, `malaria_selection_gate.ipynb`, `test_gate.py`): models are chosen
   from the score distributions and fitted with `--spec-index` (2026-10-07).
 - Coverage: `--no-cov-on-fail` removed, so a shortfall fails the suite; `fail_under` set to the measured fast-suite

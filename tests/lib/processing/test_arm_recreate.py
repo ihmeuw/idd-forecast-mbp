@@ -187,30 +187,100 @@ def test_recreation_sums_to_all_age_times_the_arm_factor(
     np.testing.assert_allclose(at_anchor.inc_count, at_anchor.inc_count_aa, rtol=1e-12)
 
 
-def test_population_hold_uses_the_hold_year_population_everywhere(
+def _cells(rec: pd.DataFrame) -> pd.DataFrame:
+    return rec.set_index(
+        ["location_id", "year_id", "age_group_id", "sex_id", "draw"]
+    ).sort_index()
+
+
+def test_population_hold_is_the_2025_method_n2023_p2023_rt(
     node: Path,
     as_population: pd.DataFrame,
     aa_population: pd.DataFrame,
     as_malaria: pd.DataFrame,
 ) -> None:
-    arm = _arm(vaccine="none", population_hold_year=2023)
-    w = arm_weights(
-        arm, LOCS, YEARS, "v", as_malaria=as_malaria, as_population=as_population
+    """Each age/sex count N(t) p(t) r(t) becomes N(2023) p(2023) r(t): count x as_pop(2023)/as_pop(t)."""
+    kw = {"as_malaria": as_malaria, "as_population": as_population}
+    base_arm = _arm(vaccine="none")
+    hold_arm = _arm(vaccine="none", population_hold_year=2023)
+    base = _cells(
+        recreate_admin2_age_sex(
+            base_arm,
+            "ssp245",
+            ve_variant="v",
+            node=node,
+            weights=arm_weights(base_arm, LOCS, YEARS, "v", **kw),
+            aa_population=aa_population,
+        )
     )
-    rec = recreate_admin2_age_sex(
-        arm, "ssp245", ve_variant="v", node=node, weights=w, aa_population=aa_population
+    held = _cells(
+        recreate_admin2_age_sex(
+            hold_arm,
+            "ssp245",
+            ve_variant="v",
+            node=node,
+            weights=arm_weights(hold_arm, LOCS, YEARS, "v", **kw),
+            aa_population=aa_population,
+        )
     )
-    tot = rec.groupby(["location_id", "year_id", "draw"], as_index=False)[
-        "inc_count"
-    ].sum()
-    rates = read_admin2_log_rates(forecast_nc(arm, "ssp245", node))
-    pop23 = (
-        aa_population[aa_population.year_id == 2023].set_index("location_id").population
+    pop = as_population.set_index(
+        ["location_id", "year_id", "age_group_id", "sex_id"]
+    ).population
+    p23 = (
+        as_population[as_population.year_id == 2023]
+        .set_index(["location_id", "age_group_id", "sex_id"])
+        .population
     )
-    expect = np.exp(rates.inc_log_rate) * rates.location_id.map(pop23)
+    idx = base.index
+    ratio = (
+        p23.reindex(
+            pd.MultiIndex.from_arrays(
+                [
+                    idx.get_level_values(0),
+                    idx.get_level_values(2),
+                    idx.get_level_values(3),
+                ]
+            )
+        ).to_numpy()
+        / pop.reindex(idx.droplevel("draw")).to_numpy()
+    )
     np.testing.assert_allclose(
-        tot.sort_values(["location_id", "year_id", "draw"]).inc_count.to_numpy(),
-        expect.to_numpy(),
+        held.inc_count.to_numpy(), base.inc_count.to_numpy() * ratio, rtol=1e-12
+    )
+    at_2023 = held.index.get_level_values("year_id") == 2023
+    np.testing.assert_allclose(
+        held.inc_count[at_2023], base.inc_count[at_2023], rtol=1e-12
+    )
+
+
+def test_two_holds_multiply_cell_by_cell(
+    as_population: pd.DataFrame, as_malaria: pd.DataFrame
+) -> None:
+    kw = {"as_malaria": as_malaria, "as_population": as_population}
+    pop_only = arm_weights(
+        _arm(vaccine="none", population_hold_year=2023), LOCS, YEARS, "v", **kw
+    )
+    struct_only = arm_weights(
+        _arm(vaccine="none", age_structure_hold_year=2023), LOCS, YEARS, "v", **kw
+    )
+    plain = arm_weights(_arm(vaccine="none"), LOCS, YEARS, "v", **kw)
+    both = arm_weights(
+        _arm(vaccine="none", population_hold_year=2023, age_structure_hold_year=2023),
+        LOCS,
+        YEARS,
+        "v",
+        **kw,
+    )
+    keys = ["location_id", "year_id", "age_group_id", "sex_id"]
+    m = (
+        both.merge(pop_only, on=keys, suffixes=("", "_p"))
+        .merge(struct_only, on=keys, suffixes=("", "_s"))
+        .merge(plain, on=keys, suffixes=("", "_0"))
+    )
+    ok = m.inc_weight_0 > 0
+    np.testing.assert_allclose(
+        m.inc_weight[ok],
+        m.inc_weight_p[ok] * m.inc_weight_s[ok] / m.inc_weight_0[ok],
         rtol=1e-12,
     )
 
