@@ -25,19 +25,27 @@ START_GAP = 0.02  # fraction of the axis span left before the first labelled val
 Start = Literal["gap", "at"]
 
 
-def _tick_bounds(lo: float, hi: float) -> tuple[float, float, list[float]] | None:
+def tick_bounds(lo: float, hi: float) -> tuple[float, float, list[float]] | None:
     if not (np.isfinite(lo) and np.isfinite(hi)) or hi <= lo:
         return None
     locator = ticker.MaxNLocator(nbins="auto", steps=[1, 2, 2.5, 5, 10])
     ticks = np.asarray(locator.tick_values(lo, hi), dtype=float)
-    # MaxNLocator's ticks always bracket [lo, hi], so both selections are non-empty
-    t_lo = ticks[ticks <= lo].max()
-    t_hi = ticks[ticks >= hi].min()
-    return (
-        float(t_lo),
-        float(t_hi),
-        [float(t) for t in ticks[(ticks >= t_lo) & (ticks <= t_hi)]],
+    step = float(ticks[1] - ticks[0])
+    # a data end within float noise of a tick is on that tick (e.g. -1e-12 at a 0 tick), and the
+    # locator's ticks do not always bracket the data, so extend by whole steps when they do not
+    eps = 1e-9 * (hi - lo)
+    t_lo = float(
+        ticks[ticks <= lo + eps].max(
+            initial=ticks[0] - step * np.ceil((ticks[0] - lo) / step)
+        )
     )
+    t_hi = float(
+        ticks[ticks >= hi - eps].min(
+            initial=ticks[-1] + step * np.ceil((hi - ticks[-1]) / step)
+        )
+    )
+    n = round((t_hi - t_lo) / step)
+    return t_lo, t_hi, [t_lo + k * step for k in range(n + 1)]
 
 
 def end_on_ticks(
@@ -51,7 +59,7 @@ def end_on_ticks(
     ):
         if not on:
             continue
-        bounds = _tick_bounds(float(interval[0]), float(interval[1]))
+        bounds = tick_bounds(float(interval[0]), float(interval[1]))
         if bounds is None:
             continue
         t_lo, t_hi, ticks = bounds

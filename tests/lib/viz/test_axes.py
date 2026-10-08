@@ -9,7 +9,11 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pytest
 
-from idd_forecast_mbp.lib.viz.axes import end_figure_axes_on_ticks, end_on_ticks
+from idd_forecast_mbp.lib.viz.axes import (
+    end_figure_axes_on_ticks,
+    end_on_ticks,
+    tick_bounds,
+)
 
 
 def test_year_axis_ends_at_2100_and_counts_at_the_next_tick() -> None:
@@ -58,3 +62,22 @@ def test_default_start_leaves_a_small_gap_before_the_first_label() -> None:
     assert lo_x == pytest.approx(2000.0 - 0.02 * 100.0)
     assert 2000.0 in ax.get_xticks()
     plt.close(fig)
+
+
+def test_float_noise_below_a_tick_counts_as_on_it() -> None:
+    """Arm-minus-baseline panels are -1e-12 where the runs coincide; the axis must still start at 0."""
+    fig, ax = plt.subplots()
+    ax.plot([2023, 2050, 2100], [-1e-12, 2500.0, 5000.0])
+    end_on_ticks(ax, start="at")
+    assert ax.get_ylim() == (0.0, 5000.0)
+    plt.close(fig)
+
+
+def test_ticks_that_do_not_bracket_the_data_are_extended_by_whole_steps() -> None:
+    bounds = tick_bounds(-3.0, 997.0)
+    assert bounds is not None
+    t_lo, t_hi, ticks = bounds
+    assert t_lo <= -3.0
+    assert t_hi >= 997.0
+    assert ticks[0] == t_lo
+    assert ticks[-1] == t_hi
