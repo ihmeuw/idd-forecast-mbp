@@ -5,8 +5,8 @@
 
 A. Anchor: every arm's 2023 values against the raked observed (GBD 2023) all-age values, by level,
    from the anchor tables the finishing driver wrote (max |relative difference|).
-B. Recreation: Baseline admin-2 draws recreated in memory for the ``n`` highest-burden countries,
-   summed to each country, mean over draws, against the saved paper summary's country mean.
+B. Recreation: Baseline admin-2 draws recreated in memory for the ``n`` highest-burden countries
+   (years 2023, 2050, 2100), summed to each country, mean over draws, against the saved summary's mean.
 C. FHS deliverable (best model only): FHS age/sex rates x age/sex population summed to all-age,
    mean over draws, against the paper summary at the same countries (2023-2100).
 Writes ``checks.json`` into the product node ``<model>__acceptance``.
@@ -41,6 +41,7 @@ SSPS = ("ssp126", "ssp245", "ssp585")
 COUNTRY_LEVEL = 3
 ADMIN2_LEVEL = 5
 ANCHOR_YEAR = 2023
+CHECK_YEARS = [2023, 2050, 2100]
 
 
 def rel_diff(ours: pd.Series, ref: pd.Series) -> float:
@@ -93,24 +94,32 @@ def check_recreate(model: str, ssp: str, n: int, arms_file: str) -> dict[str, ob
         hit = {int(x) for x in str(path).split(",") if x} & set(countries)
         if hit:
             country_of[int(lid)] = next(iter(hit))
-    rates = read_admin2_log_rates(forecast_nc(arm, ssp))
+    rates = read_admin2_log_rates(forecast_nc(arm, ssp), years=CHECK_YEARS)
     rates = rates[rates.location_id.isin(country_of)]
     locs = sorted(rates.location_id.unique().tolist())
-    years = sorted(rates.year_id.unique().tolist())
-    aa_pop = read_population("aa_2023_full_population_df.parquet", KEYS_AA, locs, years)
-    weights = arm_weights(arm, locs, years, cfg.ve_variant)
-    rec = recreate_admin2_age_sex(
-        arm,
-        ssp,
-        ve_variant=cfg.ve_variant,
-        weights=weights,
-        aa_population=aa_pop,
-        log_rates=rates,
+    aa_pop = read_population(
+        "aa_2023_full_population_df.parquet", KEYS_AA, locs, CHECK_YEARS
     )
-    rec["country"] = rec.location_id.map(country_of)
-    by = rec.groupby(["country", "year_id", "draw"], as_index=False)[
-        ["inc_count", "mort_count"]
-    ].sum(min_count=1)
+    weights = arm_weights(arm, locs, CHECK_YEARS, cfg.ve_variant)
+    parts = []
+    for d in sorted(
+        rates.draw.unique()
+    ):  # one draw at a time: admin-2 x age/sex x draws does not fit
+        rec = recreate_admin2_age_sex(
+            arm,
+            ssp,
+            ve_variant=cfg.ve_variant,
+            weights=weights,
+            aa_population=aa_pop,
+            log_rates=rates[rates.draw == d],
+        )
+        rec["country"] = rec.location_id.map(country_of)
+        parts.append(
+            rec.groupby(["country", "year_id", "draw"], as_index=False)[
+                ["inc_count", "mort_count"]
+            ].sum(min_count=1)
+        )
+    by = pd.concat(parts, ignore_index=True)
     mean = by.groupby(["country", "year_id"], as_index=False)[
         ["inc_count", "mort_count"]
     ].mean()
