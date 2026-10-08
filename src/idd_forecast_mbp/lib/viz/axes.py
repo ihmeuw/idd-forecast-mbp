@@ -26,7 +26,10 @@ Start = Literal["gap", "at"]
 
 
 def tick_bounds(lo: float, hi: float) -> tuple[float, float, list[float]] | None:
-    if not (np.isfinite(lo) and np.isfinite(hi)) or hi <= lo:
+    # a span that is float noise (a panel of zeros differenced) is flat: leave the axis alone
+    if not (np.isfinite(lo) and np.isfinite(hi)) or hi - lo <= 1e-12 * max(
+        1.0, abs(lo), abs(hi)
+    ):
         return None
     locator = ticker.MaxNLocator(nbins="auto", steps=[1, 2, 2.5, 5, 10])
     ticks = np.asarray(locator.tick_values(lo, hi), dtype=float)
@@ -53,13 +56,27 @@ def end_on_ticks(
 ) -> None:
     """Each requested axis ends on the labelled tick at or above the data and starts on (``"at"``) or
     just before (``"gap"``) the labelled tick at or below it."""
-    for on, interval, set_lim, axis in (
-        (x, ax.dataLim.intervalx, ax.set_xlim, ax.xaxis),
-        (y, ax.dataLim.intervaly, ax.set_ylim, ax.yaxis),
+    for on, which, set_lim, axis in (
+        (x, "x", ax.set_xlim, ax.xaxis),
+        (y, "y", ax.set_ylim, ax.yaxis),
     ):
         if not on:
             continue
-        bounds = tick_bounds(float(interval[0]), float(interval[1]))
+        # shared axes take the union of the group's data, so no sibling's data is clipped
+        group = (
+            ax.get_shared_x_axes() if which == "x" else ax.get_shared_y_axes()
+        ).get_siblings(ax)
+        spans = [
+            a.dataLim.intervalx if which == "x" else a.dataLim.intervaly for a in group
+        ]
+        finite = [
+            (float(lo), float(hi))
+            for lo, hi in spans
+            if np.isfinite(lo) and np.isfinite(hi)
+        ]
+        if not finite:
+            continue
+        bounds = tick_bounds(min(lo for lo, _ in finite), max(hi for _, hi in finite))
         if bounds is None:
             continue
         t_lo, t_hi, ticks = bounds

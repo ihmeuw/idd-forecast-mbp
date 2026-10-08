@@ -81,3 +81,24 @@ def test_ticks_that_do_not_bracket_the_data_are_extended_by_whole_steps() -> Non
     assert t_hi >= 997.0
     assert ticks[0] == t_lo
     assert ticks[-1] == t_hi
+
+
+def test_a_span_of_pure_float_noise_is_treated_as_flat() -> None:
+    """A super-region with no malaria differences to -7e-33..0; shrinking the axis to that blew up a figure."""
+    fig, ax = plt.subplots()
+    ax.plot([2023, 2050, 2100], [-7.14e-33, 0.0, 0.0])
+    before = ax.get_ylim()
+    end_on_ticks(ax, x=False)
+    assert ax.get_ylim() == before
+    assert tick_bounds(-7.14e-33, 0.0) is None
+    plt.close(fig)
+
+
+def test_shared_axes_use_the_union_of_the_group_data() -> None:
+    fig, (a, b) = plt.subplots(1, 2, sharey=True)
+    a.plot([2023, 2100], [0.0, 940.0])  # the larger values are in the FIRST panel
+    b.plot([2023, 2100], [0.0, 410.0])
+    end_figure_axes_on_ticks(fig)
+    assert a.get_ylim()[1] >= 940.0
+    assert b.get_ylim() == a.get_ylim()
+    plt.close(fig)
