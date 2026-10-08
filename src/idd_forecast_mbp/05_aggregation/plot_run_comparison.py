@@ -295,7 +295,7 @@ def historical_series(cur: pd.DataFrame, ssps: Sequence[str], col: str) -> pd.Da
 def _save(fig: plt.Figure, out_path: Path) -> None:
     """Axes end on a labelled tick (lib/viz/axes.py), then write."""
     end_figure_axes_on_ticks(fig)
-    _save(fig, out_path)
+    fig.savefig(out_path, dpi=200, bbox_inches="tight")
 
 
 def _timeseries_panel(  # noqa: PLR0913 - one panel's data and labels
