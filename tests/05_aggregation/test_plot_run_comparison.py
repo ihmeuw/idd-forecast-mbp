@@ -56,3 +56,22 @@ def test_load_current_refuses_a_missing_scenario(
 ) -> None:
     with pytest.raises(FileNotFoundError, match="missing for ssp126"):
         prc.load_current(tmp_path, ["ssp126"], "Baseline", [0])
+
+
+def test_historical_is_drawn_once_and_warns_when_ssps_differ(
+    prc: ModuleType, capsys: pytest.CaptureFixture[str]
+) -> None:
+    cur = pd.DataFrame(
+        {
+            "ssp": ["ssp126", "ssp245", "ssp126", "ssp245", "ssp126", "ssp245"],
+            "year_id": [2022, 2022, 2023, 2023, 2024, 2024],
+            "count_mean": [1.0, 1.0, 2.0, 2.0, 3.0, 4.0],
+        }
+    )
+    h = prc.historical_series(cur, ["ssp126", "ssp245"], "count_mean")
+    assert h.year_id.tolist() == [2022, 2023]
+    assert "WARNING" not in capsys.readouterr().out
+    cur.loc[0, "count_mean"] = 5.0
+    prc.historical_series(cur, ["ssp126", "ssp245"], "count_mean")
+    assert "SSPs differ before 2023" in capsys.readouterr().out
+    assert prc.historical_series(cur.iloc[0:0], ["ssp126"], "count_mean").empty

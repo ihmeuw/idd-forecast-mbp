@@ -271,6 +271,26 @@ def load_observed(location_ids: Sequence[int], first_year: int, last_year: int) 
 # Figure 1 — timeseries, count and rate side by side
 # ---------------------------------------------------------------------------
 
+HIST_COLOR = "#7F7F7F"
+HIST_END = 2023  # forecasts carry anchored predictions for 2000-2023, identical across SSPs
+
+
+def historical_series(cur: pd.DataFrame, ssps: Sequence[str], col: str) -> pd.DataFrame:
+    """The current run's predictions through ``HIST_END``, drawn once: they do not differ by SSP.
+
+    Warns (does not hide) if the SSPs do differ before ``HIST_END``.
+    """
+    hist = cur[cur.year_id <= HIST_END]
+    present = [s for s in ssps if (hist.ssp == s).any()]
+    if not present:
+        return hist.iloc[0:0]
+    wide = hist.pivot_table(index="year_id", columns="ssp", values=col)
+    spread = (wide.max(axis=1) - wide.min(axis=1)).abs() / wide.abs().max(axis=1).replace(0, np.nan)
+    if (spread > 1e-6).any():
+        click.echo(f"  WARNING: SSPs differ before {HIST_END} (max rel spread {spread.max():.2e}); drawn from {present[0]}")
+    return hist[hist.ssp == present[0]].sort_values("year_id")
+
+
 def figure_timeseries(
     location_id: int,
     location_name: str,
@@ -307,8 +327,18 @@ def figure_timeseries(
                 zorder=5,
             )
 
+        h = historical_series(cur, ssps, col)
+        if not h.empty:
+            ax.plot(
+                h.year_id,
+                h[col] / divisor,
+                color=HIST_COLOR,
+                linewidth=2.0,
+                label=f"Predicted to {HIST_END} ({main_label}, all SSPs)",
+                zorder=4,
+            )
         for ssp in ssps:
-            c = cur[cur.ssp == ssp].sort_values("year_id")
+            c = cur[(cur.ssp == ssp) & (cur.year_id >= HIST_END)].sort_values("year_id")
             if not c.empty:
                 ax.plot(
                     c.year_id,
@@ -1415,8 +1445,12 @@ def figure_timeseries_over_bars(  # noqa: PLR0913
             o = obs.sort_values("year_id")
             ax.plot(o.year_id, o[colname] / divisor, color=OBSERVED_COLOR,
                     linewidth=2.0, label="Observed", zorder=5)
+        h = historical_series(cur, ssps, colname)
+        if not h.empty:
+            ax.plot(h.year_id, h[colname] / divisor, color=HIST_COLOR, linewidth=2.0,
+                    label=f"Predicted to {HIST_END} ({main_label}, all SSPs)", zorder=4)
         for ssp in ssps:
-            c = cur[cur.ssp == ssp].sort_values("year_id")
+            c = cur[(cur.ssp == ssp) & (cur.year_id >= HIST_END)].sort_values("year_id")
             if not c.empty:
                 ax.plot(c.year_id, c[colname] / divisor, color=SCENARIO_COLOR[ssp],
                         linewidth=2.0, label=f"{SCENARIO_LABEL[ssp]} ({main_label})",
