@@ -7,6 +7,7 @@ import matplotlib as mpl
 mpl.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
+import pytest
 
 from idd_forecast_mbp.lib.viz.axes import end_figure_axes_on_ticks, end_on_ticks
 
@@ -14,7 +15,7 @@ from idd_forecast_mbp.lib.viz.axes import end_figure_axes_on_ticks, end_on_ticks
 def test_year_axis_ends_at_2100_and_counts_at_the_next_tick() -> None:
     fig, ax = plt.subplots()
     ax.plot(np.arange(2000, 2101), np.linspace(512.0, 961.0, 101))
-    end_on_ticks(ax)
+    end_on_ticks(ax, start="at")
     lo_x, hi_x = ax.get_xlim()
     lo_y, hi_y = ax.get_ylim()
     assert (lo_x, hi_x) == (2000.0, 2100.0)
@@ -30,7 +31,7 @@ def test_figure_helper_leaves_categorical_x_alone_and_skips_empty_axes() -> None
     bars.bar([0, 1, 2], [3.0, 7.3, 5.0])
     bars.set_xlim(-0.7, 2.7)
     ts.plot([2023, 2050, 2100], [1.0, 2.0, 3.0])
-    end_figure_axes_on_ticks(fig)
+    end_figure_axes_on_ticks(fig, start="at")
     assert bars.get_xlim() == (-0.7, 2.7)
     assert bars.get_ylim()[1] in bars.get_yticks()
     assert ts.get_xlim()[1] == 2100.0
@@ -44,4 +45,16 @@ def test_flat_or_missing_data_leaves_limits_alone() -> None:
     before = ax.get_ylim()
     end_on_ticks(ax, x=False)
     assert ax.get_ylim() == before
+    plt.close(fig)
+
+
+def test_default_start_leaves_a_small_gap_before_the_first_label() -> None:
+    fig, ax = plt.subplots()
+    ax.plot(np.arange(2000, 2101), np.linspace(512.0, 961.0, 101))
+    end_on_ticks(ax)
+    lo_x, hi_x = ax.get_xlim()
+    assert hi_x == 2100.0  # the far end still stops on the last label
+    assert lo_x < 2000.0
+    assert lo_x == pytest.approx(2000.0 - 0.02 * 100.0)
+    assert 2000.0 in ax.get_xticks()
     plt.close(fig)
