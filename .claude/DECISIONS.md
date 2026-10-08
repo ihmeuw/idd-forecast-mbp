@@ -1744,3 +1744,15 @@ shared by the all-age products (sum of w) and the 2,A,X recreation (w cell-wise;
 are labelled snapshots on the forecast node, run sequentially (one run per working slot).
 **Revisit if:** an arm needs two changes at once (the YAML refuses it today), or the age-structure definition is changed
 (open question in MALARIA_RUN_REPORT_20261007.md).
+
+## 2026-10-08: finish_run.py deleted; population and age-structure holds are the 2025 first-submission method
+**Decision (Bobby, 2026-10-08):** Delete `05_aggregation/finish_run.py` ("went VERY VERY rogue") and repeat the 2025
+first-submission holds (`OLD_make_population_hold_variables_by_draw.py`, reference year 2023 instead of 2022), applied
+to admin-2 age/sex counts N(t) p(a,s,t) r(a,s,t), cell by cell, then rolled up:
+- population hold: x as_pop(2023)/as_pop(t) -> N(2023) p(a,s,2023) r(a,s,t) (size AND composition frozen);
+- age-structure hold: x [as_pop(2023)/as_pop(t)] / [aa_pop(2023)/aa_pop(t)] -> N(t) p(a,s,2023) r(a,s,t).
+finish_run's population hold froze size only (N(2023) R(t)) and its age-structure factor weighted by 2023 observed
+burden shares (wrong). Its verified roll-up/summary/anchor code lives in `lib/processing/all_age_products.py`.
+**Why:** Bobby: "There is only one way to hold age structure constant"; the 2025 deliverable is the reference.
+**Revisit if:** never for the definitions. Implementation detail not decided by Bobby: the population-hold arm's
+rates divide by the 2023 population (its world's population); flagged in MALARIA_RUN_REPORT_20261007.md.
