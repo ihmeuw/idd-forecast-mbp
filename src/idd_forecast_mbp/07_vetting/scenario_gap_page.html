@@ -1,0 +1,420 @@
+<title>Why is RCP4.5 highest?</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&family=Source+Serif+4:opsz,wght@8..60,600&display=swap">
+<style>
+/* Layout: one reading column (~72ch) with full-width chart rows; a sticky control strip holds model / measure / location. */
+:root {
+  --bg: #f4f6f4; --surface: #ffffff; --fg: #1b2420; --muted: #56635c; --rule: #d6ddd8; --accent: #2d5c4e;
+  --rcp26: #046c9a; --rcp45: #e58601; --rcp85: #a42820;
+  --gdp: #3f7f4f; --suit: #7b4f9e; --wind: #5f7487; --net: #1b2420;
+  --font-display: "Source Serif 4", Georgia, "Times New Roman", serif;
+  --font-body: "IBM Plex Sans", "Helvetica Neue", Arial, sans-serif;
+  --font-data: "IBM Plex Mono", ui-monospace, Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #111613; --surface: #182019; --fg: #e3e9e5; --muted: #9aa8a0; --rule: #2b3530; --accent: #86c2ad;
+    --rcp26: #4ea6d4; --rcp45: #f2a43c; --rcp85: #e26a56;
+    --gdp: #77c28b; --suit: #b993dd; --wind: #9fb3c6; --net: #e3e9e5; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #111613; --surface: #182019; --fg: #e3e9e5; --muted: #9aa8a0; --rule: #2b3530; --accent: #86c2ad;
+  --rcp26: #4ea6d4; --rcp45: #f2a43c; --rcp85: #e26a56;
+  --gdp: #77c28b; --suit: #b993dd; --wind: #9fb3c6; --net: #e3e9e5; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--fg); font: 15px/1.55 var(--font-body); }
+.page { max-width: 1120px; margin: 0 auto; padding-inline: 16px; padding-block: 28px 64px; display: grid; gap: 40px; }
+header { display: grid; gap: 10px; }
+h1, h2 { font-family: var(--font-display); font-weight: 600; text-wrap: balance; margin: 0; }
+h1 { font-size: clamp(1.7rem, 3.2vw, 2.3rem); line-height: 1.15; }
+h2 { font-size: 1.32rem; line-height: 1.25; }
+h3 { font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.07em; color: var(--muted); margin: 0; font-weight: 600; }
+p { margin: 0; max-width: 72ch; }
+.meta { color: var(--muted); font-size: 0.92rem; }
+section { display: grid; gap: 14px; }
+.lead { font-size: 1.02rem; }
+.controls { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5; background: var(--bg); border-bottom: 1px solid var(--rule);
+  display: flex; flex-wrap: wrap; gap: 10px 22px; padding-block: 10px; align-items: center; }
+.ctl { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.ctl > span { font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.07em; color: var(--muted); }
+.seg { display: inline-flex; border: 1px solid var(--rule); border-radius: 6px; overflow: hidden; background: var(--surface); }
+.seg button { font: inherit; font-size: 0.88rem; border: 0; background: transparent; color: var(--fg); padding: 5px 11px; cursor: pointer; }
+.seg button + button { border-left: 1px solid var(--rule); }
+.seg button[aria-pressed="true"] { background: var(--accent); color: var(--bg); }
+.seg button:focus-visible, select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+select { font: inherit; font-size: 0.88rem; color: var(--fg); background: var(--surface); border: 1px solid var(--rule); border-radius: 6px; padding: 5px 8px; max-width: 100%; }
+.grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr)); gap: 18px; }
+.stack { display: grid; gap: 18px; }
+.chart.short { height: 250px; }
+.grid3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 18px; }
+.panel { background: var(--surface); border: 1px solid var(--rule); border-radius: 8px; padding: 14px; display: grid; gap: 8px; min-width: 0; }
+.chart { position: relative; height: 290px; min-width: 0; }
+.chart.tall { height: 360px; }
+.note { font-size: 0.86rem; color: var(--muted); max-width: 80ch; }
+.facts { display: grid; gap: 6px; font-size: 0.94rem; padding-left: 1.1em; margin: 0; max-width: 80ch; }
+.tablewrap { overflow-x: auto; min-width: 0; }
+table { border-collapse: collapse; font-size: 0.88rem; width: 100%; }
+th, td { padding: 5px 9px; text-align: right; border-bottom: 1px solid var(--rule); white-space: nowrap; }
+th:first-child, td:first-child { text-align: left; }
+th { font-weight: 600; color: var(--muted); font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.05em; }
+td { font-family: var(--font-data); font-variant-numeric: tabular-nums; font-size: 0.84rem; }
+td:first-child { font-family: var(--font-body); font-size: 0.88rem; }
+.pos { color: var(--rcp85); } .neg { color: var(--rcp26); }
+pre { font-family: var(--font-data); font-size: 0.8rem; background: var(--surface); border: 1px solid var(--rule); border-radius: 8px; padding: 12px; overflow-x: auto; margin: 0; line-height: 1.5; }
+code { font-family: var(--font-data); font-size: 0.86em; }
+.key { display: flex; flex-wrap: wrap; gap: 14px; font-size: 0.85rem; color: var(--muted); }
+.key i { display: inline-block; width: 12px; height: 12px; border-radius: 2px; margin-right: 5px; vertical-align: -1px; }
+.checks { display: grid; gap: 4px; font-size: 0.9rem; }
+.checks div { display: flex; justify-content: space-between; gap: 16px; border-bottom: 1px dotted var(--rule); padding-block: 3px; flex-wrap: wrap; }
+.checks span:last-child { font-family: var(--font-data); font-variant-numeric: tabular-nums; }
+@media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+</style>
+
+<div class="page">
+  <header>
+    <h3>Malaria forecast, run of 2026-10-07</h3>
+    <h1>Why is RCP4.5 the highest scenario?</h1>
+    <p class="meta">All-age counts, Baseline arm (with vaccine protection), forecast years 2024&ndash;2100. Models 7426 (selected) and 7427 (7426 plus wind speed). The 2025 comparison is the first-submission run shipped 2025-08-28.</p>
+  </header>
+
+  <div class="controls" role="toolbar" aria-label="Page controls">
+    <div class="ctl"><span>Model</span><div class="seg" id="ctl-spec"></div></div>
+    <div class="ctl"><span>Measure</span><div class="seg" id="ctl-measure"></div></div>
+    <div class="ctl"><span>Location</span><select id="ctl-loc" aria-label="Location"></select></div>
+  </div>
+
+  <section id="ordering">
+    <h2>Scenario ordering</h2>
+    <p class="lead" id="ordering-text"></p>
+    <div class="grid2">
+      <div class="panel"><h3>This run (2026-10-07)</h3><div class="chart"><canvas id="c-order-now"></canvas></div></div>
+      <div class="panel"><h3>2025 first submission (2025-08-28)</h3><div class="chart"><canvas id="c-order-2025"></canvas></div></div>
+    </div>
+    <div class="tablewrap"><table id="t-order"></table></div>
+  </section>
+
+  <section id="inputs">
+    <h2>What differs between the scenarios</h2>
+    <p>In these models only two inputs take different values in different scenarios: GDP per capita (the SSP, from 2027 on) and malaria suitability (the RCP; it varies by draw). Model 7427 adds wind speed (RCP, by draw). Everything else that feeds the counts is the same in all three scenarios.</p>
+    <ul class="facts">
+      <li>Same in every scenario: population (the count denominator and the age/sex split), DAH per capita, vaccine coverage and the vaccine factor per admin-2.</li>
+      <li>Different by scenario but not a model term: minimum temperature (from 2024) and flood exposure (from 2015).</li>
+      <li>Each admin-2 is shifted so its 2023 value equals the GBD-raked observation, so only the change in each input since 2023 moves the forecast.</li>
+    </ul>
+    <pre id="formulas"></pre>
+    <p class="note">The lines below are each scenario's inputs averaged over admin-2 units, weighted by each unit's 2023 observed incidence count. Suitability and wind are draw means.</p>
+    <div class="grid3" id="input-charts"></div>
+  </section>
+
+  <section id="split">
+    <h2>Split of the gap between two scenarios</h2>
+    <p id="split-text"></p>
+    <div class="ctl"><span>Pair</span><div class="seg" id="ctl-pair"></div></div>
+    <div class="panel"><div class="key" id="split-key"></div><div class="chart tall"><canvas id="c-split"></canvas></div></div>
+    <div class="tablewrap"><table id="t-split"></table></div>
+    <p class="note">Each bar is one input's share of the gap in that year: the change in counts from taking that input from the first scenario instead of the second, averaged over the orders in which the inputs can be switched (Shapley value). The shares sum to the gap exactly. Computed per draw, then averaged.</p>
+  </section>
+
+  <section id="where">
+    <h2>Where the gap sits</h2>
+    <p id="where-text"></p>
+    <div class="ctl"><span>Period</span><div class="seg" id="ctl-period"></div></div>
+    <div class="stack">
+      <div class="panel"><h3>Super-regions</h3><div class="chart short"><canvas id="c-where"></canvas></div></div>
+      <div class="panel"><h3>Countries with the largest gaps</h3><div class="tablewrap"><table id="t-countries"></table></div></div>
+    </div>
+  </section>
+
+  <section id="alone">
+    <h2>Each input on its own, this run and 2025</h2>
+    <p id="alone-text"></p>
+    <div class="grid2" id="alone-charts"></div>
+    <div class="tablewrap"><table id="t-alone"></table></div>
+    <p class="note">Held = that input's change since the hold year removed, everything else as in the scenario. This run: rebuilt from the fitted terms with the change since 2023 set to zero (the GDP-held rebuild reproduces the gdppc_hold2023 forecast arm; see Checks). 2025 run: its shipped hold_gdppc and hold_suitability arms.</p>
+  </section>
+
+  <section id="terms">
+    <h2>How the model turns the inputs into burden</h2>
+    <p id="terms-text"></p>
+    <div class="grid3">
+      <div class="panel"><h3>GDP per capita term in the PfPR model</h3><div class="chart"><canvas id="c-term-gdp"></canvas></div><p class="note">Change in logit PfPR relative to GDP per capita of 100. Points: burden-weighted GDP per capita in 2023 and in 2100 by scenario, for the selected location.</p></div>
+      <div class="panel"><h3>Change in logit PfPR since 2023, by input</h3><div class="chart"><canvas id="c-link"></canvas></div><p class="note">Burden-weighted mean over admin-2 units of each input's term change since 2023. Solid: GDP term; dashed: suitability term; dotted: wind term (7427).</p></div>
+      <div class="panel"><h3>PfPR to incidence and mortality</h3><div class="chart"><canvas id="c-term-g"></canvas></div><p class="note">Change in log rate relative to logit PfPR of &minus;12. Incidence and mortality also carry a GDP term (coefficients listed in the formulas above).</p></div>
+    </div>
+  </section>
+
+  <section id="method">
+    <h2>Method and checks</h2>
+    <p>For every admin-2, draw and year, the forecast's log rates are rebuilt from the fitted terms (each term exported on a 200,000-point grid from the saved model objects). With A0 the country effect and the shift fixing 2023 at the observation:</p>
+    <pre>logit PfPR(t) = observed logit PfPR(2023) + &Sigma; [term(input(t)) &minus; term(input(2023))]
+log rate(t)   = observed log rate(2023) + g(logit PfPR(t)) &minus; g(observed logit PfPR(2023)) + &gamma; [log GDP(t) &minus; log GDP(2023)]</pre>
+    <p>Any mix of inputs (some from scenario A, the rest from B) can then be evaluated, which is what the split and the held counts use. The split is computed on counts without vaccine protection and multiplied, per admin-2 and year, by the Baseline arm's vaccine factor (Baseline count / no-vaccine count). That factor is the same in all three scenarios, so the scaled shares are the shares of the Baseline gap.</p>
+    <div class="panel"><h3>Checks for the selected model</h3><div class="checks" id="checks"></div></div>
+    <p class="note">Not separated here: how much of the change since the 2025 run comes from the new input data (GDP V6, climate-aggregates 2026_09_09) and how much from the refitted model. That needs the 2025 inputs run through the current model, or the 2025 model run on the current inputs. Code: <code>src/idd_forecast_mbp/07_vetting/</code> (export_malaria_term_grids.R, decompose_scenario_gap.py, held_input_counts.py, scenario_gap_page_data.py) and <code>lib/processing/scenario_gap.py</code>. Outputs: <code>07-figures/malaria_run_20261007/working/rcp45_gap/</code>.</p>
+  </section>
+</div>
+
+<script id="page-data" type="application/json">__PAGE_DATA__</script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.js"></script>
+<script>
+(function () {
+  "use strict";
+  const DATA = JSON.parse(document.getElementById("page-data").textContent);
+  const SSPS = ["ssp126", "ssp245", "ssp585"];
+  const SSP_LABEL = { ssp126: "RCP2.6", ssp245: "RCP4.5", ssp585: "RCP8.5" };
+  const SSP_VAR = { ssp126: "--rcp26", ssp245: "--rcp45", ssp585: "--rcp85" };
+  const PART_VAR = { gdp: "--gdp", suitability: "--suit", wind: "--wind" };
+  const PART_LABEL = { gdp: "GDP per capita", suitability: "Suitability", wind: "Wind speed" };
+  const PAIRS = [["ssp245:ssp126", "RCP4.5 − RCP2.6"], ["ssp245:ssp585", "RCP4.5 − RCP8.5"], ["ssp585:ssp126", "RCP8.5 − RCP2.6"]];
+  const SPEC_LABEL = { spec7426_best: "7426 (selected)", spec7427_alternate: "7427 (+ wind)" };
+  const MEASURE = { inc: { label: "Incidence", noun: "cases", div: 1e6, unit: "M", dp: 1 }, mort: { label: "Deaths", noun: "deaths", div: 1e3, unit: "k", dp: 0 } };
+  const state = { spec: Object.keys(DATA.specs)[0], measure: "inc", loc: "1", pair: "ssp245:ssp126", period: "y2100" };
+  const charts = {};
+
+  const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+  const S = () => DATA.specs[state.spec];
+  const M = () => MEASURE[state.measure];
+  const fmt = (v, signed) => {
+    if (v === null || v === undefined || !isFinite(v)) return "–";
+    const m = M(); const x = v / m.div;
+    const s = x.toLocaleString("en-US", { minimumFractionDigits: m.dp, maximumFractionDigits: m.dp }).replace("-", "\u2212");
+    return (signed && x > 0 ? "+" : "") + s + m.unit;
+  };
+  const at = (obj, key, year) => { const i = obj.year.indexOf(year); return i < 0 ? null : obj[key][i]; };
+  const sum = (arr) => arr.reduce((a, b) => a + (b === null ? 0 : b), 0);
+  const factors = () => S().run.factors;
+  const locName = (id) => DATA.names[id] || id;
+
+  function segmented(el, options, key, onChange) {
+    el.innerHTML = "";
+    options.forEach(([value, label]) => {
+      const b = document.createElement("button");
+      b.type = "button"; b.textContent = label; b.setAttribute("aria-pressed", String(state[key] === value));
+      b.addEventListener("click", () => { state[key] = value; el.querySelectorAll("button").forEach((x) => x.setAttribute("aria-pressed", String(x === b))); onChange(); });
+      el.appendChild(b);
+    });
+  }
+
+  function baseOptions(yTitle, extra) {
+    const fg = css("--fg"), muted = css("--muted"), rule = css("--rule");
+    const o = {
+      responsive: true, maintainAspectRatio: false, animation: false,
+      interaction: { mode: "index", intersect: false },
+      plugins: { legend: { labels: { color: fg, boxWidth: 14, font: { family: css("--font-body") } } },
+        tooltip: { callbacks: {} } },
+      scales: {
+        x: { ticks: { color: muted, maxRotation: 0, autoSkipPadding: 14 }, grid: { color: rule } },
+        y: { ticks: { color: muted }, grid: { color: rule }, title: { display: !!yTitle, text: yTitle, color: muted } },
+      },
+    };
+    return extra ? extra(o) : o;
+  }
+  function draw(id, config) {
+    if (charts[id]) charts[id].destroy();
+    const el = document.getElementById(id);
+    if (!el || typeof Chart === "undefined") return;
+    charts[id] = new Chart(el, config);
+  }
+  const yTick = (o, signed) => { o.scales.y.ticks.callback = (v) => fmt(v, signed); return o; };
+
+  // ---------- ordering ----------
+  function highestFrom(series) {
+    // first year from which RCP4.5 stays above both others through the last year
+    const years = series.ssp245.year; let from = null;
+    for (let i = years.length - 1; i >= 0; i--) {
+      const y = years[i]; const a = at(series.ssp245, "v", y), b = at(series.ssp126, "v", y), c = at(series.ssp585, "v", y);
+      if (a !== null && b !== null && c !== null && a > b && a > c) from = y; else break;
+    }
+    return from;
+  }
+  function seriesFrom(block, key) {
+    const out = {}; SSPS.forEach((s) => { out[s] = { year: block[s].year, v: block[s][key] }; }); return out;
+  }
+  function renderOrdering() {
+    const m = state.measure;
+    const now = seriesFrom(S().scenarios.Baseline[state.loc], `${m}_count_mean`);
+    SSPS.forEach((s) => { const keep = now[s].year.map((y) => y >= 2023); now[s] = { year: now[s].year.filter((_, i) => keep[i]), v: now[s].v.filter((_, i) => keep[i]) }; });
+    const prevBlock = DATA.previous.Baseline[state.loc];
+    const prev = prevBlock ? seriesFrom(prevBlock, `${m}_count`) : null;
+    const line = (series) => ({ labels: series.ssp126.year, datasets: SSPS.map((s) => ({ label: SSP_LABEL[s], data: series[s].v, borderColor: css(SSP_VAR[s]), backgroundColor: css(SSP_VAR[s]), pointRadius: 0, borderWidth: 2 })) });
+    draw("c-order-now", { type: "line", data: line(now), options: yTick(baseOptions(`${M().label} (${M().noun})`)) });
+    if (prev) draw("c-order-2025", { type: "line", data: line(prev), options: yTick(baseOptions(`${M().label} (${M().noun})`)) });
+    const fromNow = highestFrom(now), fromPrev = prev ? highestFrom(prev) : null;
+    const last = (series) => { const ys = series.ssp245.year; const y = ys[ys.length - 1]; const v = SSPS.map((s) => [s, at(series[s], "v", y)]).sort((a, b) => b[1] - a[1]); return v.map(([s]) => SSP_LABEL[s]).join(" > "); };
+    document.getElementById("ordering-text").textContent =
+      `${locName(state.loc)}, ${M().noun}, model ${SPEC_LABEL[state.spec]}. ` +
+      (fromNow ? `In this run RCP4.5 is above both other scenarios every year from ${fromNow} to 2100. ` : `In this run RCP4.5 is not above both other scenarios in 2100. `) +
+      `Order in 2100: ${last(now)} (this run)` + (prev ? `; ${last(prev)} (2025 run)` + (fromPrev ? `, where RCP4.5 was highest from ${fromPrev}.` : ".") : ".");
+    const years = [2030, 2050, 2075, 2100];
+    let html = `<thead><tr><th>Year</th>${SSPS.map((s) => `<th>${SSP_LABEL[s]}</th>`).join("")}${prev ? SSPS.map((s) => `<th>${SSP_LABEL[s]} (2025)</th>`).join("") : ""}</tr></thead><tbody>`;
+    years.forEach((y) => { html += `<tr><td>${y}</td>${SSPS.map((s) => `<td>${fmt(at(now[s], "v", y))}</td>`).join("")}${prev ? SSPS.map((s) => `<td>${fmt(at(prev[s], "v", y))}</td>`).join("") : ""}</tr>`; });
+    document.getElementById("t-order").innerHTML = html + "</tbody>";
+  }
+
+  // ---------- inputs ----------
+  function renderInputs() {
+    const inp = S().inputs; const wrap = document.getElementById("input-charts");
+    const defs = [["gdppc", "GDP per capita (US$)"], ["suitability_days", "Suitability (days per year)"]];
+    if (factors().includes("wind")) defs.push(["wind_speed", "Wind speed"]);
+    wrap.innerHTML = defs.map(([k, t]) => `<div class="panel"><h3>${t}</h3><div class="chart"><canvas id="c-in-${k}"></canvas></div></div>`).join("");
+    const loc = state.loc === "1" ? "1" : state.loc;
+    defs.forEach(([k]) => {
+      const data = { labels: inp.year, datasets: SSPS.map((s) => ({ label: SSP_LABEL[s], data: inp.ssp[s][k][loc], borderColor: css(SSP_VAR[s]), backgroundColor: css(SSP_VAR[s]), pointRadius: 0, borderWidth: 2 })) };
+      draw(`c-in-${k}`, { type: "line", data, options: baseOptions("") });
+    });
+    const t = S().terms.slopes; const wind = factors().includes("wind");
+    document.getElementById("formulas").textContent =
+      `logit PfPR    ~ s(DAH per capita, mpd k4) + s(GDP per capita, mpd k4) + ${t["pfpr:logit_malaria_suitability"].toFixed(3)} × logit suitability` +
+      (wind ? ` ${t["pfpr:wind_speed"] < 0 ? "−" : "+"} ${Math.abs(t["pfpr:wind_speed"]).toFixed(3)} × wind speed` : "") + " + A0\n" +
+      `log inc rate  ~ s(logit PfPR, mpi k10) ${t["inc:log_gdppc_mean"] < 0 ? "−" : "+"} ${Math.abs(t["inc:log_gdppc_mean"]).toFixed(4)} × log GDP per capita + A0\n` +
+      `log mort rate ~ s(logit PfPR, mpi k10) ${t["mort:log_gdppc_mean"] < 0 ? "−" : "+"} ${Math.abs(t["mort:log_gdppc_mean"]).toFixed(4)} × log GDP per capita + A0`;
+  }
+
+  // ---------- split ----------
+  function gapSeries(block) { return block.count_a.map((a, i) => (a === null || block.count_b[i] === null ? null : a - block.count_b[i])); }
+  function renderSplit() {
+    const block = S().gap[state.pair][state.measure][state.loc];
+    const pairLabel = PAIRS.find((p) => p[0] === state.pair)[1];
+    const gap = gapSeries(block);
+    document.getElementById("split-key").innerHTML = factors().map((f) => `<span><i style="background:var(${PART_VAR[f]})"></i>${PART_LABEL[f]}</span>`).join("") + `<span><i style="background:var(--net);height:3px;vertical-align:3px"></i>Gap (sum of the shares)</span>`;
+    const datasets = factors().map((f) => ({ type: "bar", label: PART_LABEL[f], data: block[`part_${f}`], backgroundColor: css(PART_VAR[f]), stack: "parts", order: 2, barPercentage: 1.0, categoryPercentage: 0.92 }));
+    datasets.push({ type: "line", label: "Gap", data: gap, borderColor: css("--net"), backgroundColor: css("--net"), pointRadius: 0, borderWidth: 2, order: 1 });
+    draw("c-split", { type: "bar", data: { labels: block.year, datasets }, options: yTick(baseOptions(`${pairLabel}, ${M().noun}`, (o) => { o.scales.x.stacked = true; o.scales.y.stacked = true; o.plugins.legend.display = false; return o; }), true) });
+    const rows = [2050, 2075, 2100].map((y) => [String(y), at({ year: block.year, v: gap }, "v", y), ...factors().map((f) => at(block, `part_${f}`, y))]);
+    rows.push(["Sum 2024–2100", sum(gap), ...factors().map((f) => sum(block[`part_${f}`]))]);
+    const cls = (v) => (v > 0 ? "pos" : v < 0 ? "neg" : "");
+    document.getElementById("t-split").innerHTML = `<thead><tr><th>${pairLabel}</th><th>Gap</th>${factors().map((f) => `<th>${PART_LABEL[f]}</th>`).join("")}</tr></thead><tbody>` +
+      rows.map((r) => `<tr><td>${r[0]}</td>${r.slice(1).map((v) => `<td class="${cls(v)}">${fmt(v, true)}</td>`).join("")}</tr>`).join("") + "</tbody>";
+    const y2100 = rows[2];
+    document.getElementById("split-text").textContent =
+      `${locName(state.loc)}, ${M().noun}, model ${SPEC_LABEL[state.spec]}. In 2100 the gap ${pairLabel} is ${fmt(y2100[1], true)}: ` +
+      factors().map((f, i) => `${PART_LABEL[f]} ${fmt(y2100[2 + i], true)}`).join(", ") + ". " +
+      `Summed over 2024–2100: ${fmt(rows[3][1], true)} (` + factors().map((f, i) => `${PART_LABEL[f]} ${fmt(rows[3][2 + i], true)}`).join(", ") + ").";
+  }
+
+  // ---------- where ----------
+  function renderWhere() {
+    const g = S().gap[state.pair][state.measure];
+    const srs = Object.keys(g).filter((k) => k !== "1");
+    const pick = (b, key) => (state.period === "y2100" ? at(b, key, 2100) : sum(b[key]));
+    const label = state.period === "y2100" ? "in 2100" : "summed over 2024–2100";
+    const order = srs.map((k) => [k, pick(g[k], "count_a") - pick(g[k], "count_b")]).sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]));
+    const datasets = factors().map((f) => ({ label: PART_LABEL[f], data: order.map(([k]) => pick(g[k], `part_${f}`)), backgroundColor: css(PART_VAR[f]), stack: "p" }));
+    datasets.push({ type: "bar", label: "Gap", data: order.map(([, v]) => v), backgroundColor: css("--net"), stack: "net", barPercentage: 0.35 });
+    draw("c-where", { type: "bar", data: { labels: order.map(([k]) => locName(k)), datasets }, options: baseOptions("", (o) => {
+      o.indexAxis = "y"; o.scales.x.stacked = true; o.scales.y.stacked = true; o.interaction = { mode: "y", intersect: false };
+      o.scales.x.ticks.callback = (v) => fmt(v, true); o.scales.y.ticks.autoSkip = false; return o; }) });
+    const ranked = S().ranked[state.pair][state.measure][`countries_${state.period === "y2100" ? "y2100" : "cumulative"}`];
+    const cls = (v) => (v > 0 ? "pos" : v < 0 ? "neg" : "");
+    document.getElementById("t-countries").innerHTML = `<thead><tr><th>Country</th><th>Gap</th>${factors().map((f) => `<th>${PART_LABEL[f]}</th>`).join("")}</tr></thead><tbody>` +
+      ranked.map((r) => `<tr><td>${r.location_name}</td><td class="${cls(r.gap)}">${fmt(r.gap, true)}</td>${factors().map((f) => `<td class="${cls(r["part_" + f])}">${fmt(r["part_" + f], true)}</td>`).join("")}</tr>`).join("") + "</tbody>";
+    const total = state.period === "y2100" ? at({ year: g["1"].year, v: gapSeries(g["1"]) }, "v", 2100) : sum(gapSeries(g["1"]));
+    const top = order[0];
+    document.getElementById("where-text").textContent =
+      `${PAIRS.find((p) => p[0] === state.pair)[1]}, ${M().noun} ${label}: global gap ${fmt(total, true)}; ${locName(top[0])} ${fmt(top[1], true)}. ` +
+      `The black bar is each super-region's gap; the coloured bars are its shares by input.`;
+  }
+
+  // ---------- each input alone ----------
+  function renderAlone() {
+    const held = S().held; const m = state.measure; const loc = state.loc;
+    const panels = [
+      ["now-gdp", "GDP held, this run", held.gdp_held && held.gdp_held[m][loc], "count"],
+      ["prev-gdp", "GDP held, 2025 run", DATA.previous.gdppc_hold[loc], `${m}_count`],
+      ["now-suit", "Suitability held, this run", held.suitability_held && held.suitability_held[m][loc], "count"],
+      ["prev-suit", "Suitability held, 2025 run", DATA.previous.suitability_hold[loc], `${m}_count`],
+    ];
+    if (held.wind_held) panels.push(["now-wind", "Wind held, this run", held.wind_held[m][loc], "count"]);
+    document.getElementById("alone-charts").innerHTML = panels.map(([id, t]) => `<div class="panel"><h3>${t}</h3><div class="chart"><canvas id="c-alone-${id}"></canvas></div></div>`).join("");
+    panels.forEach(([id, , block, key]) => {
+      if (!block) return;
+      const data = { labels: block.ssp126.year, datasets: SSPS.map((s) => ({ label: SSP_LABEL[s], data: block[s][key], borderColor: css(SSP_VAR[s]), backgroundColor: css(SSP_VAR[s]), pointRadius: 0, borderWidth: 2 })) };
+      draw(`c-alone-${id}`, { type: "line", data, options: yTick(baseOptions(`${M().label} (${M().noun})`)) });
+    });
+    const spread = (block, key, y) => (block ? [at(block.ssp245, key, y) - at(block.ssp126, key, y), at(block.ssp245, key, y) - at(block.ssp585, key, y)] : [null, null]);
+    const base = S().scenarios.Baseline[loc];
+    const rows = [
+      ["Baseline, this run", base, `${m}_count_mean`],
+      ["GDP held, this run", held.gdp_held && held.gdp_held[m][loc], "count"],
+      ["Suitability held, this run", held.suitability_held && held.suitability_held[m][loc], "count"],
+      ...(held.wind_held ? [["Wind held, this run", held.wind_held[m][loc], "count"]] : []),
+      ["Baseline, 2025 run", DATA.previous.Baseline[loc], `${m}_count`],
+      ["GDP held, 2025 run", DATA.previous.gdppc_hold[loc], `${m}_count`],
+      ["Suitability held, 2025 run", DATA.previous.suitability_hold[loc], `${m}_count`],
+    ];
+    const cls = (v) => (v > 0 ? "pos" : v < 0 ? "neg" : "");
+    document.getElementById("t-alone").innerHTML = `<thead><tr><th>${locName(loc)}, ${M().noun}</th><th>RCP4.5 − RCP2.6, 2075</th><th>RCP4.5 − RCP8.5, 2075</th><th>RCP4.5 − RCP2.6, 2100</th><th>RCP4.5 − RCP8.5, 2100</th></tr></thead><tbody>` +
+      rows.map(([name, block, key]) => { const a = spread(block, key, 2075), b = spread(block, key, 2100); return `<tr><td>${name}</td>${[...a, ...b].map((v) => `<td class="${cls(v)}">${fmt(v, true)}</td>`).join("")}</tr>`; }).join("") + "</tbody>";
+    const wind = factors().includes("wind") ? " and wind" : "";
+    document.getElementById("alone-text").textContent =
+      `In this run's model, with GDP held the scenarios differ only through suitability${wind}; with suitability held, only through GDP${wind}. ` +
+      `In the 2025 run, any other scenario-dependent inputs of that run's model also remain. The table gives RCP4.5 minus each other scenario under each version.`;
+  }
+
+  // ---------- terms ----------
+  function interp(xs, ys, x) {
+    if (x <= xs[0]) return ys[0]; if (x >= xs[xs.length - 1]) return ys[ys.length - 1];
+    let lo = 0, hi = xs.length - 1; while (hi - lo > 1) { const mid = (lo + hi) >> 1; if (xs[mid] <= x) lo = mid; else hi = mid; }
+    const f = (x - xs[lo]) / (xs[hi] - xs[lo]); return ys[lo] + f * (ys[hi] - ys[lo]);
+  }
+  function renderTerms() {
+    const t = S().terms; const fg = t["pfpr:gdppc_mean"]; const inp = S().inputs; const loc = state.loc;
+    const curve = fg.x.map((x, i) => ({ x, y: fg.y[i] }));
+    const pts = []; const y0 = inp.year.indexOf(2023), y1 = inp.year.indexOf(2100);
+    pts.push({ label: "2023", data: [{ x: inp.ssp.ssp245.gdppc[loc][y0], y: interp(fg.x, fg.y, inp.ssp.ssp245.gdppc[loc][y0]) }], backgroundColor: css("--muted"), borderColor: css("--muted"), pointRadius: 5, showLine: false });
+    SSPS.forEach((s) => { const g = inp.ssp[s].gdppc[loc][y1]; pts.push({ label: `${SSP_LABEL[s]} 2100`, data: [{ x: g, y: interp(fg.x, fg.y, g) }], backgroundColor: css(SSP_VAR[s]), borderColor: css(SSP_VAR[s]), pointRadius: 5, showLine: false }); });
+    draw("c-term-gdp", { type: "scatter", data: { datasets: [{ label: "term", data: curve, showLine: true, pointRadius: 0, borderColor: css("--gdp"), borderWidth: 2 }, ...pts] },
+      options: baseOptions("change in logit PfPR", (o) => { o.scales.x.type = "logarithmic"; o.scales.x.title = { display: true, text: "GDP per capita (US$, log scale)", color: css("--muted") }; o.interaction = { mode: "nearest", intersect: true }; o.plugins.legend.labels.filter = (item) => item.text !== "term"; return o; }) });
+    const ds = [];
+    SSPS.forEach((s) => {
+      ds.push({ label: `${SSP_LABEL[s]} GDP`, data: inp.ssp[s].link_gdp_pfpr[loc], borderColor: css(SSP_VAR[s]), pointRadius: 0, borderWidth: 2 });
+      ds.push({ label: `${SSP_LABEL[s]} suitability`, data: inp.ssp[s].link_suitability[loc], borderColor: css(SSP_VAR[s]), borderDash: [6, 4], pointRadius: 0, borderWidth: 2 });
+      if (factors().includes("wind")) ds.push({ label: `${SSP_LABEL[s]} wind`, data: inp.ssp[s].link_wind[loc], borderColor: css(SSP_VAR[s]), borderDash: [2, 3], pointRadius: 0, borderWidth: 2 });
+    });
+    draw("c-link", { type: "line", data: { labels: inp.year, datasets: ds }, options: baseOptions("change in logit PfPR", (o) => { o.plugins.legend.labels.boxWidth = 18; o.plugins.legend.labels.font = { size: 10 }; return o; }) });
+    const gi = t["inc:logit_malaria_pfpr"], gm = t["mort:logit_malaria_pfpr"];
+    draw("c-term-g", { type: "scatter", data: { datasets: [
+      { label: "Incidence", data: gi.x.map((x, i) => ({ x, y: gi.y[i] })), showLine: true, pointRadius: 0, borderColor: css("--accent"), borderWidth: 2 },
+      { label: "Mortality", data: gm.x.map((x, i) => ({ x, y: gm.y[i] })), showLine: true, pointRadius: 0, borderColor: css("--muted"), borderWidth: 2, borderDash: [6, 4] } ] },
+      options: baseOptions("change in log rate", (o) => { o.scales.x.title = { display: true, text: "logit PfPR", color: css("--muted") }; o.interaction = { mode: "nearest", intersect: false }; return o; }) });
+    const g = (s) => inp.ssp[s].link_gdp_pfpr[loc][y1], su = (s) => inp.ssp[s].link_suitability[loc][y1];
+    document.getElementById("terms-text").textContent =
+      `${locName(loc)}, burden-weighted, change in logit PfPR from 2023 to 2100. GDP term: ` + SSPS.map((s) => `${SSP_LABEL[s]} ${g(s).toFixed(2)}`).join(", ") +
+      `. Suitability term: ` + SSPS.map((s) => `${SSP_LABEL[s]} ${su(s).toFixed(2)}`).join(", ") + ". More negative means lower PfPR.";
+  }
+
+  // ---------- checks ----------
+  function renderChecks() {
+    const c = S().checks, r = S().run; const e = (v) => Number(v).toExponential(1);
+    const items = [
+      ["Rebuilt pure scenarios vs saved forecast, max |log-rate difference|, all admin-2, draws, years", e(r.rebuild_max_abs_log_diff)],
+      ["Rolled-up Baseline totals vs published Baseline totals, max relative difference", e(c.baseline_total_max_rel_diff)],
+      ["Rolled-up no-vaccine totals vs published no-vaccine totals, max relative difference", e(c.no_vaccine_total_max_rel_diff)],
+      ["Vaccine factor per admin-2 and year, max difference across scenarios", e(c.vaccine_factor_max_abs_diff_across_ssps)],
+      ["GDP-held rebuild vs the gdppc_hold2023 forecast arm, max relative difference", e(c.gdp_held_vs_gdppc_hold2023_max_rel_diff)],
+    ];
+    if (c.wind_held_vs_wind_hold2023_max_rel_diff !== undefined) items.push(["Wind-held rebuild vs the wind_hold2023 forecast arm, max relative difference", e(c.wind_held_vs_wind_hold2023_max_rel_diff)]);
+    items.push(["Admin-2 units in the forecast", String(r.n_admin2)]);
+    document.getElementById("checks").innerHTML = items.map(([k, v]) => `<div><span>${k}</span><span>${v}</span></div>`).join("");
+  }
+
+  function renderAll() { renderOrdering(); renderInputs(); renderSplit(); renderWhere(); renderAlone(); renderTerms(); renderChecks(); }
+
+  segmented(document.getElementById("ctl-spec"), Object.keys(DATA.specs).map((k) => [k, SPEC_LABEL[k] || k]), "spec", renderAll);
+  segmented(document.getElementById("ctl-measure"), [["inc", "Incidence"], ["mort", "Deaths"]], "measure", renderAll);
+  segmented(document.getElementById("ctl-pair"), PAIRS, "pair", () => { renderSplit(); renderWhere(); });
+  segmented(document.getElementById("ctl-period"), [["y2100", "2100"], ["cumulative", "Sum 2024–2100"]], "period", renderWhere);
+  const sel = document.getElementById("ctl-loc");
+  // only locations with forecast admin-2 units have a split (two super-regions have none)
+  Object.keys(DATA.specs[state.spec].gap["ssp245:ssp126"].inc).forEach((id) => { const o = document.createElement("option"); o.value = id; o.textContent = locName(id); sel.appendChild(o); });
+  sel.addEventListener("change", () => { state.loc = sel.value; renderAll(); });
+
+  renderAll();
+  const rerender = () => renderAll();
+  window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", rerender);
+  new MutationObserver(rerender).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+})();
+</script>
