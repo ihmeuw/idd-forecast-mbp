@@ -38,6 +38,7 @@ import matplotlib.pyplot as plt  # noqa: E402
 from idd_forecast_mbp import constants as mbpc  # noqa: E402
 from idd_forecast_mbp.lib.data.hierarchy import load_hierarchy  # noqa: E402
 from idd_forecast_mbp.lib.io.parquet import read_parquet_with_integer_ids  # noqa: E402
+from idd_forecast_mbp.lib.viz.axes import end_figure_axes_on_ticks  # noqa: E402
 from idd_forecast_mbp.lib.processing.weights import (  # noqa: E402
     WEIGHT_SCHEMES,
     load_weights,
@@ -291,7 +292,59 @@ def historical_series(cur: pd.DataFrame, ssps: Sequence[str], col: str) -> pd.Da
     return hist[hist.ssp == present[0]].sort_values("year_id")
 
 
-def figure_timeseries(
+def _save(fig: plt.Figure, out_path: Path) -> None:
+    """Axes end on a labelled tick (lib/viz/axes.py), then write."""
+    end_figure_axes_on_ticks(fig)
+    _save(fig, out_path)
+
+
+def _timeseries_panel(  # noqa: PLR0913 - one panel's data and labels
+    ax: plt.Axes,
+    obs: pd.DataFrame,
+    cur: pd.DataFrame,
+    prv: pd.DataFrame,
+    ssps: Sequence[str],
+    measure: str,
+    metric: str,
+    *,
+    main_label: str,
+    comp_label: str,
+    predicted_past: bool,
+    title: str,
+) -> None:
+    """One count or rate panel: observed, the current run's predicted past (once), SSPs solid, comparison dashed."""
+    col = f"{metric}_mean"
+    pool = np.concatenate([s[col].to_numpy() for s in (obs, cur, prv) if not s.empty] or [np.array([0.0])])
+    divisor, unit = pick_scale(pool) if metric == "count" else (1.0, "")
+    if not obs.empty:
+        o = obs.sort_values("year_id")
+        ax.plot(o.year_id, o[col] / divisor, color=OBSERVED_COLOR, linewidth=2.0, label="Observed", zorder=5)
+    h = historical_series(cur, ssps, col) if predicted_past else cur.iloc[0:0]
+    if not h.empty:
+        ax.plot(h.year_id, h[col] / divisor, color=HIST_COLOR, linewidth=2.0,
+                label=f"Predicted to {HIST_END} ({main_label}, all SSPs)", zorder=4)
+    for ssp in ssps:
+        c = cur[(cur.ssp == ssp) & (cur.year_id >= HIST_END)].sort_values("year_id")
+        if not c.empty:
+            ax.plot(c.year_id, c[col] / divisor, color=SCENARIO_COLOR[ssp], linewidth=2.0,
+                    label=f"{SCENARIO_LABEL[ssp]} ({main_label})", zorder=4)
+        q = prv[prv.ssp == ssp].sort_values("year_id")
+        if not q.empty:
+            ax.plot(q.year_id, q[col] / divisor, color=SCENARIO_COLOR[ssp], linewidth=1.6,
+                    linestyle=(0, (5, 2)), label=f"{SCENARIO_LABEL[ssp]} ({comp_label})", zorder=3)
+    if metric == "count":
+        ax.set_ylabel(f"{COUNT_NOUN[measure]}" + (f" (in {unit})" if unit else ""))
+    else:
+        ax.set_ylabel(f"{MEASURE_LABEL[measure]} rate (per person per year)")
+    ax.set_title(title, fontsize=11)
+    ax.set_xlabel("Year")
+    ax.grid(True, **GRID_KW)
+    ax.set_axisbelow(True)
+    for spine in ("top", "right"):
+        ax.spines[spine].set_visible(False)
+
+
+def figure_timeseries(  # noqa: PLR0913
     location_id: int,
     location_name: str,
     measure: str,
@@ -306,87 +359,46 @@ def figure_timeseries(
     predicted_past: bool = True,
 ) -> None:
     fig, axes = plt.subplots(1, 2, figsize=(13, 5))
-
-    obs = observed.query("location_id == @location_id and measure == @measure")
-    cur = current.query("location_id == @location_id and measure == @measure")
-    prv = previous.query("location_id == @location_id and measure == @measure")
-
+    sel = "location_id == @location_id and measure == @measure"
+    obs, cur, prv = observed.query(sel), current.query(sel), previous.query(sel)
     for ax, metric in zip(axes, ("count", "rate"), strict=True):
-        col = f"{metric}_mean"
-        pool = np.concatenate(
-            [s[col].to_numpy() for s in (obs, cur, prv) if not s.empty]
-        )
-        divisor, unit = pick_scale(pool) if metric == "count" else (1.0, "")
-
-        if not obs.empty:
-            o = obs.sort_values("year_id")
-            ax.plot(
-                o.year_id,
-                o[col] / divisor,
-                color=OBSERVED_COLOR,
-                linewidth=2.0,
-                label="Observed",
-                zorder=5,
-            )
-
-        h = historical_series(cur, ssps, col) if predicted_past else cur.iloc[0:0]
-        if not h.empty:
-            ax.plot(
-                h.year_id,
-                h[col] / divisor,
-                color=HIST_COLOR,
-                linewidth=2.0,
-                label=f"Predicted to {HIST_END} ({main_label}, all SSPs)",
-                zorder=4,
-            )
-        for ssp in ssps:
-            c = cur[(cur.ssp == ssp) & (cur.year_id >= HIST_END)].sort_values("year_id")
-            if not c.empty:
-                ax.plot(
-                    c.year_id,
-                    c[col] / divisor,
-                    color=SCENARIO_COLOR[ssp],
-                    linewidth=2.0,
-                    label=f"{SCENARIO_LABEL[ssp]} ({main_label})",
-                    zorder=4,
-                )
-            p = prv[prv.ssp == ssp].sort_values("year_id")
-            if not p.empty:
-                ax.plot(
-                    p.year_id,
-                    p[col] / divisor,
-                    color=SCENARIO_COLOR[ssp],
-                    linewidth=1.6,
-                    linestyle=(0, (5, 2)),
-                    label=f"{SCENARIO_LABEL[ssp]} ({comp_label})",
-                    zorder=3,
-                )
-
-        if metric == "count":
-            noun = COUNT_NOUN[measure]
-            ax.set_ylabel(f"{noun}" + (f" (in {unit})" if unit else ""))
-            ax.set_title("Count", fontsize=11)
-        else:
-            ax.set_ylabel(f"{MEASURE_LABEL[measure]} rate (per person per year)")
-            ax.set_title("Rate", fontsize=11)
-        ax.set_xlabel("Year")
-        ax.grid(True, **GRID_KW)
-        ax.set_axisbelow(True)
-        for spine in ("top", "right"):
-            ax.spines[spine].set_visible(False)
-
+        _timeseries_panel(ax, obs, cur, prv, ssps, measure, metric, main_label=main_label, comp_label=comp_label,
+                          predicted_past=predicted_past, title=metric.capitalize())
     handles, labels = axes[0].get_legend_handles_labels()
-    fig.legend(
-        handles,
-        labels,
-        loc="lower center",
-        ncol=4,
-        frameon=False,
-        bbox_to_anchor=(0.5, -0.04),
-    )
+    fig.legend(handles, labels, loc="lower center", ncol=4, frameon=False, bbox_to_anchor=(0.5, -0.04))
     fig.suptitle(f"{MEASURE_LABEL[measure]} — {location_name}", fontsize=14)
     fig.tight_layout(rect=(0, 0.04, 1, 0.96))
-    fig.savefig(out_path, dpi=200, bbox_inches="tight")
+    _save(fig, out_path)
+    plt.close(fig)
+
+
+def figure_timeseries_grid(  # noqa: PLR0913
+    location_id: int,
+    location_name: str,
+    observed: pd.DataFrame,
+    current: pd.DataFrame,
+    previous: pd.DataFrame,
+    ssps: Sequence[str],
+    out_path: Path,
+    main_label: str = "current",
+    comp_label: str = "previous",
+    *,
+    predicted_past: bool = True,
+) -> None:
+    """2 x 2: incidence top, mortality bottom; count left, rate right."""
+    fig, axes = plt.subplots(2, 2, figsize=(13, 9.5))
+    for row, measure in enumerate(("inc", "mort")):
+        sel = "location_id == @location_id and measure == @measure"
+        obs, cur, prv = observed.query(sel), current.query(sel), previous.query(sel)
+        for colno, metric in enumerate(("count", "rate")):
+            _timeseries_panel(axes[row, colno], obs, cur, prv, ssps, measure, metric, main_label=main_label,
+                              comp_label=comp_label, predicted_past=predicted_past,
+                              title=f"{MEASURE_LABEL[measure]} — {metric}")
+    handles, labels = axes[0, 0].get_legend_handles_labels()
+    fig.legend(handles, labels, loc="lower center", ncol=4, frameon=False, bbox_to_anchor=(0.5, -0.02))
+    fig.suptitle(location_name, fontsize=14)
+    fig.tight_layout(rect=(0, 0.04, 1, 0.97))
+    _save(fig, out_path)
     plt.close(fig)
 
 
@@ -519,7 +531,7 @@ def figure_differences(
         fontsize=13,
     )
     fig.tight_layout(rect=(0, 0, 1, 0.94))
-    fig.savefig(out_path, dpi=200, bbox_inches="tight")
+    _save(fig, out_path)
     plt.close(fig)
 
 
@@ -748,7 +760,7 @@ def figure_bars(  # noqa: PLR0913
         f"Cumulative {MEASURE_LABEL[measure].lower()} — {location_name}, "
         f"{comp_label} vs {main_label}", fontsize=13)
     fig.tight_layout(rect=(0, 0, 1, 0.95))
-    fig.savefig(out_path, dpi=200, bbox_inches="tight")
+    _save(fig, out_path)
     plt.close(fig)
 
 def figure_sensitivity_difference(
@@ -836,7 +848,7 @@ def figure_sensitivity_difference(
         fontsize=13,
     )
     fig.tight_layout(rect=(0, 0, 1, 0.92))
-    fig.savefig(out_path, dpi=200, bbox_inches="tight")
+    _save(fig, out_path)
     plt.close(fig)
 
 
@@ -913,7 +925,7 @@ def figure_differences_stack(  # noqa: PLR0913
         f"{MEASURE_LABEL[measure]} — {location_name}: levels, then scenario differences",
         fontsize=13)
     fig.tight_layout(rect=(0, 0, 1, 0.94))
-    fig.savefig(out_path, dpi=200, bbox_inches="tight")
+    _save(fig, out_path)
     plt.close(fig)
 
 
@@ -1083,7 +1095,7 @@ def figure_sensitivity_full(  # noqa: PLR0913
         f"↑ = averted, ↓ = incurred · cumulative from {start_year}",
         fontsize=12.5)
     fig.tight_layout(rect=(0, 0, 1, 0.94))
-    fig.savefig(out_path, dpi=200, bbox_inches="tight")
+    _save(fig, out_path)
     plt.close(fig)
 
 
@@ -1179,7 +1191,7 @@ def figure_sensitivity_stack(  # noqa: PLR0913
         fontsize=12.5,
     )
     fig.tight_layout(rect=(0, 0, 1, 0.93))
-    fig.savefig(out_path, dpi=200, bbox_inches="tight")
+    _save(fig, out_path)
     plt.close(fig)
 
 
@@ -1291,7 +1303,7 @@ def figure_effect_comparison(  # noqa: PLR0913
         fontsize=12.5,
     )
     fig.tight_layout(rect=(0, 0, 1, 0.90))
-    fig.savefig(out_path, dpi=200, bbox_inches="tight")
+    _save(fig, out_path)
     plt.close(fig)
 
 
@@ -1392,7 +1404,7 @@ def figure_effect_comparison_stack(  # noqa: PLR0913
         f"↑ = averted, ↓ = incurred · cumulative from {start_year}",
         fontsize=12.5)
     fig.tight_layout(rect=(0, 0, 1, 0.93))
-    fig.savefig(out_path, dpi=200, bbox_inches="tight")
+    _save(fig, out_path)
     plt.close(fig)
 
 
@@ -1485,7 +1497,7 @@ def figure_timeseries_over_bars(  # noqa: PLR0913
     fig.legend(handles, labels, loc="lower center", ncol=4, frameon=False,
                bbox_to_anchor=(0.5, -0.02))
     fig.suptitle(f"{MEASURE_LABEL[measure]} — {location_name}", fontsize=14)
-    fig.savefig(out_path, dpi=200, bbox_inches="tight")
+    _save(fig, out_path)
     plt.close(fig)
 
 
@@ -1711,6 +1723,13 @@ def main(  # noqa: PLR0913
                    f" -> {len(cov_arms)} scenario(s)")
 
     n = 0
+    for loc in have_current:
+        figure_timeseries_grid(
+            loc, names.get(loc, str(loc)), observed, current, previous, ssps,
+            out_dir / f"timeseries2x2_{loc}.png",
+            main_label=main_label, comp_label=comp_label, predicted_past=predicted_past,
+        )
+        n += 1
     for measure in ("inc", "mort"):
         for loc in have_current:
             name = names.get(loc, str(loc))
