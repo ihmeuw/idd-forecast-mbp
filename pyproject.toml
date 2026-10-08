@@ -205,7 +205,7 @@ omit = [
 # `first_submission`, `01_map_to_admin_2/block_utils` (its tests are slow), the report helpers in
 # `select/rank.py`, and test files whose slow half is deselected. Stage scripts are NOT in the
 # denominator: the numbered stage directories have no __init__.py, so coverage never sees them.
-fail_under = 84
+fail_under = 85
 exclude_lines = [
     'if TYPE_CHECKING:',
     'pragma: no cover'
