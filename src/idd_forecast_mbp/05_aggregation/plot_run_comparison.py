@@ -117,7 +117,10 @@ def load_current(
     for ssp in ssps:
         path = product_dir / f"all_age_summary_{ssp}_{dah}.parquet"
         if not path.exists():
-            raise FileNotFoundError(f"current product missing: {path}")
+            # arm products (finalize_malaria_arm.py) carry the DAH scenario in the arm, not the file name
+            path = product_dir / f"all_age_summary_{ssp}.parquet"
+        if not path.exists():
+            raise FileNotFoundError(f"current product missing for {ssp} in {product_dir}")
         df = pd.read_parquet(path)
         df = df[df.level.isin(list(levels))]
         for measure in ("inc", "mort"):
