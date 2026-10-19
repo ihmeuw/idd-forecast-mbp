@@ -545,6 +545,13 @@ def main(
             data["specs"][spec]["input_trajectories"] = trajectory_block(
                 pd.read_parquet(vdir / "input_trajectories.parquet")
             )
+        sdir = gap_root / spec / "swaps"
+        if (sdir / "swap_counts.parquet").is_file():
+            data["specs"][spec]["swaps"] = variant_block(
+                pd.read_parquet(sdir / "swap_counts.parquet"),
+                pd.read_parquet(sdir / "swap_population.parquet"),
+                json.loads((sdir / "swap_checks.json").read_text()),
+            )
         click.echo(f"  {spec} done; checks {data['specs'][spec]['checks']}")
     out_file.parent.mkdir(parents=True, exist_ok=True)
     out_file.write_text(json.dumps(data, separators=(",", ":")))

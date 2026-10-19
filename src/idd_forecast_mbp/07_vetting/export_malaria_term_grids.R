@@ -22,12 +22,19 @@ opt <- parse_args(OptionParser(option_list = list(
   make_option("--gdp-max", type = "double", help = "upper end of the GDP-per-capita grid (log-spaced)"),
   make_option("--logit-pfpr-min", type = "double", default = -40),
   make_option("--logit-pfpr-max", type = "double", default = 12),
-  make_option("--n", type = "integer", default = 200000L, help = "grid points per term (multiple of 1000)")
+  make_option("--n", type = "integer", default = 200000L, help = "grid points per term (multiple of 1000)"),
+  # object names in the RData: the current fits use pfpr_mod / inc_mod / mort_mod; the 1st submission's (2025_07_08)
+  # use malaria_pfpr_mod / incidence_scam_mod / mortality_scam_mod
+  make_option("--pfpr-object", type = "character", default = "pfpr_mod"),
+  make_option("--inc-object", type = "character", default = "inc_mod"),
+  make_option("--mort-object", type = "character", default = "mort_mod")
 )))
 if (opt$n %% 1000L != 0L) stop("--n must be a multiple of 1000 (scam 1.2-21 prediction bug)")
 
-load(opt$`model-rdata`)  # -> pfpr_mod, inc_mod, mort_mod
-models <- list(pfpr = pfpr_mod, inc = inc_mod, mort = mort_mod)
+e <- new.env()
+load(opt$`model-rdata`, envir = e)
+models <- list(pfpr = get(opt$`pfpr-object`, envir = e), inc = get(opt$`inc-object`, envir = e),
+               mort = get(opt$`mort-object`, envir = e))
 
 # every covariate any of the three models reads, at a fixed value; A0_af at the model's first level
 fixed_frame <- function(mod, n) {
@@ -37,6 +44,7 @@ fixed_frame <- function(mod, n) {
     log_gdppc_mean            = rep(log(1000), n),
     logit_malaria_suitability = rep(0, n),
     wind_speed                = rep(0, n),
+    people_flood_days_per_capita = rep(0, n),
     logit_malaria_pfpr        = rep(0, n),
     A0_af                     = factor(rep(mod$xlevels$A0_af[1], n), levels = mod$xlevels$A0_af)
   )
@@ -65,7 +73,7 @@ grids <- list(
   mort = list(logit_malaria_pfpr = seq(opt$`logit-pfpr-min`, opt$`logit-pfpr-max`, length.out = opt$n))
 )
 linear <- list(
-  pfpr = c("logit_malaria_suitability", "wind_speed"),
+  pfpr = c("logit_malaria_suitability", "wind_speed", "people_flood_days_per_capita"),
   inc  = "log_gdppc_mean",
   mort = "log_gdppc_mean"
 )

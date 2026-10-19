@@ -21,6 +21,7 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 import numpy.typing as npt
 import pandas as pd
+import pyarrow.parquet as pq
 import xarray as xr
 
 from idd_forecast_mbp import constants as mbpc
@@ -138,7 +139,9 @@ LOG_RATE_VARS = {
 }
 OBS_RATE_COLS = {"inc": "malaria_inc_rate", "mort": "malaria_mort_rate"}
 PFPR_SCALE = 0.999  # the fit and the rocket take logit(0.999 * pfpr)
-INPUT_FACTORS = ("gdp", "suitability", "wind")
+# flood is a term only in the 1st submission's PfPR model (2025_07_08); its piece is zero for a model without it
+INPUT_FACTORS = ("gdp", "suitability", "wind", "flood")
+FLOOD = ("pfpr", "people_flood_days_per_capita")
 ROLL_UP = (("A0_location_id", 3), ("region_id", 2), ("super_region_id", 1))
 # the rebuild pieces holding an input at the rake year zeroes (its change since then)
 HELD_PIECES = {
@@ -146,10 +149,27 @@ HELD_PIECES = {
     "dah": ("dah",),
     "suitability": ("suitability",),
     "wind": ("wind",),
+    "flood": ("flood",),
 }
 MEASURES = ("inc", "mort")
 ADMIN2_LEVEL = 5
 PRODUCTS = mbpc.MODEL_ROOT / "05-products/malaria/lsae_1285"
+# the 1st submission's per-draw forecast inputs (hierarchy 1209), as its forecast read them
+FIRST_SUBMISSION_INPUTS = (
+    mbpc.MODEL_ROOT / "04-forecasting_data/malaria/lsae_1209/first_submission"
+    "/malaria_forecast_ssp_scenario_{ssp}_dah_scenario_Baseline_draw_{draw:03d}.parquet"
+)
+OLD_COLUMNS = {
+    "gdp": "gdppc_mean",
+    "dah": "mal_DAH_total_per_capita",
+    "suit": "malaria_suitability",
+    "flood": "people_flood_days_per_capita",
+}
+OLD_ANCHORS = {
+    "pfpr": "logit_malaria_pfpr",
+    "inc": "log_aa_malaria_inc_rate",
+    "mort": "log_aa_malaria_mort_rate",
+}
 
 
 def align(index_from: AnyArray, wanted: AnyArray) -> IntArray:
@@ -279,6 +299,12 @@ class Rebuild:
             wind = (
                 x["wind"][:, t] - x["wind"][:, ry] if self.wind else np.zeros_like(suit)
             )
+            flood_slope = self.slopes.get(FLOOD, 0.0)
+            flood = (
+                flood_slope * (x["flood"][:, t] - x["flood"][:, ry])[:, None]
+                if flood_slope
+                else np.zeros((suit.shape[0], 1))
+            )
             parts[ssp] = {
                 "dah": dah[:, None],
                 "gdp_pfpr": gdp_pfpr[:, None],
@@ -286,6 +312,7 @@ class Rebuild:
                 "suitability": self.slopes[("pfpr", "logit_malaria_suitability")]
                 * suit,
                 "wind": self.slopes.get(("pfpr", "wind_speed"), 0.0) * wind,
+                "flood": flood,
             }
         return parts
 
@@ -296,9 +323,16 @@ class Rebuild:
 
         DAH per capita is the same in every scenario, so it is taken from the GDP source.
         """
-        p_g, p_s, p_w = (parts[src[f]] for f in INPUT_FACTORS)
+        # flood follows the climate scenario: when a mix does not name its source it comes with suitability
+        src = {**src, "flood": src.get("flood", src["suitability"])}
+        p_g, p_s, p_w, p_f = (parts[src[f]] for f in INPUT_FACTORS)
         pfpr = (
-            self.l_obs + p_g["dah"] + p_g["gdp_pfpr"] + p_s["suitability"] + p_w["wind"]
+            self.l_obs
+            + p_g["dah"]
+            + p_g["gdp_pfpr"]
+            + p_s["suitability"]
+            + p_w["wind"]
+            + p_f["flood"]
         )
         return log_rate_from_terms(
             self.obs_log[measure],
@@ -512,3 +546,125 @@ def by_group(
         sel = groups == g
         out[int(g)] = weighted_mean(values[sel], weights[sel])
     return out
+
+
+def scatter_to_grid(
+    loc_ids: IntArray,
+    year_ids: IntArray,
+    values: FloatArray,
+    locs: IntArray,
+    years: IntArray,
+) -> FloatArray:
+    """Long ``(location, year, value)`` rows as a ``locs x years`` array; a cell with no row is NaN."""
+    out = np.full((locs.size, years.size), np.nan)
+    out[align(locs, loc_ids), align(years, year_ids)] = values
+    return out
+
+
+def complete_rows(
+    inputs: dict[str, dict[str, FloatArray]], first_year_index: int
+) -> npt.NDArray[np.bool_]:
+    """Rows (admin-2 units) whose inputs are finite in every SSP, input and draw from ``first_year_index`` on."""
+    ok = None
+    for x in inputs.values():
+        for v in x.values():
+            tail = v[:, first_year_index:]
+            fin = np.isfinite(tail).reshape(tail.shape[0], -1).all(axis=1)
+            ok = fin if ok is None else ok & fin
+    if ok is None:
+        msg = "no inputs"
+        raise ValueError(msg)
+    return np.asarray(ok, dtype=bool)
+
+
+def read_old_inputs(  # pragma: no cover - parquet I/O
+    locs: IntArray,
+    years: IntArray,
+    n_draws: int,
+    *,
+    ssps: Sequence[str],
+    with_flood: bool = False,
+) -> dict[str, dict[str, FloatArray]]:
+    """The 1st submission's GDP and DAH per capita (and flood days per capita), read from draw 0 (they do not vary
+    by draw; flood is checked against draw 1), and suitability by draw."""
+    keys = ("gdp", "dah", *(("flood",) if with_flood else ()))
+    out = {}
+    for ssp in ssps:
+        suit = np.full((locs.size, years.size, n_draws), np.nan)
+        x: dict[str, FloatArray] = {}
+        for d in range(n_draws):
+            cols = ["location_id", "year_id", OLD_COLUMNS["suit"]]
+            if d <= 1:
+                cols += [OLD_COLUMNS[k] for k in keys]
+            t = pq.read_table(
+                str(FIRST_SUBMISSION_INPUTS).format(ssp=ssp, draw=d),
+                columns=cols,
+                filters=[
+                    ("location_id", "in", locs.tolist()),
+                    ("year_id", "in", years.tolist()),
+                ],
+            ).to_pandas()
+            li, yi = t.location_id.to_numpy(np.int64), t.year_id.to_numpy(np.int64)
+            suit[:, :, d] = scatter_to_grid(
+                li, yi, t[OLD_COLUMNS["suit"]].to_numpy(float), locs, years
+            )
+            if d == 0:
+                for k in keys:
+                    x[k] = scatter_to_grid(
+                        li, yi, t[OLD_COLUMNS[k]].to_numpy(float), locs, years
+                    )
+            elif d == 1:
+                for k in keys:
+                    other = scatter_to_grid(
+                        li, yi, t[OLD_COLUMNS[k]].to_numpy(float), locs, years
+                    )
+                    if not np.allclose(other, x[k], equal_nan=True):
+                        msg = f"{k} varies by draw in the 1st submission inputs ({ssp})"
+                        raise ValueError(msg)
+        x["suit"] = suit
+        out[ssp] = x
+    return out
+
+
+def read_old_anchors(
+    locs: IntArray, *, ssp: str = "ssp245"
+) -> pd.DataFrame:  # pragma: no cover - parquet I/O
+    """The 1st submission's rake year and its observed logit PfPR and all-age log rates there, per location."""
+    cols = ["location_id", "year_id", "year_to_rake_to", *OLD_ANCHORS.values()]
+    t = pq.read_table(
+        str(FIRST_SUBMISSION_INPUTS).format(ssp=ssp, draw=0),
+        columns=cols,
+        filters=[("location_id", "in", locs.tolist())],
+    ).to_pandas()
+    at_rake = t[t.year_id == t.year_to_rake_to].set_index("location_id")
+    return at_rake.reindex(locs)[["year_to_rake_to", *OLD_ANCHORS.values()]]
+
+
+def group_rows(  # noqa: PLR0913 - the labels of one row set plus the values and groups
+    values: FloatArray,
+    groups: FloatArray,
+    *,
+    year: int,
+    source: str,
+    variant: str,
+    ssp: str,
+    measure: str,
+) -> list[dict[str, object]]:
+    """Sums of ``values`` per super-region and globally (location 1), as output rows; an all-NaN group is NaN."""
+    rows = []
+    for g in (1, *np.unique(groups).astype(int).tolist()):
+        sel = np.ones(values.size, bool) if g == 1 else groups == g
+        v = values[sel]
+        total = float(np.nansum(v)) if np.isfinite(v).any() else np.nan
+        rows.append(
+            {
+                "source": source,
+                "variant": variant,
+                "ssp": ssp,
+                "measure": measure,
+                "location_id": g,
+                "year_id": year,
+                "count": total,
+            }
+        )
+    return rows

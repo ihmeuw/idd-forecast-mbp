@@ -381,3 +381,50 @@ def test_by_group_returns_the_global_mean_under_key_1_and_each_group() -> None:
     np.testing.assert_allclose(out[1], [(1 + 3 + 20) / 4])
     np.testing.assert_allclose(out[7], [2.0])
     np.testing.assert_allclose(out[9], [10.0])
+
+
+def test_scatter_to_grid_places_values_and_leaves_gaps_nan() -> None:
+    out = dsg.scatter_to_grid(
+        np.array([7, 5]),
+        np.array([2001, 2000]),
+        np.array([1.0, 2.0]),
+        np.array([5, 7]),
+        np.array([2000, 2001]),
+    )
+    assert out[0, 0] == 2.0
+    assert out[1, 1] == 1.0
+    assert np.isnan(out[0, 1])
+
+
+def test_complete_rows_drops_units_with_any_missing_forecast_value() -> None:
+    x = {
+        "ssp126": {
+            "gdp": np.array([[np.nan, 1.0], [1.0, 1.0]]),
+            "suit": np.ones((2, 2, 3)),
+        }
+    }
+    np.testing.assert_array_equal(
+        dsg.complete_rows(x, first_year_index=1), [True, True]
+    )
+    x["ssp126"]["suit"][1, 1, 2] = np.nan
+    np.testing.assert_array_equal(
+        dsg.complete_rows(x, first_year_index=1), [True, False]
+    )
+    with pytest.raises(ValueError, match="no inputs"):
+        dsg.complete_rows({}, first_year_index=0)
+
+
+def test_group_rows_sum_per_group_and_globally_and_keep_all_nan_groups_nan() -> None:
+    rows = dsg.group_rows(
+        np.array([1.0, 2.0, np.nan]),
+        np.array([166.0, 166.0, 158.0]),
+        year=2050,
+        source="current",
+        variant="hold:none",
+        ssp="ssp245",
+        measure="inc",
+    )
+    by = {r["location_id"]: r["count"] for r in rows}
+    assert by[1] == 3.0
+    assert by[166] == 3.0
+    assert np.isnan(float(by[158]))  # type: ignore[arg-type]

@@ -30,29 +30,24 @@ from idd_forecast_mbp import constants as mbpc
 from idd_forecast_mbp.lib.data.hierarchy import load_hierarchy
 from idd_forecast_mbp.lib.io.parquet import read_parquet_with_integer_ids
 from idd_forecast_mbp.lib.processing.scenario_gap import (
+    FIRST_SUBMISSION_INPUTS,
     INPUT_FACTORS,
     MEASURES,
     FloatArray,
     IntArray,
     Rebuild,
-    align,
     by_group,
+    complete_rows,
+    group_rows,
     hold_pieces,
     load_run,
     read_factors,
     read_forecast,
+    read_old_inputs,
+    scatter_to_grid,
     subset_rebuild,
 )
 
-OLD_INPUTS = (
-    mbpc.MODEL_ROOT / "04-forecasting_data/malaria/lsae_1209/first_submission"
-    "/malaria_forecast_ssp_scenario_{ssp}_dah_scenario_Baseline_draw_{draw:03d}.parquet"
-)
-OLD_COLUMNS = {
-    "gdp": "gdppc_mean",
-    "dah": "mal_DAH_total_per_capita",
-    "suit": "malaria_suitability",
-}
 HOLD_INPUTS = ("gdp", "dah", "suitability")
 SSPS = ("ssp126", "ssp245", "ssp585")
 RAKE_YEAR = 2023
@@ -69,100 +64,6 @@ def hold_variants() -> list[tuple[str, tuple[str, ...]]]:
         for r in range(len(HOLD_INPUTS) + 1)
         for held in combinations(HOLD_INPUTS, r)
     ]
-
-
-def scatter_to_grid(
-    loc_ids: IntArray,
-    year_ids: IntArray,
-    values: FloatArray,
-    locs: IntArray,
-    years: IntArray,
-) -> FloatArray:
-    """Long ``(location, year, value)`` rows as a ``locs x years`` array; a cell with no row is NaN."""
-    out = np.full((locs.size, years.size), np.nan)
-    out[align(locs, loc_ids), align(years, year_ids)] = values
-    return out
-
-
-def group_rows(  # noqa: PLR0913 - the labels of one row set plus the values and groups
-    values: FloatArray,
-    groups: FloatArray,
-    *,
-    year: int,
-    source: str,
-    variant: str,
-    ssp: str,
-    measure: str,
-) -> list[dict[str, object]]:
-    """Sums of ``values`` per super-region and globally (location 1), as output rows; an all-NaN group is NaN."""
-    rows = []
-    for g in (1, *np.unique(groups).astype(int).tolist()):
-        sel = np.ones(values.size, bool) if g == 1 else groups == g
-        v = values[sel]
-        total = float(np.nansum(v)) if np.isfinite(v).any() else np.nan
-        rows.append(
-            {
-                "source": source,
-                "variant": variant,
-                "ssp": ssp,
-                "measure": measure,
-                "location_id": g,
-                "year_id": year,
-                "count": total,
-            }
-        )
-    return rows
-
-
-def read_old_inputs(  # pragma: no cover - parquet I/O
-    locs: IntArray, years: IntArray, n_draws: int
-) -> dict[str, dict[str, FloatArray]]:
-    """The 2025 run's GDP and DAH per capita (draw 0; they do not vary by draw) and suitability by draw."""
-    out = {}
-    for ssp in SSPS:
-        suit = np.full((locs.size, years.size, n_draws), np.nan)
-        x: dict[str, FloatArray] = {}
-        for d in range(n_draws):
-            cols = ["location_id", "year_id", OLD_COLUMNS["suit"]]
-            if d == 0:
-                cols += [OLD_COLUMNS["gdp"], OLD_COLUMNS["dah"]]
-            t = pq.read_table(
-                str(OLD_INPUTS).format(ssp=ssp, draw=d),
-                columns=cols,
-                filters=[
-                    ("location_id", "in", locs.tolist()),
-                    ("year_id", "in", years.tolist()),
-                ],
-            ).to_pandas()
-            li, yi = t.location_id.to_numpy(np.int64), t.year_id.to_numpy(np.int64)
-            suit[:, :, d] = scatter_to_grid(
-                li, yi, t[OLD_COLUMNS["suit"]].to_numpy(float), locs, years
-            )
-            if d == 0:
-                for k in ("gdp", "dah"):
-                    x[k] = scatter_to_grid(
-                        li, yi, t[OLD_COLUMNS[k]].to_numpy(float), locs, years
-                    )
-        x["suit"] = suit
-        out[ssp] = x
-        click.echo(f"  read 2025 inputs {ssp}")
-    return out
-
-
-def complete_rows(
-    inputs: dict[str, dict[str, FloatArray]], first_year_index: int
-) -> npt.NDArray[np.bool_]:
-    """Rows (admin-2 units) whose inputs are finite in every SSP, input and draw from ``first_year_index`` on."""
-    ok = None
-    for x in inputs.values():
-        for v in x.values():
-            tail = v[:, first_year_index:]
-            fin = np.isfinite(tail).reshape(tail.shape[0], -1).all(axis=1)
-            ok = fin if ok is None else ok & fin
-    if ok is None:
-        msg = "no inputs"
-        raise ValueError(msg)
-    return np.asarray(ok, dtype=bool)
 
 
 def counts(  # noqa: PLR0913 - the rebuild, one year's pieces, the mix and the count frame
@@ -339,13 +240,14 @@ def prepare(  # pragma: no cover - reads every input
         raise click.ClickException(msg)
     old_ids = (
         pq.read_table(
-            str(OLD_INPUTS).format(ssp=SSPS[0], draw=0), columns=["location_id"]
+            str(FIRST_SUBMISSION_INPUTS).format(ssp=SSPS[0], draw=0),
+            columns=["location_id"],
         )
         .column(0)
         .to_numpy()
     )
     rows = np.flatnonzero(np.isin(locs, np.unique(old_ids)))
-    old_inputs = read_old_inputs(locs[rows], years, n_draws)
+    old_inputs = read_old_inputs(locs[rows], years, n_draws, ssps=SSPS)
     # units whose 2025 inputs are complete over the forecast years; NaN inputs would drop out of the sums silently
     keep = complete_rows(old_inputs, first_year_index=rebuild.ry)
     old_inputs = {s: {k: v[keep] for k, v in x.items()} for s, x in old_inputs.items()}

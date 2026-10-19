@@ -7,7 +7,7 @@
 :root {
   --bg: #f4f6f4; --surface: #ffffff; --fg: #1b2420; --muted: #56635c; --rule: #d6ddd8; --accent: #2d5c4e;
   --rcp26: #046c9a; --rcp45: #e58601; --rcp85: #a42820;
-  --gdp: #3f7f4f; --suit: #7b4f9e; --wind: #5f7487; --net: #1b2420;
+  --gdp: #3f7f4f; --suit: #7b4f9e; --wind: #5f7487; --dah: #a5662a; --net: #1b2420;
   --font-display: "Source Serif 4", Georgia, "Times New Roman", serif;
   --font-body: "IBM Plex Sans", "Helvetica Neue", Arial, sans-serif;
   --font-data: "IBM Plex Mono", ui-monospace, Menlo, Consolas, monospace;
@@ -16,13 +16,13 @@
   :root:not([data-theme="light"]) {
     --bg: #111613; --surface: #182019; --fg: #e3e9e5; --muted: #9aa8a0; --rule: #2b3530; --accent: #86c2ad;
     --rcp26: #4ea6d4; --rcp45: #f2a43c; --rcp85: #e26a56;
-    --gdp: #77c28b; --suit: #b993dd; --wind: #9fb3c6; --net: #e3e9e5; color-scheme: dark;
+    --gdp: #77c28b; --suit: #b993dd; --wind: #9fb3c6; --dah: #e2a86e; --net: #e3e9e5; color-scheme: dark;
   }
 }
 :root[data-theme="dark"] {
   --bg: #111613; --surface: #182019; --fg: #e3e9e5; --muted: #9aa8a0; --rule: #2b3530; --accent: #86c2ad;
   --rcp26: #4ea6d4; --rcp45: #f2a43c; --rcp85: #e26a56;
-  --gdp: #77c28b; --suit: #b993dd; --wind: #9fb3c6; --net: #e3e9e5; color-scheme: dark;
+  --gdp: #77c28b; --suit: #b993dd; --wind: #9fb3c6; --dah: #e2a86e; --net: #e3e9e5; color-scheme: dark;
 }
 * { box-sizing: border-box; }
 body { background: var(--bg); color: var(--fg); font: 15px/1.55 var(--font-body); }
@@ -54,6 +54,10 @@ select { font: inherit; font-size: 0.88rem; color: var(--fg); background: var(--
 .grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr)); gap: 18px; }
 .stack { display: grid; gap: 18px; }
 .chart.short { height: 250px; }
+.chart.small { height: 200px; }
+.grid5 { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 190px), 1fr)); gap: 12px; }
+.linekey { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 0.85rem; color: var(--muted); align-items: center; }
+.linekey svg { vertical-align: middle; margin-right: 5px; }
 .grid3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 18px; }
 .panel { background: var(--surface); border: 1px solid var(--rule); border-radius: 8px; padding: 14px; display: grid; gap: 8px; min-width: 0; }
 .chart { position: relative; height: 290px; min-width: 0; }
@@ -100,7 +104,7 @@ tr.sep td { border-top: 2px solid var(--rule); }
       <div class="ctl" data-tab="split"><span>Pair</span><div class="seg" id="ctl-pair"></div></div>
       <div class="ctl" data-tab="split"><span>Period</span><div class="seg" id="ctl-period"></div></div>
       <div class="ctl" data-tab="holding"><span>Inputs</span><div class="seg" id="ctl-source"></div></div>
-      <div class="ctl" data-tab="holding"><span>Year</span><div class="seg" id="ctl-vyear"></div></div>
+      <div class="ctl" data-tab="holding swaps"><span>Table year</span><div class="seg" id="ctl-vyear"></div></div>
     </div>
   </div>
 
@@ -163,8 +167,22 @@ tr.sep td { border-top: 2px solid var(--rule); }
   <section id="factorial" data-tab="holding">
     <h2>Holding inputs at 2023, alone and in combination</h2>
     <p id="factorial-text"></p>
+    <div class="grid2" id="factorial-charts"></div>
     <div class="tablewrap"><table id="t-factorial"></table></div>
     <p class="note" id="factorial-note"></p>
+  </section>
+
+  <section id="swaps" data-tab="swaps">
+    <h2>Swapping inputs between the 1st submission and this run</h2>
+    <p id="swaps-text"></p>
+    <h3>Gap between scenarios over time</h3>
+    <div class="grid2" id="swap-gap-charts"></div>
+    <h3>Scenario trajectories under each swap</h3>
+    <div class="linekey" id="swap-traj-key"></div>
+    <div class="stack" id="swap-traj"></div>
+    <h3>Values in the table year</h3>
+    <div class="tablewrap"><table id="t-swaps"></table></div>
+    <p class="note" id="swaps-note"></p>
   </section>
 
   <section id="alone" data-tab="holding">
@@ -190,7 +208,7 @@ tr.sep td { border-top: 2px solid var(--rule); }
   const PAIRS = [["ssp245:ssp126", "RCP4.5 − RCP2.6"], ["ssp245:ssp585", "RCP4.5 − RCP8.5"]];
   const SPEC_LABEL = { spec7426_best: "7426 (selected)", spec7427_alternate: "7427 (+ wind)" };
   const PREV = "1st submission";
-  const TABS = [["overview", "Overview"], ["split", "Split of the gap"], ["holding", "Holding inputs at 2023"]];
+  const TABS = [["overview", "Overview"], ["split", "Split of the gap"], ["holding", "Holding inputs at 2023"], ["swaps", "Swapping inputs"]];
   const MEASURE = {
     inc: { label: "Incidence", noun: "cases", div: 1e6, unit: "M", dp: 1, rateMul: 1e3, rateUnit: "per 1,000", rateDp: 2 },
     mort: { label: "Deaths", noun: "deaths", div: 1e3, unit: "k", dp: 0, rateMul: 1e5, rateUnit: "per 100,000", rateDp: 2 },
@@ -461,6 +479,95 @@ tr.sep td { border-top: 2px solid var(--rule); }
   }
 
   // ---------- holding ----------
+  const SWAP_MODEL = { current: "This run's model", first_submission: `${PREV} model` };
+  const SWAPS = ["own", "swap:gdp", "swap:dah", "swap:suitability", "swap:all"];
+  const SWAP_STYLE = { own: ["--fg", [], 3], "swap:gdp": ["--gdp", [], 2], "swap:dah": ["--dah", [], 2], "swap:suitability": ["--suit", [], 2], "swap:all": ["--muted", [6, 4], 2] };
+  // RCP4.5 minus the other scenario of a pair, per year, as count or rate (population block of the same units)
+  function gapLine(block, pb, pairKey) {
+    const [a, b] = pairKey.split(":"); const yrs = block[a].year;
+    return { year: yrs, v: yrs.map((y, i) => { const va = block[a].count[i], vb = at(block[b], "count", y); if (va === null || vb === null) return null; const d = va - vb; return isRate() ? d / at(pb, "population", y) : d; }) };
+  }
+  // the zero line drawn in the text colour so a gap changing sign is visible
+  const zeroGrid = (o) => { o.scales.y.grid.color = (ctx) => (ctx.tick && ctx.tick.value === 0 ? css("--fg") : css("--rule")); return o; };
+  const styledLine = (label, data, style) => { const d = lineSet(label, data, css(style[0]), style[1]); d.borderWidth = style[2]; d.pointStyle = lineIcon(css(style[0]), style[1]); return d; };
+  const svgLine = (color, dash) => `<svg width="26" height="8" aria-hidden="true"><line x1="1" y1="4" x2="25" y2="4" style="stroke:${color};stroke-width:2;stroke-dasharray:${(dash || []).join(",") || "none"}"/></svg>`;
+  function renderSwapPlots() {
+    const v = S().swaps; const gw = document.getElementById("swap-gap-charts"); const tw = document.getElementById("swap-traj");
+    if (!v) { gw.innerHTML = ""; tw.innerHTML = ""; document.getElementById("swap-traj-key").innerHTML = ""; return; }
+    const loc = state.loc, m = state.measure; const pb = popOf(v.population, loc);
+    const models = ["current", "first_submission"];
+    const id = (md, pk) => `c-swg-${md}-${pk.replace(":", "-")}`;
+    gw.innerHTML = models.flatMap((md) => PAIRS.map(([pk, pl]) => `<div class="panel"><h3>${SWAP_MODEL[md]}: ${pl}</h3><div class="chart"><canvas id="${id(md, pk)}"></canvas></div></div>`)).join("");
+    PAIRS.forEach(([pk, pl]) => {
+      const lines = {}; models.forEach((md) => { lines[md] = SWAPS.map((vn) => [vn, gapLine(v.counts[md][vn][m][loc], pb, pk)]); });
+      const range = niceAxis(models.flatMap((md) => lines[md].flatMap(([, g]) => g.v)).concat([0]));
+      models.forEach((md) => {
+        const ds = lines[md].map(([vn, g]) => styledLine(SWAP_LABEL(md, vn), g.v, SWAP_STYLE[vn]));
+        draw(id(md, pk), { type: "line", data: { labels: lines[md][0][1].year, datasets: ds },
+          options: zeroGrid(shareY(yTick(baseOptions(axisTitle(pl), (o) => { o.plugins.legend.labels.font = { size: 10 }; return o; }), true), range)) });
+      });
+    });
+    const series = {}; models.forEach((md) => SWAPS.forEach((vn) => { const b = v.counts[md][vn][m][loc]; series[md + vn] = {}; SSPS.forEach((s) => { series[md + vn][s] = { year: b[s].year, v: metricSeries(b[s].year, b[s].count, pb) }; }); }));
+    const range = niceAxis(Object.values(series).flatMap((sr) => SSPS.flatMap((s) => sr[s].v)));
+    document.getElementById("swap-traj-key").innerHTML = SSPS.map((s) => `<span>${svgLine(css(SSP_VAR[s]))}${SSP_LABEL[s]}</span>`).join("") + `<span>All ten panels share one y axis.</span>`;
+    tw.innerHTML = models.map((md) => `<div><h3>${SWAP_MODEL[md]}</h3><div class="grid5">${SWAPS.map((vn) => `<div class="panel"><h3>${SWAP_LABEL(md, vn)}</h3><div class="chart small"><canvas id="c-swt-${md}-${vn.replace(":", "-")}"></canvas></div></div>`).join("")}</div></div>`).join("");
+    models.forEach((md) => SWAPS.forEach((vn) => {
+      const sr = series[md + vn];
+      draw(`c-swt-${md}-${vn.replace(":", "-")}`, { type: "line", data: { labels: sr.ssp126.year, datasets: SSPS.map((s) => lineSet(SSP_LABEL[s], sr[s].v, css(SSP_VAR[s]))) },
+        options: shareY(yTick(baseOptions("", (o) => { o.plugins.legend.display = false; o.scales.x.ticks.maxTicksLimit = 4; return o; })), range) });
+    }));
+  }
+  const HOLD_STYLE = {
+    "hold:none": ["--fg", [], 3], "hold:gdp": ["--gdp", [], 2], "hold:dah": ["--dah", [], 2], "hold:suitability": ["--suit", [], 2],
+    "hold:gdp+dah": ["--gdp", [6, 4], 2], "hold:dah+suitability": ["--suit", [6, 4], 2],
+    "gdp_from:ssp126": ["--rcp26", [2, 3], 2], "gdp_from:ssp245": ["--rcp45", [2, 3], 2], "gdp_from:ssp585": ["--rcp85", [2, 3], 2],
+  };
+  function renderFactorialPlots() {
+    const v = S().variants; const wrap = document.getElementById("factorial-charts");
+    if (!v) { wrap.innerHTML = ""; return; }
+    const src = v.counts[state.source]; const loc = state.loc, m = state.measure; const pb = popOf(v.population, loc);
+    const groups = [["holds", "Inputs held at 2023", ["hold:none", "hold:gdp", "hold:dah", "hold:suitability", "hold:gdp+dah", "hold:dah+suitability"]]];
+    if (src["gdp_from:ssp126"]) groups.push(["gdp", "Every scenario on one SSP's GDP", ["hold:none", "gdp_from:ssp126", "gdp_from:ssp245", "gdp_from:ssp585"]]);
+    const id = (g, pk) => `c-fac-${g}-${pk.replace(":", "-")}`;
+    wrap.innerHTML = groups.flatMap(([g, gl]) => PAIRS.map(([pk, pl]) => `<div class="panel"><h3>${gl}: ${pl}</h3><div class="chart"><canvas id="${id(g, pk)}"></canvas></div></div>`)).join("");
+    PAIRS.forEach(([pk, pl]) => {
+      const lines = {}; groups.forEach(([g, , names]) => { lines[g] = names.map((k) => [k, gapLine(src[k][m][loc], pb, pk)]); });
+      const range = niceAxis(groups.flatMap(([g]) => lines[g].flatMap(([, gl]) => gl.v)).concat([0]));
+      groups.forEach(([g]) => {
+        const ds = lines[g].map(([k, gl]) => styledLine(VARIANT_LABEL[k], gl.v, HOLD_STYLE[k]));
+        draw(id(g, pk), { type: "line", data: { labels: lines[g][0][1].year, datasets: ds },
+          options: zeroGrid(shareY(yTick(baseOptions(axisTitle(pl), (o) => { o.plugins.legend.labels.font = { size: 10 }; return o; }), true), range)) });
+      });
+    });
+  }
+  const SWAP_LABEL = (model, v) => {
+    const other = model === "current" ? PREV : "this run";
+    return { own: "own inputs", "swap:gdp": `${other} GDP per capita`, "swap:dah": `${other} DAH per capita`,
+      "swap:suitability": `${other} suitability`, "swap:all": `${other} GDP, DAH and suitability` }[v];
+  };
+  function renderSwaps() {
+    const v = S().swaps; const tbl = document.getElementById("t-swaps"); const note = document.getElementById("swaps-note");
+    const txt = document.getElementById("swaps-text");
+    if (!v) { tbl.innerHTML = ""; note.textContent = ""; txt.textContent = `Computed for model 7426 only: the ${PREV} inputs carry no wind speed, which model 7427 needs.`; return; }
+    const loc = state.loc, m = state.measure, y = state.vyear; const pb = popOf(v.population, loc);
+    const val = (model, variant, s) => { const b = v.counts[model] && v.counts[model][variant] && v.counts[model][variant][m][loc] && v.counts[model][variant][m][loc][s]; if (!b) return null; const c = at(b, "count", y); return c === null ? null : (isRate() ? c / at(pb, "population", y) : c); };
+    let html = `<thead><tr><th>${locName(loc)}, ${y}${isRate() ? ` (${M().rateUnit})` : ""}</th>${SSPS.map((s) => `<th>${SSP_LABEL[s]}</th>`).join("")}<th>Highest</th><th>RCP4.5 \u2212 RCP2.6</th><th>RCP4.5 \u2212 RCP8.5</th></tr></thead><tbody>`;
+    ["current", "first_submission"].forEach((model, mi) => {
+      ["own", "swap:gdp", "swap:dah", "swap:suitability", "swap:all"].forEach((variant, i) => {
+        const vals = SSPS.map((s) => val(model, variant, s));
+        const max = Math.max(...vals);
+        const hi = SSP_LABEL[SSPS[vals.indexOf(max)]];
+        const label = i === 0 ? `${SWAP_MODEL[model]}, ${SWAP_LABEL(model, variant)}` : `\u2003with ${SWAP_LABEL(model, variant)}`;
+        html += `<tr${i === 0 && mi > 0 ? ' class="sep"' : ""}><td>${label}</td>${vals.map((x) => `<td class="${x === max ? "hi" : ""}">${fmt(x, false, false)}</td>`).join("")}<td>${hi}</td>` +
+          `<td class="${cls(vals[1] - vals[0])}">${fmt(vals[1] - vals[0], true, false)}</td><td class="${cls(vals[1] - vals[2])}">${fmt(vals[1] - vals[2], true, false)}</td></tr>`;
+      });
+    });
+    tbl.innerHTML = html + "</tbody>";
+    txt.textContent = `Each model on its own inputs, then with one covariate at a time (and all three) taken from the other run's inputs. Only covariates in both models are swapped: GDP per capita, DAH per capita and suitability. The ${PREV} model also has flood days per capita, which stays at its own input. Each model keeps its own anchor: this run's model its 2023 observation, the ${PREV} model its 2022 observation; a swapped covariate enters through its change since that year.`;
+    const c = v.checks;
+    note.textContent = `Summed over the ${c.n_admin2_used.toLocaleString()} admin-2 units present in both hierarchies with complete inputs in both sets and the ${PREV}'s rake year 2022 (of ${c.n_admin2_forecast.toLocaleString()} forecast units). Both models use this run's population and this run's Baseline vaccine factor, so the two blocks share denominators. ` +
+      `This run's model on its own inputs reproduces its saved forecast on these units to ${Number(c.current_own_vs_forecast).toExponential(0)}; the ${PREV} model on its own inputs reproduces its saved log rates (${c.check_draws} draws) to ${Number(c.first_submission_own_vs_saved_log_rate).toExponential(0)}.`;
+  }
   function renderFactorial() {
     const v = S().variants; const tbl = document.getElementById("t-factorial"); const note = document.getElementById("factorial-note");
     const txt = document.getElementById("factorial-text");
@@ -526,12 +633,13 @@ tr.sep td { border-top: 2px solid var(--rule); }
   const RENDER = {
     overview: () => { renderOrdering(); renderFormulas(); renderInputCompare(); renderTerms(); },
     split: () => { renderSplit(); renderWhere(); },
-    holding: () => { renderFactorial(); renderAlone(); },
+    holding: () => { renderFactorial(); renderFactorialPlots(); renderAlone(); },
+    swaps: () => { renderSwaps(); renderSwapPlots(); },
   };
   const renderActive = () => RENDER[state.tab]();
   function showTab(tab) {
     state.tab = tab;
-    document.querySelectorAll("[data-tab]").forEach((el) => { el.hidden = el.dataset.tab !== tab; });
+    document.querySelectorAll("[data-tab]").forEach((el) => { el.hidden = !el.dataset.tab.split(" ").includes(tab); });
     document.querySelectorAll("#tabs button").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.key === tab)));
     try { history.replaceState(null, "", "#" + tab); } catch (e) { /* hash is a convenience only */ }
     renderActive();
