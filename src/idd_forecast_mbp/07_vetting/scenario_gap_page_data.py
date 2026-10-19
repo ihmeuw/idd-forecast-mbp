@@ -25,14 +25,22 @@ import xarray as xr
 from idd_forecast_mbp import constants as mbpc
 from idd_forecast_mbp.lib.data.hierarchy import load_hierarchy
 from idd_forecast_mbp.lib.io.parquet import read_parquet_with_integer_ids
-from idd_forecast_mbp.lib.processing.scenario_gap import FloatArray, load_run, roll_up
+from idd_forecast_mbp.lib.processing.all_age_products import load_population
+from idd_forecast_mbp.lib.processing.scenario_gap import (
+    ADMIN2_LEVEL,
+    MEASURES,
+    PRODUCTS,
+    FloatArray,
+    by_group,
+    load_run,
+    read_factors,
+    roll_up,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
 SSPS = ("ssp126", "ssp245", "ssp585")
-MEASURES = ("inc", "mort")
-PRODUCTS = mbpc.MODEL_ROOT / "05-products/malaria/lsae_1285"
 PREVIOUS_RUN = "2025_08_28"
 PREVIOUS_ARMS = {
     "Baseline": "",
@@ -41,31 +49,6 @@ PREVIOUS_ARMS = {
 }
 PREVIOUS_MEASURE = {"inc": "incidence", "mort": "mortality"}
 LINK_PARTS = ("dah", "gdp_pfpr", "suitability", "wind", "log_gdp")
-ADMIN2_LEVEL = 5
-
-
-def weighted_mean(values: FloatArray, weights: FloatArray) -> FloatArray:
-    """Weighted mean over axis 0 (locations); NaN cells are left out and the weights renormalised.
-
-    ``values`` is (loc, ...) and ``weights`` (loc,). A slice with no finite value is NaN.
-    """
-    w = np.broadcast_to(weights.reshape(-1, *([1] * (values.ndim - 1))), values.shape)
-    ok = np.isfinite(values) & np.isfinite(w)
-    num = np.where(ok, values * w, 0.0).sum(axis=0)
-    den = np.where(ok, w, 0.0).sum(axis=0)
-    with np.errstate(invalid="ignore", divide="ignore"):
-        return np.where(den > 0, num / den, np.nan)
-
-
-def by_group(
-    values: FloatArray, weights: FloatArray, groups: FloatArray
-) -> dict[int, FloatArray]:
-    """``weighted_mean`` within each group id, plus the all-location mean under key 1 (global)."""
-    out = {1: weighted_mean(values, weights)}
-    for g in np.unique(groups):
-        sel = groups == g
-        out[int(g)] = weighted_mean(values[sel], weights[sel])
-    return out
 
 
 def ranked_parts(
@@ -179,17 +162,84 @@ def gap_block(
     return out
 
 
-def ranked_block(agg: pd.DataFrame, part_cols: Sequence[str]) -> dict[Any, Any]:
+def ranked_block(
+    agg: pd.DataFrame, part_cols: Sequence[str], population: pd.DataFrame | None = None
+) -> dict[Any, Any]:
+    """Regions and countries ranked by gap, in 2100 and summed over 2024-2100.
+
+    With ``population`` (``location_id, year_id, population``), each record also carries the population summed over
+    the same years, so a rate is the record's count over it (for the sum, the mean annual rate).
+    """
     out: dict[Any, Any] = {}
     for (pair, m), f in agg.groupby(["pair", "measure"]):
         entry = {}
         for label, years in (("y2100", [2100]), ("cumulative", range(2024, 2101))):
+            pop_sum = (
+                population[population.year_id.isin(list(years))]
+                .groupby("location_id")
+                .population.sum()
+                if population is not None
+                else None
+            )
             for name, level, n in (("regions", 2, 21), ("countries", 3, 15)):
                 r = ranked_parts(f, level=level, years=years, part_cols=part_cols, n=n)
-                entry[f"{name}_{label}"] = r.assign(
-                    location_id=r.location_id.astype(int)
-                ).to_dict("records")
+                r = r.assign(location_id=r.location_id.astype(int))
+                if pop_sum is not None:
+                    r["population"] = r.location_id.map(pop_sum).astype(float)
+                entry[f"{name}_{label}"] = r.to_dict("records")
         out.setdefault(pair, {})[m] = entry
+    return out
+
+
+def population_block(population: pd.DataFrame, locs: Sequence[int]) -> dict[Any, Any]:
+    """{location_id: {year, population}} for ``locs``, years ascending."""
+    out: dict[Any, Any] = {}
+    for loc in locs:
+        f = population[population.location_id == loc].sort_values("year_id")
+        out[int(loc)] = {
+            "year": f.year_id.astype(int).tolist(),
+            **_series(f, ["population"]),
+        }
+    return out
+
+
+def variant_block(
+    counts: pd.DataFrame, population: pd.DataFrame, checks: dict[str, Any]
+) -> dict[Any, Any]:
+    """{checks, population: {loc: {year, population}}, counts: {source: {variant: {measure: {loc: {ssp: {year, count}}}}}}}."""
+    block: dict[Any, Any] = {
+        "checks": checks,
+        "population": population_block(
+            population, sorted(population.location_id.unique().tolist())
+        ),
+        "counts": {},
+    }
+    for (src, var, m, loc, ssp), f in counts.groupby(
+        ["source", "variant", "measure", "location_id", "ssp"]
+    ):
+        g = f.sort_values("year_id")
+        leaf = (
+            block["counts"]
+            .setdefault(src, {})
+            .setdefault(var, {})
+            .setdefault(m, {})
+            .setdefault(int(loc), {})
+        )
+        leaf[ssp] = {"year": g.year_id.astype(int).tolist(), **_series(g, ["count"])}
+    return block
+
+
+def trajectory_block(traj: pd.DataFrame) -> dict[Any, Any]:
+    """{covariate: {source: {ssp: {loc: {year, value}}}}} from the input trajectories."""
+    out: dict[Any, Any] = {}
+    for (cov, src, ssp, loc), f in traj.groupby(
+        ["covariate", "source", "ssp", "location_id"]
+    ):
+        g = f.sort_values("year_id")
+        out.setdefault(cov, {}).setdefault(src, {}).setdefault(ssp, {})[int(loc)] = {
+            "year": g.year_id.astype(int).tolist(),
+            **_series(g, ["value"]),
+        }
     return out
 
 
@@ -307,41 +357,6 @@ def apply_factors(
     return out.drop(columns="factor")
 
 
-def factor_frame(baseline: pd.DataFrame, no_vaccine: pd.DataFrame) -> pd.DataFrame:
-    """``[location_id, year_id, measure, factor]`` from admin-2 product rows; a zero no-vaccine count gets 1."""
-    m = baseline.merge(no_vaccine, on=["location_id", "year_id"], suffixes=("_b", "_n"))
-    rows = []
-    for k in MEASURES:
-        b, n = m[f"{k}_count_mean_b"], m[f"{k}_count_mean_n"]
-        rows.append(
-            pd.DataFrame(
-                {
-                    "location_id": m.location_id,
-                    "year_id": m.year_id,
-                    "measure": k,
-                    "factor": np.where(
-                        n > 0, b / n.where(n > 0), np.where(n.isna(), np.nan, 1.0)
-                    ),
-                }
-            )
-        )
-    return pd.concat(rows, ignore_index=True)
-
-
-def read_factors(  # pragma: no cover - I/O
-    spec: str, years: Sequence[int], ssp: str = "ssp245"
-) -> pd.DataFrame:
-    cols = ["location_id", "year_id", "inc_count_mean", "mort_count_mean"]
-    frames = {}
-    for arm in ("Baseline", "no_vaccine"):
-        frames[arm] = pd.read_parquet(
-            PRODUCTS / f"{spec}__{arm}/current/all_age_summary_{ssp}.parquet",
-            columns=cols,
-            filters=[("level", "==", ADMIN2_LEVEL), ("year_id", "in", list(years))],
-        )
-    return factor_frame(frames["Baseline"], frames["no_vaccine"])
-
-
 def factor_spread(frames: dict[str, pd.DataFrame]) -> float:
     """Max |factor difference| between any SSP's vaccine factors and the first SSP's, over shared rows."""
     keys = ["location_id", "year_id", "measure"]
@@ -445,6 +460,8 @@ def main(
         .malaria_inc_count
     )
     data: dict[Any, Any] = {"names": {str(k): v for k, v in names.items()}, "specs": {}}
+    population = load_population(list(range(2000, 2101)))
+    data["population"] = population_block(population, locs)
     prev = {arm: read_previous(sfx, locs) for arm, sfx in PREVIOUS_ARMS.items()}
     data["previous"] = {arm: previous_block(p, locs) for arm, p in prev.items()}
     for spec in specs:
@@ -507,7 +524,7 @@ def main(
             "scenarios": {arm: scenario_block(p, locs) for arm, p in products.items()},
             "gap": gap_block(agg, part_cols, locs),
             "gap_no_vaccine": gap_block(nv_agg, part_cols, [1]),
-            "ranked": ranked_block(agg, part_cols),
+            "ranked": ranked_block(agg, part_cols, population),
             "held": held_block(held_agg, locs),
             "inputs": input_block(
                 spec,
@@ -518,6 +535,16 @@ def main(
             ),
             "terms": term_block(gap_root / "term_grids" / spec),
         }
+        vdir = gap_root / spec / "variants"
+        if (vdir / "variant_counts.parquet").is_file():
+            data["specs"][spec]["variants"] = variant_block(
+                pd.read_parquet(vdir / "variant_counts.parquet"),
+                pd.read_parquet(vdir / "variant_population.parquet"),
+                json.loads((vdir / "variant_checks.json").read_text()),
+            )
+            data["specs"][spec]["input_trajectories"] = trajectory_block(
+                pd.read_parquet(vdir / "input_trajectories.parquet")
+            )
         click.echo(f"  {spec} done; checks {data['specs'][spec]['checks']}")
     out_file.parent.mkdir(parents=True, exist_ok=True)
     out_file.write_text(json.dumps(data, separators=(",", ":")))

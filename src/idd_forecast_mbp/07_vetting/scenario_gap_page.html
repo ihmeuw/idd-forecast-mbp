@@ -70,6 +70,9 @@ code { font-family: var(--font-data); font-size: 0.86em; }
 .checks { display: grid; gap: 4px; font-size: 0.9rem; }
 .checks div { display: flex; justify-content: space-between; gap: 16px; border-bottom: 1px dotted var(--rule); padding-block: 3px; flex-wrap: wrap; }
 .checks span:last-child { font-family: var(--font-data); font-variant-numeric: tabular-nums; }
+.ctl-row { display: flex; flex-wrap: wrap; gap: 10px 22px; align-items: center; }
+td.hi { font-weight: 600; }
+tr.sep td { border-top: 2px solid var(--rule); }
 @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
 </style>
 
@@ -77,12 +80,13 @@ code { font-family: var(--font-data); font-size: 0.86em; }
   <header>
     <h3>Malaria forecast, run of 2026-10-07</h3>
     <h1>Why is RCP4.5 the highest scenario?</h1>
-    <p class="meta">All-age counts, Baseline arm (with vaccine protection), forecast years 2024&ndash;2100. Models 7426 (selected) and 7427 (7426 plus wind speed). The 2025 comparison is the first-submission run shipped 2025-08-28.</p>
+    <p class="meta">All-age counts or rates (switch below), Baseline arm (with vaccine protection), forecast years 2024&ndash;2100. Models 7426 (selected) and 7427 (7426 plus wind speed). The 2025 comparison is the first-submission run shipped 2025-08-28. Rates are counts over all-age population; the 2025 run's rates use this run's population.</p>
   </header>
 
   <div class="controls" role="toolbar" aria-label="Page controls">
     <div class="ctl"><span>Model</span><div class="seg" id="ctl-spec"></div></div>
     <div class="ctl"><span>Measure</span><div class="seg" id="ctl-measure"></div></div>
+    <div class="ctl"><span>Metric</span><div class="seg" id="ctl-metric"></div></div>
     <div class="ctl"><span>Location</span><select id="ctl-loc" aria-label="Location"></select></div>
   </div>
 
@@ -105,8 +109,14 @@ code { font-family: var(--font-data); font-size: 0.86em; }
       <li>Each admin-2 is shifted so its 2023 value equals the GBD-raked observation, so only the change in each input since 2023 moves the forecast.</li>
     </ul>
     <pre id="formulas"></pre>
-    <p class="note">The lines below are each scenario's inputs averaged over admin-2 units, weighted by each unit's 2023 observed incidence count. Suitability and wind are draw means.</p>
-    <div class="grid3" id="input-charts"></div>
+  </section>
+
+  <section id="input-compare">
+    <h2>The inputs in the 2025 run and in this run</h2>
+    <p>Solid lines: this run's inputs (GDP V6, DAH FGH_2026_Sept, climate-aggregates 2026_09_09). Dashed: the 2025 run's inputs. Both are averaged over the same admin-2 units, weighted by each unit's 2023 observed incidence count; suitability is the draw mean.</p>
+    <div class="grid3" id="cmp-charts"></div>
+    <div class="tablewrap"><table id="t-cmp"></table></div>
+    <div class="grid3" id="wind-chart"></div>
   </section>
 
   <section id="split">
@@ -115,7 +125,7 @@ code { font-family: var(--font-data); font-size: 0.86em; }
     <div class="ctl"><span>Pair</span><div class="seg" id="ctl-pair"></div></div>
     <div class="panel"><div class="key" id="split-key"></div><div class="chart tall"><canvas id="c-split"></canvas></div></div>
     <div class="tablewrap"><table id="t-split"></table></div>
-    <p class="note">Each bar is one input's share of the gap in that year: the change in counts from taking that input from the first scenario instead of the second, averaged over the orders in which the inputs can be switched (Shapley value). The shares sum to the gap exactly. Computed per draw, then averaged.</p>
+    <p class="note">Each bar is one input's share of the gap in that year: the change from taking that input from the first scenario instead of the second, averaged over the orders in which the inputs can be switched (Shapley value). The shares sum to the gap exactly. Computed per draw on counts, then averaged; rates divide by population, which is the same in every scenario.</p>
   </section>
 
   <section id="where">
@@ -124,16 +134,27 @@ code { font-family: var(--font-data); font-size: 0.86em; }
     <div class="ctl"><span>Period</span><div class="seg" id="ctl-period"></div></div>
     <div class="stack">
       <div class="panel"><h3>Super-regions</h3><div class="chart short"><canvas id="c-where"></canvas></div></div>
-      <div class="panel"><h3>Countries with the largest gaps</h3><div class="tablewrap"><table id="t-countries"></table></div></div>
+      <div class="panel"><h3>Countries with the largest gaps (ranked by count)</h3><div class="tablewrap"><table id="t-countries"></table></div></div>
     </div>
   </section>
 
+  <section id="factorial">
+    <h2>Holding inputs at 2023, alone and in combination</h2>
+    <p id="factorial-text"></p>
+    <div class="ctl-row">
+      <div class="ctl"><span>Inputs</span><div class="seg" id="ctl-source"></div></div>
+      <div class="ctl"><span>Year</span><div class="seg" id="ctl-vyear"></div></div>
+    </div>
+    <div class="tablewrap"><table id="t-factorial"></table></div>
+    <p class="note" id="factorial-note"></p>
+  </section>
+
   <section id="alone">
-    <h2>Each input on its own, this run and 2025</h2>
+    <h2>Each input on its own, against the 2025 run's hold arms</h2>
     <p id="alone-text"></p>
     <div class="grid2" id="alone-charts"></div>
     <div class="tablewrap"><table id="t-alone"></table></div>
-    <p class="note">Held = that input's change since the hold year removed, everything else as in the scenario. This run: rebuilt from the fitted terms with the change since 2023 set to zero (the GDP-held rebuild reproduces the gdppc_hold2023 forecast arm; see Checks). 2025 run: its shipped hold_gdppc and hold_suitability arms.</p>
+    <p class="note">Held = that input's change since the hold year removed, everything else as in the scenario. This run: rebuilt from the fitted terms with the change since 2023 set to zero, over all forecast admin-2 units (the GDP-held rebuild reproduces the gdppc_hold2023 forecast arm; see Checks). 2025 run: its shipped hold_gdppc and hold_suitability arms, from that run's own model and inputs.</p>
   </section>
 
   <section id="terms">
@@ -151,9 +172,9 @@ code { font-family: var(--font-data); font-size: 0.86em; }
     <p>For every admin-2, draw and year, the forecast's log rates are rebuilt from the fitted terms (each term exported on a 200,000-point grid from the saved model objects). With A0 the country effect and the shift fixing 2023 at the observation:</p>
     <pre>logit PfPR(t) = observed logit PfPR(2023) + &Sigma; [term(input(t)) &minus; term(input(2023))]
 log rate(t)   = observed log rate(2023) + g(logit PfPR(t)) &minus; g(observed logit PfPR(2023)) + &gamma; [log GDP(t) &minus; log GDP(2023)]</pre>
-    <p>Any mix of inputs (some from scenario A, the rest from B) can then be evaluated, which is what the split and the held counts use. The split is computed on counts without vaccine protection and multiplied, per admin-2 and year, by the Baseline arm's vaccine factor (Baseline count / no-vaccine count). That factor is the same in all three scenarios, so the scaled shares are the shares of the Baseline gap.</p>
-    <div class="panel"><h3>Checks for the selected model</h3><div class="checks" id="checks"></div></div>
-    <p class="note">Not separated here: how much of the change since the 2025 run comes from the new input data (GDP V6, climate-aggregates 2026_09_09) and how much from the refitted model. That needs the 2025 inputs run through the current model, or the 2025 model run on the current inputs. Code: <code>src/idd_forecast_mbp/07_vetting/</code> (export_malaria_term_grids.R, decompose_scenario_gap.py, held_input_counts.py, scenario_gap_page_data.py) and <code>lib/processing/scenario_gap.py</code>. Outputs: <code>07-figures/malaria_run_20261007/working/rcp45_gap/</code>.</p>
+    <p>Any mix of inputs (some from scenario A, the rest from B, some held at 2023, some from the 2025 run) can then be evaluated with this run's model; that is what the split, the held counts and the factorial use. Counts are computed without vaccine protection and multiplied, per admin-2 and year, by the Baseline arm's vaccine factor (Baseline count / no-vaccine count), which is the same in all three scenarios.</p>
+    <div class="panel"><h3>Checks</h3><div class="checks" id="checks"></div></div>
+    <p class="note">The factorial runs this run's model on the 2025 inputs, which separates the input update from the refit for that model. Not run: the 2025 model on this run's inputs. Code: <code>src/idd_forecast_mbp/07_vetting/</code> (export_malaria_term_grids.R, decompose_scenario_gap.py, held_input_counts.py, scenario_variant_counts.py, scenario_gap_page_data.py) and <code>lib/processing/scenario_gap.py</code>. Outputs: <code>07-figures/malaria_run_20261007/working/rcp45_gap/</code>.</p>
   </section>
 </div>
 
@@ -168,25 +189,49 @@ log rate(t)   = observed log rate(2023) + g(logit PfPR(t)) &minus; g(observed lo
   const SSP_VAR = { ssp126: "--rcp26", ssp245: "--rcp45", ssp585: "--rcp85" };
   const PART_VAR = { gdp: "--gdp", suitability: "--suit", wind: "--wind" };
   const PART_LABEL = { gdp: "GDP per capita", suitability: "Suitability", wind: "Wind speed" };
-  const PAIRS = [["ssp245:ssp126", "RCP4.5 − RCP2.6"], ["ssp245:ssp585", "RCP4.5 − RCP8.5"], ["ssp585:ssp126", "RCP8.5 − RCP2.6"]];
+  const PAIRS = [["ssp245:ssp126", "RCP4.5 − RCP2.6"], ["ssp245:ssp585", "RCP4.5 − RCP8.5"]];
   const SPEC_LABEL = { spec7426_best: "7426 (selected)", spec7427_alternate: "7427 (+ wind)" };
-  const MEASURE = { inc: { label: "Incidence", noun: "cases", div: 1e6, unit: "M", dp: 1 }, mort: { label: "Deaths", noun: "deaths", div: 1e3, unit: "k", dp: 0 } };
-  const state = { spec: Object.keys(DATA.specs)[0], measure: "inc", loc: "1", pair: "ssp245:ssp126", period: "y2100" };
+  const MEASURE = {
+    inc: { label: "Incidence", noun: "cases", div: 1e6, unit: "M", dp: 1, rateMul: 1e3, rateUnit: "per 1,000", rateDp: 2 },
+    mort: { label: "Deaths", noun: "deaths", div: 1e3, unit: "k", dp: 0, rateMul: 1e5, rateUnit: "per 100,000", rateDp: 2 },
+  };
+  const VARIANT_LABEL = {
+    "hold:none": "Nothing held", "hold:gdp": "GDP held", "hold:dah": "DAH per capita held", "hold:suitability": "Suitability held",
+    "hold:gdp+dah": "GDP and DAH held", "hold:gdp+suitability": "GDP and suitability held", "hold:dah+suitability": "DAH and suitability held",
+    "hold:gdp+dah+suitability": "All three held",
+    "gdp_from:ssp126": "All scenarios on SSP1 (RCP2.6) GDP", "gdp_from:ssp245": "All scenarios on SSP2 (RCP4.5) GDP", "gdp_from:ssp585": "All scenarios on SSP5 (RCP8.5) GDP",
+  };
+  const COV = [["gdppc", "GDP per capita (US$)", 0], ["dah_pc", "DAH per capita (US$)", 2], ["suitability_days", "Suitability (days per year)", 1]];
+  const state = { spec: Object.keys(DATA.specs)[0], measure: "inc", metric: "count", loc: "1", pair: "ssp245:ssp126", period: "y2100", source: "current", vyear: 2100 };
   const charts = {};
 
   const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
   const S = () => DATA.specs[state.spec];
   const M = () => MEASURE[state.measure];
-  const fmt = (v, signed) => {
+  const isRate = () => state.metric === "rate";
+  const minus = (s) => s.replace("-", "−");
+  const fmt = (v, signed, unit = true) => {
     if (v === null || v === undefined || !isFinite(v)) return "–";
-    const m = M(); const x = v / m.div;
-    const s = x.toLocaleString("en-US", { minimumFractionDigits: m.dp, maximumFractionDigits: m.dp }).replace("-", "\u2212");
-    return (signed && x > 0 ? "+" : "") + s + m.unit;
+    const m = M();
+    const x = isRate() ? v * m.rateMul : v / m.div;
+    const dp = isRate() ? m.rateDp : m.dp;
+    const s = minus(x.toLocaleString("en-US", { minimumFractionDigits: dp, maximumFractionDigits: dp }));
+    return (signed && x > 0 ? "+" : "") + s + (isRate() ? (unit ? " " + m.rateUnit : "") : m.unit);
   };
+  const axisTitle = (prefix) => (prefix ? prefix + ", " : "") + (isRate() ? `${M().noun} ${M().rateUnit}` : M().noun);
   const at = (obj, key, year) => { const i = obj.year.indexOf(year); return i < 0 ? null : obj[key][i]; };
   const sum = (arr) => arr.reduce((a, b) => a + (b === null ? 0 : b), 0);
   const factors = () => S().run.factors;
   const locName = (id) => DATA.names[id] || id;
+  const popOf = (popBlock, loc) => (popBlock && popBlock[loc]) || null;
+  // count series -> count or rate series, using the population block given (this run's, or the matched set's)
+  const metricSeries = (years, values, pb) => (!isRate() ? values : values.map((v, i) => { const p = pb ? at(pb, "population", years[i]) : null; return v === null || !p ? null : v / p; }));
+  const metricSum = (years, values, pb) => {
+    if (!isRate()) return sum(values);
+    let num = 0, den = 0; years.forEach((y, i) => { if (values[i] !== null) { num += values[i]; den += at(pb, "population", y) || 0; } });
+    return den > 0 ? num / den : null;
+  };
+  const cumLabel = () => (isRate() ? "Mean 2024–2100" : "Sum 2024–2100");
 
   function segmented(el, options, key, onChange) {
     el.innerHTML = "";
@@ -197,14 +242,12 @@ log rate(t)   = observed log rate(2023) + g(logit PfPR(t)) &minus; g(observed lo
       el.appendChild(b);
     });
   }
-
   function baseOptions(yTitle, extra) {
     const fg = css("--fg"), muted = css("--muted"), rule = css("--rule");
     const o = {
       responsive: true, maintainAspectRatio: false, animation: false,
       interaction: { mode: "index", intersect: false },
-      plugins: { legend: { labels: { color: fg, boxWidth: 14, font: { family: css("--font-body") } } },
-        tooltip: { callbacks: {} } },
+      plugins: { legend: { labels: { color: fg, boxWidth: 14, font: { family: css("--font-body") } } }, tooltip: { callbacks: {} } },
       scales: {
         x: { ticks: { color: muted, maxRotation: 0, autoSkipPadding: 14 }, grid: { color: rule } },
         y: { ticks: { color: muted }, grid: { color: rule }, title: { display: !!yTitle, text: yTitle, color: muted } },
@@ -218,11 +261,12 @@ log rate(t)   = observed log rate(2023) + g(logit PfPR(t)) &minus; g(observed lo
     if (!el || typeof Chart === "undefined") return;
     charts[id] = new Chart(el, config);
   }
-  const yTick = (o, signed) => { o.scales.y.ticks.callback = (v) => fmt(v, signed); return o; };
+  const yTick = (o, signed) => { o.scales.y.ticks.callback = (v) => fmt(v, signed, false); return o; };
+  const cls = (v) => (v > 0 ? "pos" : v < 0 ? "neg" : "");
+  const lineSet = (label, data, color, dash) => ({ label, data, borderColor: color, backgroundColor: color, borderDash: dash || [], pointRadius: 0, borderWidth: 2 });
 
   // ---------- ordering ----------
   function highestFrom(series) {
-    // first year from which RCP4.5 stays above both others through the last year
     const years = series.ssp245.year; let from = null;
     for (let i = years.length - 1; i >= 0; i--) {
       const y = years[i]; const a = at(series.ssp245, "v", y), b = at(series.ssp126, "v", y), c = at(series.ssp585, "v", y);
@@ -230,124 +274,191 @@ log rate(t)   = observed log rate(2023) + g(logit PfPR(t)) &minus; g(observed lo
     }
     return from;
   }
-  function seriesFrom(block, key) {
-    const out = {}; SSPS.forEach((s) => { out[s] = { year: block[s].year, v: block[s][key] }; }); return out;
+  function seriesFrom(block, key, minYear) {
+    const pb = popOf(DATA.population, state.loc); const out = {};
+    SSPS.forEach((s) => {
+      const keep = block[s].year.map((y) => y >= minYear);
+      const years = block[s].year.filter((_, i) => keep[i]);
+      out[s] = { year: years, v: metricSeries(years, block[s][key].filter((_, i) => keep[i]), pb) };
+    });
+    return out;
   }
   function renderOrdering() {
     const m = state.measure;
-    const now = seriesFrom(S().scenarios.Baseline[state.loc], `${m}_count_mean`);
-    SSPS.forEach((s) => { const keep = now[s].year.map((y) => y >= 2023); now[s] = { year: now[s].year.filter((_, i) => keep[i]), v: now[s].v.filter((_, i) => keep[i]) }; });
+    const now = seriesFrom(S().scenarios.Baseline[state.loc], `${m}_count_mean`, 2023);
     const prevBlock = DATA.previous.Baseline[state.loc];
-    const prev = prevBlock ? seriesFrom(prevBlock, `${m}_count`) : null;
-    const line = (series) => ({ labels: series.ssp126.year, datasets: SSPS.map((s) => ({ label: SSP_LABEL[s], data: series[s].v, borderColor: css(SSP_VAR[s]), backgroundColor: css(SSP_VAR[s]), pointRadius: 0, borderWidth: 2 })) });
-    draw("c-order-now", { type: "line", data: line(now), options: yTick(baseOptions(`${M().label} (${M().noun})`)) });
-    if (prev) draw("c-order-2025", { type: "line", data: line(prev), options: yTick(baseOptions(`${M().label} (${M().noun})`)) });
+    const prev = prevBlock ? seriesFrom(prevBlock, `${m}_count`, 0) : null;
+    const line = (series) => ({ labels: series.ssp126.year, datasets: SSPS.map((s) => lineSet(SSP_LABEL[s], series[s].v, css(SSP_VAR[s]))) });
+    draw("c-order-now", { type: "line", data: line(now), options: yTick(baseOptions(axisTitle(M().label))) });
+    if (prev) draw("c-order-2025", { type: "line", data: line(prev), options: yTick(baseOptions(axisTitle(M().label))) });
     const fromNow = highestFrom(now), fromPrev = prev ? highestFrom(prev) : null;
-    const last = (series) => { const ys = series.ssp245.year; const y = ys[ys.length - 1]; const v = SSPS.map((s) => [s, at(series[s], "v", y)]).sort((a, b) => b[1] - a[1]); return v.map(([s]) => SSP_LABEL[s]).join(" > "); };
+    const last = (series) => { const ys = series.ssp245.year; const y = ys[ys.length - 1]; return SSPS.map((s) => [s, at(series[s], "v", y)]).sort((a, b) => b[1] - a[1]).map(([s]) => SSP_LABEL[s]).join(" > "); };
     document.getElementById("ordering-text").textContent =
-      `${locName(state.loc)}, ${M().noun}, model ${SPEC_LABEL[state.spec]}. ` +
+      `${locName(state.loc)}, ${M().noun}${isRate() ? " (rate)" : ""}, model ${SPEC_LABEL[state.spec]}. ` +
       (fromNow ? `In this run RCP4.5 is above both other scenarios every year from ${fromNow} to 2100. ` : `In this run RCP4.5 is not above both other scenarios in 2100. `) +
       `Order in 2100: ${last(now)} (this run)` + (prev ? `; ${last(prev)} (2025 run)` + (fromPrev ? `, where RCP4.5 was highest from ${fromPrev}.` : ".") : ".");
-    const years = [2030, 2050, 2075, 2100];
-    let html = `<thead><tr><th>Year</th>${SSPS.map((s) => `<th>${SSP_LABEL[s]}</th>`).join("")}${prev ? SSPS.map((s) => `<th>${SSP_LABEL[s]} (2025)</th>`).join("") : ""}</tr></thead><tbody>`;
-    years.forEach((y) => { html += `<tr><td>${y}</td>${SSPS.map((s) => `<td>${fmt(at(now[s], "v", y))}</td>`).join("")}${prev ? SSPS.map((s) => `<td>${fmt(at(prev[s], "v", y))}</td>`).join("") : ""}</tr>`; });
+    let html = `<thead><tr><th>Year${isRate() ? ` (${M().rateUnit})` : ""}</th>${SSPS.map((s) => `<th>${SSP_LABEL[s]}</th>`).join("")}${prev ? SSPS.map((s) => `<th>${SSP_LABEL[s]} (2025)</th>`).join("") : ""}</tr></thead><tbody>`;
+    [2030, 2050, 2075, 2100].forEach((y) => { html += `<tr><td>${y}</td>${SSPS.map((s) => `<td>${fmt(at(now[s], "v", y), false, false)}</td>`).join("")}${prev ? SSPS.map((s) => `<td>${fmt(at(prev[s], "v", y), false, false)}</td>`).join("") : ""}</tr>`; });
     document.getElementById("t-order").innerHTML = html + "</tbody>";
   }
 
   // ---------- inputs ----------
-  function renderInputs() {
-    const inp = S().inputs; const wrap = document.getElementById("input-charts");
-    const defs = [["gdppc", "GDP per capita (US$)"], ["suitability_days", "Suitability (days per year)"]];
-    if (factors().includes("wind")) defs.push(["wind_speed", "Wind speed"]);
-    wrap.innerHTML = defs.map(([k, t]) => `<div class="panel"><h3>${t}</h3><div class="chart"><canvas id="c-in-${k}"></canvas></div></div>`).join("");
-    const loc = state.loc === "1" ? "1" : state.loc;
-    defs.forEach(([k]) => {
-      const data = { labels: inp.year, datasets: SSPS.map((s) => ({ label: SSP_LABEL[s], data: inp.ssp[s][k][loc], borderColor: css(SSP_VAR[s]), backgroundColor: css(SSP_VAR[s]), pointRadius: 0, borderWidth: 2 })) };
-      draw(`c-in-${k}`, { type: "line", data, options: baseOptions("") });
-    });
+  function renderFormulas() {
     const t = S().terms.slopes; const wind = factors().includes("wind");
+    const sgn = (v) => (v < 0 ? "−" : "+");
     document.getElementById("formulas").textContent =
       `logit PfPR    ~ s(DAH per capita, mpd k4) + s(GDP per capita, mpd k4) + ${t["pfpr:logit_malaria_suitability"].toFixed(3)} × logit suitability` +
-      (wind ? ` ${t["pfpr:wind_speed"] < 0 ? "−" : "+"} ${Math.abs(t["pfpr:wind_speed"]).toFixed(3)} × wind speed` : "") + " + A0\n" +
-      `log inc rate  ~ s(logit PfPR, mpi k10) ${t["inc:log_gdppc_mean"] < 0 ? "−" : "+"} ${Math.abs(t["inc:log_gdppc_mean"]).toFixed(4)} × log GDP per capita + A0\n` +
-      `log mort rate ~ s(logit PfPR, mpi k10) ${t["mort:log_gdppc_mean"] < 0 ? "−" : "+"} ${Math.abs(t["mort:log_gdppc_mean"]).toFixed(4)} × log GDP per capita + A0`;
+      (wind ? ` ${sgn(t["pfpr:wind_speed"])} ${Math.abs(t["pfpr:wind_speed"]).toFixed(3)} × wind speed` : "") + " + A0\n" +
+      `log inc rate  ~ s(logit PfPR, mpi k10) ${sgn(t["inc:log_gdppc_mean"])} ${Math.abs(t["inc:log_gdppc_mean"]).toFixed(4)} × log GDP per capita + A0\n` +
+      `log mort rate ~ s(logit PfPR, mpi k10) ${sgn(t["mort:log_gdppc_mean"])} ${Math.abs(t["mort:log_gdppc_mean"]).toFixed(4)} × log GDP per capita + A0`;
+  }
+  function trajectories() { const k = Object.keys(DATA.specs).find((s) => DATA.specs[s].input_trajectories); return k ? DATA.specs[k].input_trajectories : null; }
+  function renderInputCompare() {
+    const tr = trajectories(); const loc = state.loc;
+    const wrap = document.getElementById("cmp-charts");
+    if (!tr) { wrap.innerHTML = `<p class="note">Input trajectories were not computed.</p>`; return; }
+    wrap.innerHTML = COV.map(([k, t]) => `<div class="panel"><h3>${t}</h3><div class="chart"><canvas id="c-cmp-${k}"></canvas></div></div>`).join("");
+    COV.forEach(([k]) => {
+      const ds = [];
+      SSPS.forEach((s) => {
+        const cur = tr[k].current[s][loc], old = tr[k]["2025"][s][loc];
+        if (cur) ds.push(lineSet(`${SSP_LABEL[s]} this run`, cur.value, css(SSP_VAR[s])));
+        if (old) ds.push(lineSet(`${SSP_LABEL[s]} 2025`, old.value, css(SSP_VAR[s]), [5, 4]));
+      });
+      const years = tr[k].current.ssp245[loc].year;
+      draw(`c-cmp-${k}`, { type: "line", data: { labels: years, datasets: ds }, options: baseOptions("", (o) => { o.plugins.legend.labels.font = { size: 10 }; o.plugins.legend.labels.boxWidth = 16; return o; }) });
+    });
+    const n = (v, dp) => (v === null || v === undefined ? "–" : minus(v.toLocaleString("en-US", { minimumFractionDigits: dp, maximumFractionDigits: dp })));
+    let html = `<thead><tr><th>${locName(loc)}</th><th>2023, 2025 run</th><th>2023, this run</th><th>2100, 2025 run</th><th>2100, this run</th><th>Change 2023→2100, 2025 run</th><th>Change 2023→2100, this run</th></tr></thead><tbody>`;
+    COV.forEach(([k, t, dp], ci) => {
+      const ssps = k === "dah_pc" ? ["ssp245"] : SSPS;
+      ssps.forEach((s, si) => {
+        const cur = tr[k].current[s][loc], old = tr[k]["2025"][s][loc];
+        const v = (b, y) => (b ? at(b, "value", y) : null);
+        const c23 = v(cur, 2023), c00 = v(cur, 2100), o23 = v(old, 2023), o00 = v(old, 2100);
+        const label = k === "dah_pc" ? `${t}, all scenarios` : `${t}, ${SSP_LABEL[s]}`;
+        html += `<tr${si === 0 && ci > 0 ? ' class="sep"' : ""}><td>${label}</td><td>${n(o23, dp)}</td><td>${n(c23, dp)}</td><td>${n(o00, dp)}</td><td>${n(c00, dp)}</td>` +
+          `<td>${o00 === null || o23 === null ? "–" : (o00 - o23 > 0 ? "+" : "") + n(o00 - o23, dp)}</td><td>${c00 === null || c23 === null ? "–" : (c00 - c23 > 0 ? "+" : "") + n(c00 - c23, dp)}</td></tr>`;
+      });
+    });
+    document.getElementById("t-cmp").innerHTML = html + "</tbody>";
+    const windWrap = document.getElementById("wind-chart");
+    if (factors().includes("wind")) {
+      const inp = S().inputs;
+      windWrap.innerHTML = `<div class="panel"><h3>Wind speed, this run (7427 only; not in the 2025 inputs)</h3><div class="chart"><canvas id="c-in-wind"></canvas></div></div>`;
+      draw("c-in-wind", { type: "line", data: { labels: inp.year, datasets: SSPS.map((s) => lineSet(SSP_LABEL[s], inp.ssp[s].wind_speed[loc], css(SSP_VAR[s]))) }, options: baseOptions("") });
+    } else windWrap.innerHTML = "";
   }
 
   // ---------- split ----------
   function gapSeries(block) { return block.count_a.map((a, i) => (a === null || block.count_b[i] === null ? null : a - block.count_b[i])); }
   function renderSplit() {
     const block = S().gap[state.pair][state.measure][state.loc];
+    const pb = popOf(DATA.population, state.loc);
     const pairLabel = PAIRS.find((p) => p[0] === state.pair)[1];
     const gap = gapSeries(block);
+    const parts = {}; factors().forEach((f) => { parts[f] = block[`part_${f}`]; });
     document.getElementById("split-key").innerHTML = factors().map((f) => `<span><i style="background:var(${PART_VAR[f]})"></i>${PART_LABEL[f]}</span>`).join("") + `<span><i style="background:var(--net);height:3px;vertical-align:3px"></i>Gap (sum of the shares)</span>`;
-    const datasets = factors().map((f) => ({ type: "bar", label: PART_LABEL[f], data: block[`part_${f}`], backgroundColor: css(PART_VAR[f]), stack: "parts", order: 2, barPercentage: 1.0, categoryPercentage: 0.92 }));
-    datasets.push({ type: "line", label: "Gap", data: gap, borderColor: css("--net"), backgroundColor: css("--net"), pointRadius: 0, borderWidth: 2, order: 1 });
-    draw("c-split", { type: "bar", data: { labels: block.year, datasets }, options: yTick(baseOptions(`${pairLabel}, ${M().noun}`, (o) => { o.scales.x.stacked = true; o.scales.y.stacked = true; o.plugins.legend.display = false; return o; }), true) });
-    const rows = [2050, 2075, 2100].map((y) => [String(y), at({ year: block.year, v: gap }, "v", y), ...factors().map((f) => at(block, `part_${f}`, y))]);
-    rows.push(["Sum 2024–2100", sum(gap), ...factors().map((f) => sum(block[`part_${f}`]))]);
-    const cls = (v) => (v > 0 ? "pos" : v < 0 ? "neg" : "");
-    document.getElementById("t-split").innerHTML = `<thead><tr><th>${pairLabel}</th><th>Gap</th>${factors().map((f) => `<th>${PART_LABEL[f]}</th>`).join("")}</tr></thead><tbody>` +
-      rows.map((r) => `<tr><td>${r[0]}</td>${r.slice(1).map((v) => `<td class="${cls(v)}">${fmt(v, true)}</td>`).join("")}</tr>`).join("") + "</tbody>";
-    const y2100 = rows[2];
+    const datasets = factors().map((f) => ({ type: "bar", label: PART_LABEL[f], data: metricSeries(block.year, parts[f], pb), backgroundColor: css(PART_VAR[f]), stack: "parts", order: 2, barPercentage: 1.0, categoryPercentage: 0.92 }));
+    datasets.push({ type: "line", label: "Gap", data: metricSeries(block.year, gap, pb), borderColor: css("--net"), backgroundColor: css("--net"), pointRadius: 0, borderWidth: 2, order: 1 });
+    draw("c-split", { type: "bar", data: { labels: block.year, datasets }, options: yTick(baseOptions(axisTitle(pairLabel), (o) => { o.scales.x.stacked = true; o.scales.y.stacked = true; o.plugins.legend.display = false; return o; }), true) });
+    const pick = (vals, y) => { const v = at({ year: block.year, v: vals }, "v", y); return v === null ? null : (isRate() ? v / at(pb, "population", y) : v); };
+    const rows = [2050, 2075, 2100].map((y) => [String(y), pick(gap, y), ...factors().map((f) => pick(parts[f], y))]);
+    rows.push([cumLabel(), metricSum(block.year, gap, pb), ...factors().map((f) => metricSum(block.year, parts[f], pb))]);
+    document.getElementById("t-split").innerHTML = `<thead><tr><th>${pairLabel}${isRate() ? ` (${M().rateUnit})` : ""}</th><th>Gap</th>${factors().map((f) => `<th>${PART_LABEL[f]}</th>`).join("")}</tr></thead><tbody>` +
+      rows.map((r) => `<tr><td>${r[0]}</td>${r.slice(1).map((v) => `<td class="${cls(v)}">${fmt(v, true, false)}</td>`).join("")}</tr>`).join("") + "</tbody>";
+    const y2100 = rows[2], cum = rows[3];
     document.getElementById("split-text").textContent =
       `${locName(state.loc)}, ${M().noun}, model ${SPEC_LABEL[state.spec]}. In 2100 the gap ${pairLabel} is ${fmt(y2100[1], true)}: ` +
       factors().map((f, i) => `${PART_LABEL[f]} ${fmt(y2100[2 + i], true)}`).join(", ") + ". " +
-      `Summed over 2024–2100: ${fmt(rows[3][1], true)} (` + factors().map((f, i) => `${PART_LABEL[f]} ${fmt(rows[3][2 + i], true)}`).join(", ") + ").";
+      `${cumLabel()}: ${fmt(cum[1], true)} (` + factors().map((f, i) => `${PART_LABEL[f]} ${fmt(cum[2 + i], true)}`).join(", ") + ").";
   }
 
   // ---------- where ----------
   function renderWhere() {
     const g = S().gap[state.pair][state.measure];
     const srs = Object.keys(g).filter((k) => k !== "1");
-    const pick = (b, key) => (state.period === "y2100" ? at(b, key, 2100) : sum(b[key]));
-    const label = state.period === "y2100" ? "in 2100" : "summed over 2024–2100";
-    const order = srs.map((k) => [k, pick(g[k], "count_a") - pick(g[k], "count_b")]).sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]));
-    const datasets = factors().map((f) => ({ label: PART_LABEL[f], data: order.map(([k]) => pick(g[k], `part_${f}`)), backgroundColor: css(PART_VAR[f]), stack: "p" }));
+    const years2100 = [2100];
+    const pick = (k, vals) => {
+      const b = g[k]; const pb = popOf(DATA.population, k);
+      if (state.period === "y2100") { const v = at({ year: b.year, v: vals }, "v", 2100); return v === null ? null : (isRate() ? v / at(pb, "population", 2100) : v); }
+      return metricSum(b.year, vals, pb);
+    };
+    const label = state.period === "y2100" ? "in 2100" : (isRate() ? "mean 2024–2100" : "summed over 2024–2100");
+    const order = srs.map((k) => [k, pick(k, gapSeries(g[k]))]).sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]));
+    const datasets = factors().map((f) => ({ label: PART_LABEL[f], data: order.map(([k]) => pick(k, g[k][`part_${f}`])), backgroundColor: css(PART_VAR[f]), stack: "p" }));
     datasets.push({ type: "bar", label: "Gap", data: order.map(([, v]) => v), backgroundColor: css("--net"), stack: "net", barPercentage: 0.35 });
     draw("c-where", { type: "bar", data: { labels: order.map(([k]) => locName(k)), datasets }, options: baseOptions("", (o) => {
       o.indexAxis = "y"; o.scales.x.stacked = true; o.scales.y.stacked = true; o.interaction = { mode: "y", intersect: false };
-      o.scales.x.ticks.callback = (v) => fmt(v, true); o.scales.y.ticks.autoSkip = false; return o; }) });
+      o.scales.x.ticks.callback = (v) => fmt(v, true, false); o.scales.y.ticks.autoSkip = false;
+      o.scales.x.title = { display: isRate(), text: M().rateUnit, color: css("--muted") }; return o; }) });
     const ranked = S().ranked[state.pair][state.measure][`countries_${state.period === "y2100" ? "y2100" : "cumulative"}`];
-    const cls = (v) => (v > 0 ? "pos" : v < 0 ? "neg" : "");
-    document.getElementById("t-countries").innerHTML = `<thead><tr><th>Country</th><th>Gap</th>${factors().map((f) => `<th>${PART_LABEL[f]}</th>`).join("")}</tr></thead><tbody>` +
-      ranked.map((r) => `<tr><td>${r.location_name}</td><td class="${cls(r.gap)}">${fmt(r.gap, true)}</td>${factors().map((f) => `<td class="${cls(r["part_" + f])}">${fmt(r["part_" + f], true)}</td>`).join("")}</tr>`).join("") + "</tbody>";
-    const total = state.period === "y2100" ? at({ year: g["1"].year, v: gapSeries(g["1"]) }, "v", 2100) : sum(gapSeries(g["1"]));
+    const rv = (r, v) => (isRate() ? (r.population ? v / r.population : null) : v);
+    document.getElementById("t-countries").innerHTML = `<thead><tr><th>Country${isRate() ? ` (${M().rateUnit})` : ""}</th><th>Gap</th>${factors().map((f) => `<th>${PART_LABEL[f]}</th>`).join("")}</tr></thead><tbody>` +
+      ranked.map((r) => `<tr><td>${r.location_name}</td><td class="${cls(r.gap)}">${fmt(rv(r, r.gap), true, false)}</td>${factors().map((f) => `<td class="${cls(r["part_" + f])}">${fmt(rv(r, r["part_" + f]), true, false)}</td>`).join("")}</tr>`).join("") + "</tbody>";
+    const total = state.period === "y2100" ? metricSeries([2100], [at({ year: g["1"].year, v: gapSeries(g["1"]) }, "v", 2100)], popOf(DATA.population, "1"))[0] : metricSum(g["1"].year, gapSeries(g["1"]), popOf(DATA.population, "1"));
     const top = order[0];
     document.getElementById("where-text").textContent =
       `${PAIRS.find((p) => p[0] === state.pair)[1]}, ${M().noun} ${label}: global gap ${fmt(total, true)}; ${locName(top[0])} ${fmt(top[1], true)}. ` +
-      `The black bar is each super-region's gap; the coloured bars are its shares by input.`;
+      `The black bar is each super-region's gap; the coloured bars are its shares by input.` + (years2100 && isRate() ? " Rates use each location's own population, so super-region rates do not add to the global rate." : "");
+  }
+
+  // ---------- factorial ----------
+  function renderFactorial() {
+    const v = S().variants; const tbl = document.getElementById("t-factorial"); const note = document.getElementById("factorial-note");
+    const txt = document.getElementById("factorial-text");
+    if (!v) { tbl.innerHTML = ""; txt.textContent = "Computed for model 7426 only: the 2025 inputs carry no wind speed, which model 7427 needs."; note.textContent = ""; return; }
+    const src = v.counts[state.source]; const loc = state.loc; const m = state.measure; const y = state.vyear;
+    const pb = popOf(v.population, loc);
+    const val = (variant, s) => { const b = src[variant] && src[variant][m][loc] && src[variant][m][loc][s]; if (!b) return null; const c = at(b, "count", y); return c === null ? null : (isRate() ? c / at(pb, "population", y) : c); };
+    const names = Object.keys(VARIANT_LABEL).filter((k) => src[k]);
+    let html = `<thead><tr><th>${locName(loc)}, ${y}${isRate() ? ` (${M().rateUnit})` : ""}</th>${SSPS.map((s) => `<th>${SSP_LABEL[s]}</th>`).join("")}<th>Highest</th><th>RCP4.5 − RCP2.6</th><th>RCP4.5 − RCP8.5</th></tr></thead><tbody>`;
+    names.forEach((k, i) => {
+      const vals = SSPS.map((s) => val(k, s));
+      const max = Math.max(...vals), min = Math.min(...vals);
+      const same = Math.abs(max - min) <= 1e-9 * Math.abs(max);
+      const hi = same ? "identical" : SSP_LABEL[SSPS[vals.indexOf(max)]];
+      const sep = (i > 0 && k.startsWith("gdp_from") && !names[i - 1].startsWith("gdp_from")) ? ' class="sep"' : "";
+      html += `<tr${sep}><td>${VARIANT_LABEL[k]}</td>${vals.map((x, j) => `<td class="${!same && x === max ? "hi" : ""}">${fmt(x, false, false)}</td>`).join("")}<td>${hi}</td>` +
+        `<td class="${cls(vals[1] - vals[0])}">${fmt(vals[1] - vals[0], true, false)}</td><td class="${cls(vals[1] - vals[2])}">${fmt(vals[1] - vals[2], true, false)}</td></tr>`;
+    });
+    tbl.innerHTML = html + "</tbody>";
+    txt.textContent = (state.source === "current"
+      ? "This run's model on this run's inputs. Each row holds the listed inputs at their 2023 value in every scenario (or gives every scenario one SSP's GDP); everything else is each scenario's own."
+      : "This run's model on the 2025 run's inputs (their change since 2023; the 2023 anchor and the model are this run's). Rows as above.") +
+      " DAH per capita is the same in all three scenarios, so holding it changes the gaps only through the model's nonlinearity; with GDP and suitability both held the scenarios are identical.";
+    const c = v.checks;
+    const pub = at(S().scenarios.Baseline[loc].ssp245, `${m}_count_mean`, y);
+    const here = at(v.counts.current["hold:none"][m][loc].ssp245, "count", y);
+    note.textContent = `Summed over the ${c.n_admin2_used.toLocaleString()} admin-2 units present in both input sets with complete 2025 inputs (of ${c.n_admin2_forecast.toLocaleString()} forecast units; ${c.n_admin2_forecast - c.n_admin2_in_2025_inputs} are not in the 2025 hierarchy and ${c.n_admin2_incomplete_2025_inputs} have incomplete 2025 inputs). ` +
+      `So "Nothing held" on this run's inputs is below the published totals: RCP4.5, ${locName(loc)}, ${y}: ${(here / M().div).toFixed(M().dp)}${M().unit} ${M().noun} on these units against ${(pub / M().div).toFixed(M().dp)}${M().unit} published. Rates use the population of these units.`;
   }
 
   // ---------- each input alone ----------
   function renderAlone() {
-    const held = S().held; const m = state.measure; const loc = state.loc;
+    const held = S().held; const m = state.measure; const loc = state.loc; const pb = popOf(DATA.population, loc);
+    const conv = (block, key) => { if (!block) return null; const out = {}; SSPS.forEach((s) => { out[s] = { year: block[s].year, v: metricSeries(block[s].year, block[s][key], pb) }; }); return out; };
     const panels = [
-      ["now-gdp", "GDP held, this run", held.gdp_held && held.gdp_held[m][loc], "count"],
-      ["prev-gdp", "GDP held, 2025 run", DATA.previous.gdppc_hold[loc], `${m}_count`],
-      ["now-suit", "Suitability held, this run", held.suitability_held && held.suitability_held[m][loc], "count"],
-      ["prev-suit", "Suitability held, 2025 run", DATA.previous.suitability_hold[loc], `${m}_count`],
+      ["now-gdp", "GDP held, this run", conv(held.gdp_held && held.gdp_held[m][loc], "count")],
+      ["prev-gdp", "GDP held, 2025 run", conv(DATA.previous.gdppc_hold[loc], `${m}_count`)],
+      ["now-suit", "Suitability held, this run", conv(held.suitability_held && held.suitability_held[m][loc], "count")],
+      ["prev-suit", "Suitability held, 2025 run", conv(DATA.previous.suitability_hold[loc], `${m}_count`)],
     ];
-    if (held.wind_held) panels.push(["now-wind", "Wind held, this run", held.wind_held[m][loc], "count"]);
+    if (held.wind_held) panels.push(["now-wind", "Wind held, this run", conv(held.wind_held[m][loc], "count")]);
     document.getElementById("alone-charts").innerHTML = panels.map(([id, t]) => `<div class="panel"><h3>${t}</h3><div class="chart"><canvas id="c-alone-${id}"></canvas></div></div>`).join("");
-    panels.forEach(([id, , block, key]) => {
-      if (!block) return;
-      const data = { labels: block.ssp126.year, datasets: SSPS.map((s) => ({ label: SSP_LABEL[s], data: block[s][key], borderColor: css(SSP_VAR[s]), backgroundColor: css(SSP_VAR[s]), pointRadius: 0, borderWidth: 2 })) };
-      draw(`c-alone-${id}`, { type: "line", data, options: yTick(baseOptions(`${M().label} (${M().noun})`)) });
+    panels.forEach(([id, , series]) => {
+      if (!series) return;
+      draw(`c-alone-${id}`, { type: "line", data: { labels: series.ssp126.year, datasets: SSPS.map((s) => lineSet(SSP_LABEL[s], series[s].v, css(SSP_VAR[s]))) }, options: yTick(baseOptions(axisTitle(M().label))) });
     });
-    const spread = (block, key, y) => (block ? [at(block.ssp245, key, y) - at(block.ssp126, key, y), at(block.ssp245, key, y) - at(block.ssp585, key, y)] : [null, null]);
-    const base = S().scenarios.Baseline[loc];
+    const spread = (series, y) => (series ? [at(series.ssp245, "v", y) - at(series.ssp126, "v", y), at(series.ssp245, "v", y) - at(series.ssp585, "v", y)] : [null, null]);
     const rows = [
-      ["Baseline, this run", base, `${m}_count_mean`],
-      ["GDP held, this run", held.gdp_held && held.gdp_held[m][loc], "count"],
-      ["Suitability held, this run", held.suitability_held && held.suitability_held[m][loc], "count"],
-      ...(held.wind_held ? [["Wind held, this run", held.wind_held[m][loc], "count"]] : []),
-      ["Baseline, 2025 run", DATA.previous.Baseline[loc], `${m}_count`],
-      ["GDP held, 2025 run", DATA.previous.gdppc_hold[loc], `${m}_count`],
-      ["Suitability held, 2025 run", DATA.previous.suitability_hold[loc], `${m}_count`],
+      ["Baseline, this run", conv(S().scenarios.Baseline[loc], `${m}_count_mean`)],
+      ...panels.filter(([id]) => id.startsWith("now")).map(([, t, s]) => [t, s]),
+      ["Baseline, 2025 run", conv(DATA.previous.Baseline[loc], `${m}_count`)],
+      ...panels.filter(([id]) => id.startsWith("prev")).map(([, t, s]) => [t, s]),
     ];
-    const cls = (v) => (v > 0 ? "pos" : v < 0 ? "neg" : "");
-    document.getElementById("t-alone").innerHTML = `<thead><tr><th>${locName(loc)}, ${M().noun}</th><th>RCP4.5 − RCP2.6, 2075</th><th>RCP4.5 − RCP8.5, 2075</th><th>RCP4.5 − RCP2.6, 2100</th><th>RCP4.5 − RCP8.5, 2100</th></tr></thead><tbody>` +
-      rows.map(([name, block, key]) => { const a = spread(block, key, 2075), b = spread(block, key, 2100); return `<tr><td>${name}</td>${[...a, ...b].map((v) => `<td class="${cls(v)}">${fmt(v, true)}</td>`).join("")}</tr>`; }).join("") + "</tbody>";
+    document.getElementById("t-alone").innerHTML = `<thead><tr><th>${locName(loc)}, ${M().noun}${isRate() ? ` (${M().rateUnit})` : ""}</th><th>RCP4.5 − RCP2.6, 2075</th><th>RCP4.5 − RCP8.5, 2075</th><th>RCP4.5 − RCP2.6, 2100</th><th>RCP4.5 − RCP8.5, 2100</th></tr></thead><tbody>` +
+      rows.map(([name, s]) => { const a = spread(s, 2075), b = spread(s, 2100); return `<tr><td>${name}</td>${[...a, ...b].map((v) => `<td class="${cls(v)}">${fmt(v, true, false)}</td>`).join("")}</tr>`; }).join("") + "</tbody>";
     const wind = factors().includes("wind") ? " and wind" : "";
     document.getElementById("alone-text").textContent =
       `In this run's model, with GDP held the scenarios differ only through suitability${wind}; with suitability held, only through GDP${wind}. ` +
@@ -370,9 +481,9 @@ log rate(t)   = observed log rate(2023) + g(logit PfPR(t)) &minus; g(observed lo
       options: baseOptions("change in logit PfPR", (o) => { o.scales.x.type = "logarithmic"; o.scales.x.title = { display: true, text: "GDP per capita (US$, log scale)", color: css("--muted") }; o.interaction = { mode: "nearest", intersect: true }; o.plugins.legend.labels.filter = (item) => item.text !== "term"; return o; }) });
     const ds = [];
     SSPS.forEach((s) => {
-      ds.push({ label: `${SSP_LABEL[s]} GDP`, data: inp.ssp[s].link_gdp_pfpr[loc], borderColor: css(SSP_VAR[s]), pointRadius: 0, borderWidth: 2 });
-      ds.push({ label: `${SSP_LABEL[s]} suitability`, data: inp.ssp[s].link_suitability[loc], borderColor: css(SSP_VAR[s]), borderDash: [6, 4], pointRadius: 0, borderWidth: 2 });
-      if (factors().includes("wind")) ds.push({ label: `${SSP_LABEL[s]} wind`, data: inp.ssp[s].link_wind[loc], borderColor: css(SSP_VAR[s]), borderDash: [2, 3], pointRadius: 0, borderWidth: 2 });
+      ds.push(lineSet(`${SSP_LABEL[s]} GDP`, inp.ssp[s].link_gdp_pfpr[loc], css(SSP_VAR[s])));
+      ds.push(lineSet(`${SSP_LABEL[s]} suitability`, inp.ssp[s].link_suitability[loc], css(SSP_VAR[s]), [6, 4]));
+      if (factors().includes("wind")) ds.push(lineSet(`${SSP_LABEL[s]} wind`, inp.ssp[s].link_wind[loc], css(SSP_VAR[s]), [2, 3]));
     });
     draw("c-link", { type: "line", data: { labels: inp.year, datasets: ds }, options: baseOptions("change in logit PfPR", (o) => { o.plugins.legend.labels.boxWidth = 18; o.plugins.legend.labels.font = { size: 10 }; return o; }) });
     const gi = t["inc:logit_malaria_pfpr"], gm = t["mort:logit_malaria_pfpr"];
@@ -382,8 +493,8 @@ log rate(t)   = observed log rate(2023) + g(logit PfPR(t)) &minus; g(observed lo
       options: baseOptions("change in log rate", (o) => { o.scales.x.title = { display: true, text: "logit PfPR", color: css("--muted") }; o.interaction = { mode: "nearest", intersect: false }; return o; }) });
     const g = (s) => inp.ssp[s].link_gdp_pfpr[loc][y1], su = (s) => inp.ssp[s].link_suitability[loc][y1];
     document.getElementById("terms-text").textContent =
-      `${locName(loc)}, burden-weighted, change in logit PfPR from 2023 to 2100. GDP term: ` + SSPS.map((s) => `${SSP_LABEL[s]} ${g(s).toFixed(2)}`).join(", ") +
-      `. Suitability term: ` + SSPS.map((s) => `${SSP_LABEL[s]} ${su(s).toFixed(2)}`).join(", ") + ". More negative means lower PfPR.";
+      `${locName(loc)}, burden-weighted, change in logit PfPR from 2023 to 2100. GDP term: ` + SSPS.map((s) => `${SSP_LABEL[s]} ${minus(g(s).toFixed(2))}`).join(", ") +
+      `. Suitability term: ` + SSPS.map((s) => `${SSP_LABEL[s]} ${minus(su(s).toFixed(2))}`).join(", ") + ". More negative means lower PfPR.";
   }
 
   // ---------- checks ----------
@@ -397,16 +508,24 @@ log rate(t)   = observed log rate(2023) + g(logit PfPR(t)) &minus; g(observed lo
       ["GDP-held rebuild vs the gdppc_hold2023 forecast arm, max relative difference", e(c.gdp_held_vs_gdppc_hold2023_max_rel_diff)],
     ];
     if (c.wind_held_vs_wind_hold2023_max_rel_diff !== undefined) items.push(["Wind-held rebuild vs the wind_hold2023 forecast arm, max relative difference", e(c.wind_held_vs_wind_hold2023_max_rel_diff)]);
+    const v = S().variants;
+    if (v) {
+      items.push(["Factorial, nothing held on this run's inputs vs saved forecast (same units), max relative difference", e(v.checks.current_hold_none_vs_forecast)]);
+      items.push(["Factorial, GDP held on this run's inputs vs gdppc_hold2023 forecast (same units), max relative difference", e(v.checks.current_hold_gdp_vs_gdppc_hold2023)]);
+    }
     items.push(["Admin-2 units in the forecast", String(r.n_admin2)]);
-    document.getElementById("checks").innerHTML = items.map(([k, v]) => `<div><span>${k}</span><span>${v}</span></div>`).join("");
+    document.getElementById("checks").innerHTML = items.map(([k, val]) => `<div><span>${k}</span><span>${val}</span></div>`).join("");
   }
 
-  function renderAll() { renderOrdering(); renderInputs(); renderSplit(); renderWhere(); renderAlone(); renderTerms(); renderChecks(); }
+  function renderAll() { renderOrdering(); renderFormulas(); renderInputCompare(); renderSplit(); renderWhere(); renderFactorial(); renderAlone(); renderTerms(); renderChecks(); }
 
   segmented(document.getElementById("ctl-spec"), Object.keys(DATA.specs).map((k) => [k, SPEC_LABEL[k] || k]), "spec", renderAll);
   segmented(document.getElementById("ctl-measure"), [["inc", "Incidence"], ["mort", "Deaths"]], "measure", renderAll);
+  segmented(document.getElementById("ctl-metric"), [["count", "Count"], ["rate", "Rate"]], "metric", renderAll);
   segmented(document.getElementById("ctl-pair"), PAIRS, "pair", () => { renderSplit(); renderWhere(); });
-  segmented(document.getElementById("ctl-period"), [["y2100", "2100"], ["cumulative", "Sum 2024–2100"]], "period", renderWhere);
+  segmented(document.getElementById("ctl-period"), [["y2100", "2100"], ["cumulative", "2024–2100"]], "period", renderWhere);
+  segmented(document.getElementById("ctl-source"), [["current", "This run's inputs"], ["2025", "2025 run's inputs"]], "source", renderFactorial);
+  segmented(document.getElementById("ctl-vyear"), [[2050, "2050"], [2075, "2075"], [2100, "2100"]], "vyear", renderFactorial);
   const sel = document.getElementById("ctl-loc");
   // only locations with forecast admin-2 units have a split (two super-regions have none)
   Object.keys(DATA.specs[state.spec].gap["ssp245:ssp126"].inc).forEach((id) => { const o = document.createElement("option"); o.value = id; o.textContent = locName(id); sel.appendChild(o); });

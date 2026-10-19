@@ -17,22 +17,9 @@ import pandas as pd
 from idd_forecast_mbp.lib.processing.scenario_gap import (
     INPUT_FACTORS,
     LOG_RATE_VARS,
-    FloatArray,
+    hold_pieces,
     load_run,
 )
-
-# the rebuild pieces each held input zeroes (its change since the rake year)
-HELD_PIECES = {
-    "gdp": ("gdp_pfpr", "log_gdp"),
-    "suitability": ("suitability",),
-    "wind": ("wind",),
-}
-
-
-def held_parts(parts: dict[str, FloatArray], held: str) -> dict[str, FloatArray]:
-    """One SSP's rebuild pieces (``Rebuild.year_parts(t)[ssp]``) with ``held``'s change since the rake year zeroed."""
-    zero = HELD_PIECES[held]
-    return {k: (np.zeros_like(v) if k in zero else v) for k, v in parts.items()}
 
 
 @click.command()
@@ -65,7 +52,7 @@ def main(
         parts = rebuild.year_parts(t)
         for ssp in ssps:
             for held in helds:
-                one = {"held": held_parts(parts[ssp], held)}
+                one = {"held": hold_pieces(parts[ssp], (held,))}
                 for m in LOG_RATE_VARS:
                     lr = rebuild.log_rate(one, m, dict.fromkeys(INPUT_FACTORS, "held"))
                     c = np.exp(lr) * population[:, t][:, None]

@@ -27,7 +27,7 @@ from idd_forecast_mbp import constants as mbpc
 from idd_forecast_mbp.lib.io.parquet import read_parquet_with_integer_ids
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Sequence
+    from collections.abc import Callable, Collection, Sequence
     from pathlib import Path
 
 FloatArray = npt.NDArray[np.float64]
@@ -140,6 +140,16 @@ OBS_RATE_COLS = {"inc": "malaria_inc_rate", "mort": "malaria_mort_rate"}
 PFPR_SCALE = 0.999  # the fit and the rocket take logit(0.999 * pfpr)
 INPUT_FACTORS = ("gdp", "suitability", "wind")
 ROLL_UP = (("A0_location_id", 3), ("region_id", 2), ("super_region_id", 1))
+# the rebuild pieces holding an input at the rake year zeroes (its change since then)
+HELD_PIECES = {
+    "gdp": ("gdp_pfpr", "log_gdp"),
+    "dah": ("dah",),
+    "suitability": ("suitability",),
+    "wind": ("wind",),
+}
+MEASURES = ("inc", "mort")
+ADMIN2_LEVEL = 5
+PRODUCTS = mbpc.MODEL_ROOT / "05-products/malaria/lsae_1285"
 
 
 def align(index_from: AnyArray, wanted: AnyArray) -> IntArray:
@@ -417,3 +427,88 @@ def load_run(  # noqa: PLR0913  # pragma: no cover - reads every input
         ry=int(np.flatnonzero(years == rake_year)[0]),
     )
     return rebuild, forecasts, locs, years, read_population(locs, years)
+
+
+def hold_pieces(
+    parts: dict[str, FloatArray], held: Collection[str]
+) -> dict[str, FloatArray]:
+    """One SSP's rebuild pieces (``Rebuild.year_parts(t)[ssp]``) with each held input's change since the rake year zeroed."""
+    unknown = set(held) - set(HELD_PIECES)
+    if unknown:
+        msg = f"unknown held input(s): {sorted(unknown)}"
+        raise ValueError(msg)
+    zero = {p for h in held for p in HELD_PIECES[h]}
+    return {k: (np.zeros_like(v) if k in zero else v) for k, v in parts.items()}
+
+
+def subset_rebuild(rebuild: Rebuild, rows: IntArray) -> Rebuild:
+    """The same rebuild restricted to admin-2 ``rows`` (inputs and anchors)."""
+    return Rebuild(
+        grids=rebuild.grids,
+        slopes=rebuild.slopes,
+        inputs={
+            s: {k: v[rows] for k, v in x.items()} for s, x in rebuild.inputs.items()
+        },
+        l_obs=rebuild.l_obs[rows],
+        obs_log={m: v[rows] for m, v in rebuild.obs_log.items()},
+        ry=rebuild.ry,
+    )
+
+
+def factor_frame(baseline: pd.DataFrame, no_vaccine: pd.DataFrame) -> pd.DataFrame:
+    """``[location_id, year_id, measure, factor]`` from admin-2 product rows; a zero no-vaccine count gets 1."""
+    m = baseline.merge(no_vaccine, on=["location_id", "year_id"], suffixes=("_b", "_n"))
+    rows = []
+    for k in MEASURES:
+        b, n = m[f"{k}_count_mean_b"], m[f"{k}_count_mean_n"]
+        rows.append(
+            pd.DataFrame(
+                {
+                    "location_id": m.location_id,
+                    "year_id": m.year_id,
+                    "measure": k,
+                    "factor": np.where(
+                        n > 0, b / n.where(n > 0), np.where(n.isna(), np.nan, 1.0)
+                    ),
+                }
+            )
+        )
+    return pd.concat(rows, ignore_index=True)
+
+
+def read_factors(  # pragma: no cover - I/O
+    spec: str, years: Sequence[int], ssp: str = "ssp245"
+) -> pd.DataFrame:
+    cols = ["location_id", "year_id", "inc_count_mean", "mort_count_mean"]
+    frames = {}
+    for arm in ("Baseline", "no_vaccine"):
+        frames[arm] = pd.read_parquet(
+            PRODUCTS / f"{spec}__{arm}/current/all_age_summary_{ssp}.parquet",
+            columns=cols,
+            filters=[("level", "==", ADMIN2_LEVEL), ("year_id", "in", list(years))],
+        )
+    return factor_frame(frames["Baseline"], frames["no_vaccine"])
+
+
+def weighted_mean(values: FloatArray, weights: FloatArray) -> FloatArray:
+    """Weighted mean over axis 0 (locations); NaN cells are left out and the weights renormalised.
+
+    ``values`` is (loc, ...) and ``weights`` (loc,). A slice with no finite value is NaN.
+    """
+    w = np.broadcast_to(weights.reshape(-1, *([1] * (values.ndim - 1))), values.shape)
+    ok = np.isfinite(values) & np.isfinite(w)
+    num = np.where(ok, values * w, 0.0).sum(axis=0)
+    den = np.where(ok, w, 0.0).sum(axis=0)
+    with np.errstate(invalid="ignore", divide="ignore"):
+        return np.where(den > 0, num / den, np.nan)
+
+
+def by_group(
+    values: FloatArray, weights: FloatArray, groups: FloatArray
+) -> dict[int, FloatArray]:
+    """``weighted_mean`` within each group id, plus the all-location mean under key 1 (global)."""
+    out = {1: weighted_mean(values, weights)}
+    for g in np.unique(groups):
+        sel = groups == g
+        out[int(g)] = weighted_mean(values[sel], weights[sel])
+    return out

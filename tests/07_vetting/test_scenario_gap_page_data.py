@@ -19,25 +19,6 @@ sys.modules[_spec.name] = pdata
 _spec.loader.exec_module(pdata)
 
 
-def test_weighted_mean_skips_nan_and_renormalises():
-    values = np.array([[1.0, np.nan], [3.0, 4.0]])
-    out = pdata.weighted_mean(values, np.array([1.0, 3.0]))
-    np.testing.assert_allclose(out, [2.5, 4.0])
-
-
-def test_weighted_mean_of_an_all_nan_slice_is_nan():
-    out = pdata.weighted_mean(np.array([[np.nan], [np.nan]]), np.array([1.0, 1.0]))
-    assert np.isnan(out[0])
-
-
-def test_by_group_returns_the_global_mean_under_key_1_and_each_group():
-    values = np.array([[1.0], [3.0], [10.0]])
-    out = pdata.by_group(values, np.array([1.0, 1.0, 2.0]), np.array([7, 7, 9]))
-    np.testing.assert_allclose(out[1], [(1 + 3 + 20) / 4])
-    np.testing.assert_allclose(out[7], [2.0])
-    np.testing.assert_allclose(out[9], [10.0])
-
-
 def _agg():
     rows = [
         {
@@ -134,30 +115,6 @@ def test_gap_and_ranked_blocks_key_by_pair_and_measure():
     ranked = pdata.ranked_block(agg, parts)
     countries = ranked["ssp245:ssp126"]["inc"]["countries_y2100"]
     assert [r["location_name"] for r in countries] == ["Beta", "Alpha", "Gamma"]
-
-
-def test_factor_frame_divides_and_gives_one_to_zero_counts():
-    b = pd.DataFrame(
-        {
-            "location_id": [1, 2, 3],
-            "year_id": 2050,
-            "inc_count_mean": [8.0, 0.0, np.nan],
-            "mort_count_mean": [1.0, 0.0, 2.0],
-        }
-    )
-    n = pd.DataFrame(
-        {
-            "location_id": [1, 2, 3],
-            "year_id": 2050,
-            "inc_count_mean": [10.0, 0.0, np.nan],
-            "mort_count_mean": [2.0, 0.0, 4.0],
-        }
-    )
-    out = pdata.factor_frame(b, n).set_index(["measure", "location_id"]).factor
-    assert out[("inc", 1)] == 0.8
-    assert out[("inc", 2)] == 1.0
-    assert np.isnan(out[("inc", 3)])
-    assert out[("mort", 3)] == 0.5
 
 
 def test_apply_factors_scales_counts_and_parts_by_measure():
@@ -302,3 +259,77 @@ def test_apply_factors_checks_the_first_value_column_of_any_frame():
     out = pdata.apply_factors(held, factors, ["count"])
     assert out["count"].iloc[0] == 2.0
     assert np.isnan(out["count"].iloc[1])
+
+
+def test_ranked_block_adds_population_summed_over_the_same_years():
+    agg = _agg()
+    pop = pd.DataFrame(
+        {
+            "location_id": [11, 11, 12, 12, 13, 13],
+            "year_id": [2099, 2100] * 3,
+            "population": [1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
+        }
+    )
+    out = pdata.ranked_block(agg, ["part_gdp", "part_suitability"], pop)
+    recs = {
+        r["location_name"]: r for r in out["ssp245:ssp126"]["inc"]["countries_y2100"]
+    }
+    assert recs["Beta"]["population"] == 4.0
+    cum = {
+        r["location_name"]: r
+        for r in out["ssp245:ssp126"]["inc"]["countries_cumulative"]
+    }
+    assert cum["Beta"]["population"] == 7.0
+
+
+def test_population_block_orders_years():
+    pop = pd.DataFrame(
+        {
+            "location_id": [1, 1, 4],
+            "year_id": [2001, 2000, 2000],
+            "population": [2.0, 1.0, 9.0],
+        }
+    )
+    assert pdata.population_block(pop, [1]) == {
+        1: {"year": [2000, 2001], "population": [1.0, 2.0]}
+    }
+
+
+def test_variant_block_nests_source_variant_measure_location_ssp():
+    counts = pd.DataFrame(
+        {
+            "source": "2025",
+            "variant": "hold:dah",
+            "measure": "inc",
+            "location_id": 1,
+            "ssp": "ssp245",
+            "year_id": [2025, 2024],
+            "count": [2.0, 1.0],
+        }
+    )
+    pop = pd.DataFrame({"location_id": [1], "year_id": [2024], "population": [10.0]})
+    out = pdata.variant_block(counts, pop, {"n": 1})
+    assert out["counts"]["2025"]["hold:dah"]["inc"][1]["ssp245"] == {
+        "year": [2024, 2025],
+        "count": [1.0, 2.0],
+    }
+    assert out["population"][1]["population"] == [10.0]
+    assert out["checks"] == {"n": 1}
+
+
+def test_trajectory_block_nests_covariate_source_ssp_location():
+    traj = pd.DataFrame(
+        {
+            "covariate": "gdppc",
+            "source": "current",
+            "ssp": "ssp126",
+            "location_id": 166,
+            "year_id": [2001, 2000],
+            "value": [5.0, 4.0],
+        }
+    )
+    assert pdata.trajectory_block(traj) == {
+        "gdppc": {
+            "current": {"ssp126": {166: {"year": [2000, 2001], "value": [4.0, 5.0]}}}
+        }
+    }

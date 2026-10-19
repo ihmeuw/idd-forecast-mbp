@@ -295,3 +295,89 @@ def test_roll_up_groups_by_the_given_keys() -> None:
     out = dsg.roll_up(admin2, _keys(), ["count_a"], by=("arm", "measure", "year_id"))
     assert set(out.arm) == {"ssp245:gdp_held"}
     assert out.set_index(["level", "location_id"]).loc[(0, 1), "count_a"] == 3.0
+
+
+def test_factor_frame_divides_and_gives_one_to_zero_counts() -> None:
+    b = pd.DataFrame(
+        {
+            "location_id": [1, 2, 3],
+            "year_id": 2050,
+            "inc_count_mean": [8.0, 0.0, np.nan],
+            "mort_count_mean": [1.0, 0.0, 2.0],
+        }
+    )
+    n = pd.DataFrame(
+        {
+            "location_id": [1, 2, 3],
+            "year_id": 2050,
+            "inc_count_mean": [10.0, 0.0, np.nan],
+            "mort_count_mean": [2.0, 0.0, 4.0],
+        }
+    )
+    out = dsg.factor_frame(b, n).set_index(["measure", "location_id"]).factor
+    assert out[("inc", 1)] == 0.8
+    assert out[("inc", 2)] == 1.0
+    assert np.isnan(out[("inc", 3)])
+    assert out[("mort", 3)] == 0.5
+
+
+def _pieces() -> dict[str, FloatArray]:
+    return {
+        "dah": np.array([[0.1]]),
+        "gdp_pfpr": np.array([[-0.5]]),
+        "log_gdp": np.array([[0.3]]),
+        "suitability": np.array([[0.2, 0.4]]),
+        "wind": np.array([[0.05, 0.0]]),
+    }
+
+
+def test_hold_pieces_zeroes_both_gdp_pieces_only() -> None:
+    out = dsg.hold_pieces(_pieces(), ("gdp",))
+    assert out["gdp_pfpr"].item() == 0.0
+    assert out["log_gdp"].item() == 0.0
+    np.testing.assert_array_equal(out["suitability"], [[0.2, 0.4]])
+    assert out["dah"].item() == 0.1
+
+
+def test_hold_pieces_combines_holds_and_keeps_the_draw_shape() -> None:
+    out = dsg.hold_pieces(_pieces(), ("dah", "suitability"))
+    assert out["dah"].item() == 0.0
+    np.testing.assert_array_equal(out["suitability"], [[0.0, 0.0]])
+    assert out["gdp_pfpr"].item() == -0.5
+    np.testing.assert_array_equal(out["wind"], [[0.05, 0.0]])
+
+
+def test_hold_pieces_rejects_an_unknown_input() -> None:
+    with pytest.raises(ValueError, match="unknown held"):
+        dsg.hold_pieces(_pieces(), ("rain",))
+
+
+def test_subset_rebuild_keeps_only_the_given_rows() -> None:
+    rb = dsg.subset_rebuild(_rebuild(B_WIND), np.array([1], dtype=np.int64))
+    assert rb.l_obs.shape == (1, 1)
+    assert rb.inputs["A"]["suit"].shape == (1, 2, 3)
+    full = _rebuild(B_WIND)
+    src = dict.fromkeys(dsg.INPUT_FACTORS, "A")
+    np.testing.assert_allclose(
+        rb.log_rate(rb.year_parts(1), "inc", src),
+        full.log_rate(full.year_parts(1), "inc", src)[[1]],
+    )
+
+
+def test_weighted_mean_skips_nan_and_renormalises() -> None:
+    values = np.array([[1.0, np.nan], [3.0, 4.0]])
+    out = dsg.weighted_mean(values, np.array([1.0, 3.0]))
+    np.testing.assert_allclose(out, [2.5, 4.0])
+
+
+def test_weighted_mean_of_an_all_nan_slice_is_nan() -> None:
+    out = dsg.weighted_mean(np.array([[np.nan], [np.nan]]), np.array([1.0, 1.0]))
+    assert np.isnan(out[0])
+
+
+def test_by_group_returns_the_global_mean_under_key_1_and_each_group() -> None:
+    values = np.array([[1.0], [3.0], [10.0]])
+    out = dsg.by_group(values, np.array([1.0, 1.0, 2.0]), np.array([7, 7, 9]))
+    np.testing.assert_allclose(out[1], [(1 + 3 + 20) / 4])
+    np.testing.assert_allclose(out[7], [2.0])
+    np.testing.assert_allclose(out[9], [10.0])
