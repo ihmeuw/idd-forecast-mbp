@@ -17,28 +17,35 @@ sys.modules[_spec.name] = mis
 _spec.loader.exec_module(mis)
 
 
-def test_swap_variants_are_own_each_shared_covariate_and_all():
-    v = dict(mis.swap_variants())
-    assert v["own"] == ()
-    assert v["swap:gdp"] == ("gdp",)
-    assert v["swap:suitability"] == ("suit",)
-    assert set(v["swap:all"]) == {"gdp", "dah", "suit"}
-    assert len(v) == 5
+def test_input_combinations_cover_every_mix_once_with_the_two_own_sets():
+    codes = mis.input_combinations()
+    assert len(codes) == 8
+    assert len(set(codes)) == 8
+    assert codes[0] == "TTT"
+    assert codes[-1] == "FFF"
 
 
-def test_swap_inputs_replaces_only_the_named_keys_and_keeps_own_extras():
-    own = {
+def test_mix_inputs_takes_each_covariate_from_its_set_and_keeps_base_extras():
+    this = {
         "ssp245": {
             "gdp": np.array([1.0]),
             "dah": np.array([2.0]),
-            "flood": np.array([3.0]),
+            "suit": np.array([3.0]),
         }
     }
-    other = {"ssp245": {"gdp": np.array([10.0]), "dah": np.array([20.0])}}
-    out = mis.swap_inputs(own, other, ("gdp",))
-    assert out["ssp245"]["gdp"][0] == 10.0
-    assert out["ssp245"]["dah"][0] == 2.0
-    assert out["ssp245"]["flood"][0] == 3.0
+    first = {
+        "ssp245": {
+            "gdp": np.array([10.0]),
+            "dah": np.array([20.0]),
+            "suit": np.array([30.0]),
+        }
+    }
+    base = {"ssp245": {**first["ssp245"], "flood": np.array([9.0])}}
+    out = mis.mix_inputs(this, first, "FTF", base)["ssp245"]
+    assert out["gdp"][0] == 10.0
+    assert out["dah"][0] == 2.0
+    assert out["suit"][0] == 30.0
+    assert out["flood"][0] == 9.0
 
 
 def _rebuild(gdp_t, flood_slope=0.0):
@@ -89,7 +96,7 @@ def test_flood_term_moves_the_rate_only_when_the_model_has_it():
 
 def test_run_year_counts_every_model_variant_ssp_and_returns_own_rates():
     a, b = _rebuild(150.0), _rebuild(120.0, flood_slope=0.1)
-    rebuilds = {"current": {"own": a, "swap:gdp": a}, "first_submission": {"own": b}}
+    rebuilds = {"current": {"TTT": a, "FTT": a}, "first_submission": {"FFF": b}}
     masks = {
         f"{s}:{m}": np.zeros((1, 2, 2), bool) for s in mis.SSPS for m in mis.MEASURES
     }
@@ -103,9 +110,9 @@ def test_run_year_counts_every_model_variant_ssp_and_returns_own_rates():
         groups=np.array([166.0]),
     )
     assert {(r["source"], r["variant"]) for r in rows} == {
-        ("current", "own"),
-        ("current", "swap:gdp"),
-        ("first_submission", "own"),
+        ("current", "TTT"),
+        ("current", "FTT"),
+        ("first_submission", "FFF"),
     }
     assert set(own) == {"current", "first_submission"}
     lr = a.log_rate(

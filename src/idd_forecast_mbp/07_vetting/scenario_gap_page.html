@@ -55,7 +55,7 @@ select { font: inherit; font-size: 0.88rem; color: var(--fg); background: var(--
 .stack { display: grid; gap: 18px; }
 .chart.short { height: 250px; }
 .chart.small { height: 200px; }
-.grid5 { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 190px), 1fr)); gap: 12px; }
+.grid4 { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 230px), 1fr)); gap: 12px; }
 .linekey { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 0.85rem; color: var(--muted); align-items: center; }
 .linekey svg { vertical-align: middle; margin-right: 5px; }
 .grid3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 18px; }
@@ -177,7 +177,7 @@ tr.sep td { border-top: 2px solid var(--rule); }
     <p id="swaps-text"></p>
     <h3>Gap between scenarios over time</h3>
     <div class="grid2" id="swap-gap-charts"></div>
-    <h3>Scenario trajectories under each swap</h3>
+    <h3>Scenario trajectories, both models on the same inputs</h3>
     <div class="linekey" id="swap-traj-key"></div>
     <div class="stack" id="swap-traj"></div>
     <h3>Values in the table year</h3>
@@ -481,6 +481,18 @@ tr.sep td { border-top: 2px solid var(--rule); }
   // ---------- holding ----------
   const SWAP_MODEL = { current: "This run's model", first_submission: `${PREV} model` };
   const SWAPS = ["own", "swap:gdp", "swap:dah", "swap:suitability", "swap:all"];
+  // input-set code per covariate (GDP, DAH, suitability): T this run's input, F the 1st submission's
+  const REL = {
+    current: { own: "TTT", "swap:gdp": "FTT", "swap:dah": "TFT", "swap:suitability": "TTF", "swap:all": "FFF" },
+    first_submission: { own: "FFF", "swap:gdp": "TFF", "swap:dah": "FTF", "swap:suitability": "FFT", "swap:all": "TTT" },
+  };
+  const COMBOS = ["TTT", "FTT", "TFT", "TTF", "FFT", "FTF", "TFF", "FFF"];
+  const comboTitle = (code) => {
+    const from = ["GDP", "DAH", "suitability"].filter((_, i) => code[i] === "F");
+    if (!from.length) return "All this run's inputs";
+    if (from.length === 3) return `All ${PREV} inputs`;
+    return `${PREV} ${from.join(" and ")}; the rest this run's`;
+  };
   const SWAP_STYLE = { own: ["--fg", [], 3], "swap:gdp": ["--gdp", [], 2], "swap:dah": ["--dah", [], 2], "swap:suitability": ["--suit", [], 2], "swap:all": ["--muted", [6, 4], 2] };
   // RCP4.5 minus the other scenario of a pair, per year, as count or rate (population block of the same units)
   function gapLine(block, pb, pairKey) {
@@ -499,7 +511,7 @@ tr.sep td { border-top: 2px solid var(--rule); }
     const id = (md, pk) => `c-swg-${md}-${pk.replace(":", "-")}`;
     gw.innerHTML = models.flatMap((md) => PAIRS.map(([pk, pl]) => `<div class="panel"><h3>${SWAP_MODEL[md]}: ${pl}</h3><div class="chart"><canvas id="${id(md, pk)}"></canvas></div></div>`)).join("");
     PAIRS.forEach(([pk, pl]) => {
-      const lines = {}; models.forEach((md) => { lines[md] = SWAPS.map((vn) => [vn, gapLine(v.counts[md][vn][m][loc], pb, pk)]); });
+      const lines = {}; models.forEach((md) => { lines[md] = SWAPS.map((vn) => [vn, gapLine(v.counts[md][REL[md][vn]][m][loc], pb, pk)]); });
       const range = niceAxis(models.flatMap((md) => lines[md].flatMap(([, g]) => g.v)).concat([0]));
       models.forEach((md) => {
         const ds = lines[md].map(([vn, g]) => styledLine(SWAP_LABEL(md, vn), g.v, SWAP_STYLE[vn]));
@@ -507,15 +519,25 @@ tr.sep td { border-top: 2px solid var(--rule); }
           options: zeroGrid(shareY(yTick(baseOptions(axisTitle(pl), (o) => { o.plugins.legend.labels.font = { size: 10 }; return o; }), true), range)) });
       });
     });
-    const series = {}; models.forEach((md) => SWAPS.forEach((vn) => { const b = v.counts[md][vn][m][loc]; series[md + vn] = {}; SSPS.forEach((s) => { series[md + vn][s] = { year: b[s].year, v: metricSeries(b[s].year, b[s].count, pb) }; }); }));
-    const range = niceAxis(Object.values(series).flatMap((sr) => SSPS.flatMap((s) => sr[s].v)));
-    document.getElementById("swap-traj-key").innerHTML = SSPS.map((s) => `<span>${svgLine(css(SSP_VAR[s]))}${SSP_LABEL[s]}</span>`).join("") + `<span>All ten panels share one y axis.</span>`;
-    tw.innerHTML = models.map((md) => `<div><h3>${SWAP_MODEL[md]}</h3><div class="grid5">${SWAPS.map((vn) => `<div class="panel"><h3>${SWAP_LABEL(md, vn)}</h3><div class="chart small"><canvas id="c-swt-${md}-${vn.replace(":", "-")}"></canvas></div></div>`).join("")}</div></div>`).join("");
-    models.forEach((md) => SWAPS.forEach((vn) => {
-      const sr = series[md + vn];
-      draw(`c-swt-${md}-${vn.replace(":", "-")}`, { type: "line", data: { labels: sr.ssp126.year, datasets: SSPS.map((s) => lineSet(SSP_LABEL[s], sr[s].v, css(SSP_VAR[s]))) },
-        options: shareY(yTick(baseOptions("", (o) => { o.plugins.legend.display = false; o.scales.x.ticks.maxTicksLimit = 4; return o; })), range) });
+    const series = {};
+    models.forEach((md) => COMBOS.forEach((cd) => {
+      const b = v.counts[md][cd][m][loc]; series[md + cd] = {};
+      SSPS.forEach((s) => { series[md + cd][s] = { year: b[s].year, v: metricSeries(b[s].year, b[s].count, pb) }; });
     }));
+    const range = niceAxis(Object.values(series).flatMap((sr) => SSPS.flatMap((s) => sr[s].v)));
+    document.getElementById("swap-traj-key").innerHTML = SSPS.map((s) => `<span>${svgLine(css(SSP_VAR[s]))}${SSP_LABEL[s]}</span>`).join("") +
+      `<span>${svgLine(css("--fg"))}this run's model</span><span>${svgLine(css("--fg"), [5, 4])}${PREV} model</span>` +
+      `<span>Both models get the same inputs in each panel; all eight panels share one y axis.</span>`;
+    tw.innerHTML = `<div class="grid4">${COMBOS.map((cd) => `<div class="panel"><h3>${comboTitle(cd)}</h3><div class="chart small"><canvas id="c-swt-${cd}"></canvas></div></div>`).join("")}</div>`;
+    COMBOS.forEach((cd) => {
+      const ds = [];
+      SSPS.forEach((s) => {
+        ds.push(lineSet(`${SSP_LABEL[s]}, this run's model`, series["current" + cd][s].v, css(SSP_VAR[s])));
+        ds.push(lineSet(`${SSP_LABEL[s]}, ${PREV} model`, series["first_submission" + cd][s].v, css(SSP_VAR[s]), [5, 4]));
+      });
+      draw(`c-swt-${cd}`, { type: "line", data: { labels: series["current" + cd].ssp126.year, datasets: ds },
+        options: shareY(yTick(baseOptions("", (o) => { o.plugins.legend.display = false; o.scales.x.ticks.maxTicksLimit = 4; return o; })), range) });
+    });
   }
   const HOLD_STYLE = {
     "hold:none": ["--fg", [], 3], "hold:gdp": ["--gdp", [], 2], "hold:dah": ["--dah", [], 2], "hold:suitability": ["--suit", [], 2],
@@ -550,7 +572,7 @@ tr.sep td { border-top: 2px solid var(--rule); }
     const txt = document.getElementById("swaps-text");
     if (!v) { tbl.innerHTML = ""; note.textContent = ""; txt.textContent = `Computed for model 7426 only: the ${PREV} inputs carry no wind speed, which model 7427 needs.`; return; }
     const loc = state.loc, m = state.measure, y = state.vyear; const pb = popOf(v.population, loc);
-    const val = (model, variant, s) => { const b = v.counts[model] && v.counts[model][variant] && v.counts[model][variant][m][loc] && v.counts[model][variant][m][loc][s]; if (!b) return null; const c = at(b, "count", y); return c === null ? null : (isRate() ? c / at(pb, "population", y) : c); };
+    const val = (model, variant, s) => { const code = REL[model][variant]; const b = v.counts[model] && v.counts[model][code] && v.counts[model][code][m][loc] && v.counts[model][code][m][loc][s]; if (!b) return null; const c = at(b, "count", y); return c === null ? null : (isRate() ? c / at(pb, "population", y) : c); };
     let html = `<thead><tr><th>${locName(loc)}, ${y}${isRate() ? ` (${M().rateUnit})` : ""}</th>${SSPS.map((s) => `<th>${SSP_LABEL[s]}</th>`).join("")}<th>Highest</th><th>RCP4.5 \u2212 RCP2.6</th><th>RCP4.5 \u2212 RCP8.5</th></tr></thead><tbody>`;
     ["current", "first_submission"].forEach((model, mi) => {
       ["own", "swap:gdp", "swap:dah", "swap:suitability", "swap:all"].forEach((variant, i) => {
@@ -563,7 +585,7 @@ tr.sep td { border-top: 2px solid var(--rule); }
       });
     });
     tbl.innerHTML = html + "</tbody>";
-    txt.textContent = `Each model on its own inputs, then with one covariate at a time (and all three) taken from the other run's inputs. Only covariates in both models are swapped: GDP per capita, DAH per capita and suitability. The ${PREV} model also has flood days per capita, which stays at its own input. Each model keeps its own anchor: this run's model its 2023 observation, the ${PREV} model its 2022 observation; a swapped covariate enters through its change since that year.`;
+    txt.textContent = `The gap plots and the table show each model on its own inputs and with one covariate at a time (and all three) taken from the other run's inputs; the trajectory panels run both models on all eight mixes of the two input sets. Only covariates in both models are swapped: GDP per capita, DAH per capita and suitability. The ${PREV} model also has flood days per capita, which stays at its own input. Each model keeps its own anchor: this run's model its 2023 observation, the ${PREV} model its 2022 observation; a swapped covariate enters through its change since that year.`;
     const c = v.checks;
     note.textContent = `Summed over the ${c.n_admin2_used.toLocaleString()} admin-2 units present in both hierarchies with complete inputs in both sets and the ${PREV}'s rake year 2022 (of ${c.n_admin2_forecast.toLocaleString()} forecast units). Both models use this run's population and this run's Baseline vaccine factor, so the two blocks share denominators. ` +
       `This run's model on its own inputs reproduces its saved forecast on these units to ${Number(c.current_own_vs_forecast).toExponential(0)}; the ${PREV} model on its own inputs reproduces its saved log rates (${c.check_draws} draws) to ${Number(c.first_submission_own_vs_saved_log_rate).toExponential(0)}.`;

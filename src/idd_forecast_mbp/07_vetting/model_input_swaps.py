@@ -1,8 +1,10 @@
-"""Each model on its own inputs, then with one shared covariate at a time (and all three) from the other run's inputs.
+"""Both models on every mix of input sets for the covariates they share (this run's or the 1st submission's).
 
 Models: this run's selected model (models node ``spec7426_best``) and the 1st submission's (models node label
 ``first_submission`` = 2025_07_08). Covariates in both: GDP per capita, DAH per capita, suitability. The 1st
 submission's model also has flood days per capita (not in this run's model), which stays at its own input throughout.
+A mix is coded per covariate in the order GDP, DAH, suitability: ``T`` this run's input, ``F`` the 1st submission's
+(``TTT`` is this run's inputs, ``FFF`` the 1st submission's).
 
 Each model keeps its own anchor: this run's model its 2023 observation; the 1st submission's model the 2022
 observation in its input files. A swapped covariate enters through its change since that model's rake year. Units:
@@ -17,6 +19,7 @@ own inputs vs its saved per-draw predictions (log rates) for ``--check-draws`` d
 from __future__ import annotations
 
 import json
+from itertools import product
 from pathlib import Path
 
 import click
@@ -55,30 +58,37 @@ OLD_PREDICTIONS = (
     mbpc.MODEL_ROOT / "04-forecasting_data/malaria/lsae_1209/first_submission"
     "/malaria_forecast_ssp_scenario_{ssp}_dah_scenario_Baseline_draw_{draw:03d}_with_predictions.nc"
 )
+OWN = {"current": "TTT", "first_submission": "FFF"}  # each model's own inputs
 OLD_PRED_VARS = {
     "inc": "log_aa_malaria_inc_rate_pred",
     "mort": "log_aa_malaria_mort_rate_pred",
 }
 
 
-def swap_variants() -> list[tuple[str, tuple[str, ...]]]:
-    """``own``, one ``swap:<covariate>`` per shared covariate, and ``swap:all``, with the input keys each replaces."""
-    return [
-        ("own", ()),
-        *((f"swap:{c}", (k,)) for c, k in SHARED.items()),
-        ("swap:all", tuple(SHARED.values())),
-    ]
+def input_combinations() -> list[str]:
+    """Every choice of input set per shared covariate, in ``SHARED`` order (GDP, DAH, suitability): ``T`` this run's,
+    ``F`` the 1st submission's. ``TTT`` is all this run's inputs, ``FFF`` all the 1st submission's."""
+    return ["".join(c) for c in product("TF", repeat=len(SHARED))]
 
 
-def swap_inputs(
-    own: dict[str, dict[str, FloatArray]],
-    other: dict[str, dict[str, FloatArray]],
-    keys: tuple[str, ...],
+def mix_inputs(
+    this: dict[str, dict[str, FloatArray]],
+    first: dict[str, dict[str, FloatArray]],
+    code: str,
+    base: dict[str, dict[str, FloatArray]],
 ) -> dict[str, dict[str, FloatArray]]:
-    """``own`` inputs with the arrays under ``keys`` taken from ``other``, per SSP; other keys stay ``own``'s."""
+    """Per SSP, each shared covariate from this run (``T``) or the 1st submission (``F``) as ``code`` says; any other
+    input in ``base`` (the 1st submission model's flood) stays ``base``'s."""
+    keys = list(SHARED.values())
     return {
-        s: {k: (other[s][k] if k in keys else v) for k, v in x.items()}
-        for s, x in own.items()
+        s: {
+            **base[s],
+            **{
+                k: (this[s][k] if c == "T" else first[s][k])
+                for k, c in zip(keys, code, strict=True)
+            },
+        }
+        for s in base
     }
 
 
@@ -125,7 +135,7 @@ def run_year(  # noqa: PLR0913 - every model's rebuilds for one year, plus the c
             for ssp in SSPS:
                 for m in MEASURES:
                     lr = rb.log_rate(parts, m, dict.fromkeys(INPUT_FACTORS, ssp))
-                    if name == "own":
+                    if name == OWN[model]:
                         own_rates.setdefault(model, {})[f"{ssp}:{m}"] = lr
                     c = np.exp(lr) * population[:, t][:, None]
                     c[masks[f"{ssp}:{m}"][:, t]] = np.nan
@@ -204,28 +214,18 @@ def main(  # noqa: PLR0913, PLR0915, PLR0917 - click passes one argument per opt
         ry=ory,
     )
     rebuilds = {
-        "current": {
-            name: Rebuild(
-                grids=cur.grids,
-                slopes=cur.slopes,
-                inputs=swap_inputs(cur.inputs, old_inputs, keys),
-                l_obs=cur.l_obs,
-                obs_log=cur.obs_log,
-                ry=cur.ry,
+        model: {
+            code: Rebuild(
+                grids=rb.grids,
+                slopes=rb.slopes,
+                inputs=mix_inputs(cur.inputs, old_inputs, code, rb.inputs),
+                l_obs=rb.l_obs,
+                obs_log=rb.obs_log,
+                ry=rb.ry,
             )
-            for name, keys in swap_variants()
-        },
-        "first_submission": {
-            name: Rebuild(
-                grids=old.grids,
-                slopes=old.slopes,
-                inputs=swap_inputs(old.inputs, cur.inputs, keys),
-                l_obs=old.l_obs,
-                obs_log=old.obs_log,
-                ry=old.ry,
-            )
-            for name, keys in swap_variants()
-        },
+            for code in input_combinations()
+        }
+        for model, rb in (("current", cur), ("first_submission", old))
     }
     # one unit set for both models: this run's outcome masks plus any 1st-submission anchor that is not finite
     masks = {
